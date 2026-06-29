@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export * from './auth.js';
+export * from './tenancy.js';
 
 export const problemEnvelopeSchema = z.object({
   type: z.string().url().or(z.string().startsWith('https://')),

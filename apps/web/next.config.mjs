@@ -1,13 +1,29 @@
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { config as loadDotenv } from 'dotenv';
+import { parse as parseDotenv } from 'dotenv';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const monorepoRoot = path.resolve(__dirname, '../..');
 
+function loadSharedEnv(filePath) {
+  try {
+    const parsed = parseDotenv(readFileSync(filePath));
+    delete parsed.NODE_ENV;
+    for (const [key, value] of Object.entries(parsed)) {
+      if (process.env[key] === undefined) {
+        process.env[key] = value;
+      }
+    }
+  } catch {
+    // Optional env files are ignored when missing.
+  }
+}
+
 // Monorepo: shared secrets live in repo-root .env; Next.js only reads apps/web by default.
-loadDotenv({ path: path.join(monorepoRoot, '.env') });
-loadDotenv({ path: path.join(__dirname, '.env.local') });
+// NODE_ENV is omitted so Next.js controls it (development vs production build).
+loadSharedEnv(path.join(monorepoRoot, '.env'));
+loadSharedEnv(path.join(__dirname, '.env.local'));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

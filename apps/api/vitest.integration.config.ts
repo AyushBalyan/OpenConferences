@@ -4,14 +4,14 @@ import path from 'node:path';
 import { config as loadEnv } from 'dotenv';
 
 loadEnv({ path: path.resolve(__dirname, '../../.env') });
-process.env.NODE_ENV ??= 'test';
+process.env.NODE_ENV = 'test';
 
 export default defineConfig({
   plugins: [swc.vite()],
   test: {
     globals: true,
     environment: 'node',
-    include: ['test/integration/**/*.test.ts'],
+    include: ['test/integration/**/*.test.ts', 'src/**/*.test.ts'],
     testTimeout: 30000,
     hookTimeout: 30000,
     pool: 'forks',

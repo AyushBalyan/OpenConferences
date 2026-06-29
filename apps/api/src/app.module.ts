@@ -5,6 +5,7 @@ import { HealthModule } from './health/health.module';
 import { DebugModule } from './debug/debug.module';
 import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './auth/auth.module';
+import { TenancyModule } from './tenancy/tenancy.module';
 import { AuditModule } from './audit/audit.module';
 import { MailerModule } from './mailer/mailer.module';
 import { TurnstileModule } from './turnstile/turnstile.module';
@@ -39,6 +40,7 @@ const config = getConfig();
     MailerModule,
     TurnstileModule,
     AuthModule,
+    TenancyModule,
     HealthModule,
     ...(config.isDev ? [DebugModule] : []),
   ],

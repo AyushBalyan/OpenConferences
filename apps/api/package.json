@@ -26,7 +26,7 @@
     "helmet": "^8.0.0",
     "ioredis": "^5.4.2",
     "nestjs-pino": "^4.2.0",
-    "pg-boss": "^10.1.5",
+    "pg-boss": "^10.4.2",
     "pino": "^9.6.0",
     "pino-http": "^10.3.0",
     "reflect-metadata": "^0.2.2",

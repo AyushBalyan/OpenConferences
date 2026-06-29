@@ -21,6 +21,38 @@ enum MembershipScope {
   CONFERENCE
 }
 
+enum ConferenceStatus {
+  DRAFT
+  CFP_OPEN
+  REVIEWING
+  DECISIONS
+  FINALIZATION
+  COMPLETED
+  ARCHIVED
+}
+
+enum BlindingMode {
+  SINGLE
+  DOUBLE
+  OPEN
+}
+
+model Organization {
+  id        String    @id @db.Uuid
+  slug      String
+  name      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  users        User[]
+  conferences  Conference[]
+  memberships  Membership[]
+  tracks       Track[]
+
+  @@map("organizations")
+}
+
 model User {
   id               String    @id @db.Uuid
   name             String
@@ -34,10 +66,11 @@ model User {
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
 
-  sessions    Session[]
-  accounts    Account[]
-  twoFactor   TwoFactor?
-  memberships Membership[]
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  sessions     Session[]
+  accounts     Account[]
+  twoFactor    TwoFactor?
+  memberships  Membership[]
 
   @@map("users")
 }
@@ -91,13 +124,65 @@ model Verification {
 }
 
 model TwoFactor {
-  id          String @id @db.Uuid
-  secret      String
-  backupCodes String
-  userId      String @unique @db.Uuid
-  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                      String    @id @db.Uuid
+  secret                  String
+  backupCodes             String
+  userId                  String    @unique @db.Uuid
+  verified                Boolean   @default(false)
+  failedVerificationCount Int       @default(0)
+  lockedUntil             DateTime?
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("two_factors")
+}
+
+model Conference {
+  id             String           @id @db.Uuid
+  organizationId String           @db.Uuid
+  slug           String
+  name           String
+  status         ConferenceStatus @default(DRAFT)
+  blindingMode   BlindingMode     @default(DOUBLE)
+  cfpOpensAt     DateTime?
+  cfpClosesAt    DateTime?
+  biddingOpensAt DateTime?
+  biddingClosesAt DateTime?
+  reviewDueAt    DateTime?
+  rebuttalDueAt  DateTime?
+  decisionDueAt  DateTime?
+  cameraReadyDueAt DateTime?
+  registrationDueAt DateTime?
+  reviewConfig   Json             @default("{}")
+  feeSchedule    Json             @default("{}")
+  version        Int              @default(0)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  deletedAt      DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  tracks       Track[]
+  memberships  Membership[]
+
+  @@index([organizationId, status])
+  @@map("conferences")
+}
+
+model Track {
+  id             String   @id @db.Uuid
+  conferenceId   String   @db.Uuid
+  organizationId String   @db.Uuid
+  slug           String
+  name           String
+  description    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+
+  conference   Conference   @relation(fields: [conferenceId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([conferenceId])
+  @@map("tracks")
 }
 
 model Membership {
@@ -108,12 +193,15 @@ model Membership {
   scope          MembershipScope
   createdAt      DateTime        @default(now())
 
-  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  roles RoleGrant[]
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conference   Conference?   @relation(fields: [conferenceId], references: [id], onDelete: Cascade)
+  roles        RoleGrant[]
 
   @@unique([userId, scope, organizationId, conferenceId])
   @@index([userId])
   @@index([conferenceId])
+  @@index([organizationId])
   @@map("memberships")
 }
 

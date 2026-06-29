@@ -14,7 +14,7 @@
   "dependencies": {
     "@openconferences/config": "workspace:*",
     "@openconferences/schemas": "workspace:*",
-    "pg-boss": "^10.1.5",
+    "pg-boss": "^10.4.2",
     "pino": "^9.6.0"
   },
   "devDependencies": {

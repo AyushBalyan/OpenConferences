@@ -15,6 +15,7 @@ import {
   mfaEnrollResponseSchema,
   problemEnvelopeSchema,
 } from '@openconferences/schemas';
+import { organizationsContract, conferencesContract } from './tenancy.js';
 
 const c = initContract();
 
@@ -151,6 +152,11 @@ export type AuthContract = typeof authContract;
 export const apiContract = c.router({
   health: healthContract,
   auth: authContract,
+  organizations: organizationsContract,
+  conferences: conferencesContract,
 });
 
 export type ApiContract = typeof apiContract;
+
+export { organizationsContract, conferencesContract } from './tenancy.js';
+export type { OrganizationsContract, ConferencesContract } from './tenancy.js';

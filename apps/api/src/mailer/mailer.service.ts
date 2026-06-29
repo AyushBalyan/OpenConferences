@@ -25,7 +25,7 @@ export class MailerService implements OnModuleInit, OnModuleDestroy {
       application_name: 'openconferences-api-mailer',
     });
 
-    this.boss.on('error', (err) => {
+    this.boss.on('error', (err: Error) => {
       this.logger.error({ err }, 'pg-boss mailer error');
     });
 

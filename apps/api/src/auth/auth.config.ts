@@ -128,7 +128,6 @@ export function createAuthInstance(deps: AuthDependencies): AuthInstance {
     plugins: [
       twoFactor({
         issuer: 'OpenConferences',
-        twoFactorTable: 'two_factors',
       }),
     ],
     databaseHooks: {

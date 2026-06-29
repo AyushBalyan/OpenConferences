@@ -8,6 +8,7 @@ import { mfaEnrollSchema, type MfaEnrollInput } from '@openconferences/schemas';
 import { authClient } from '@/lib/auth-client';
 import { ProtectedRoute } from '@/components/auth/protected-route';
 import { AuthShell } from '@/components/auth/auth-shell';
+import { TotpQrCode } from '@/components/auth/totp-qr-code';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -76,9 +77,10 @@ function MfaEnrollForm() {
       ) : (
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Scan this URI in your authenticator app, then verify a code on the challenge page.
+            Scan this QR code with your authenticator app (Google Authenticator, Authy, 1Password,
+            etc.), then verify a code on the next page.
           </p>
-          <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">{totpUri}</pre>
+          <TotpQrCode uri={totpUri} />
           <div>
             <p className="mb-2 text-sm font-medium">Backup codes</p>
             <ul className="grid grid-cols-2 gap-2 text-sm font-mono">

@@ -1,0 +1,510 @@
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import type { Conference, ConferenceStatus, RoleKind } from '@openconferences/db';
+import { generateId, withTenantContext } from '@openconferences/db';
+import type {
+  CreateConferenceInput,
+  UpdateConferenceSettingsInput,
+} from '@openconferences/schemas';
+import { assertScope } from '../common/scope/assert-scope';
+import { AuditService } from '../audit/audit.service';
+import { LifecycleService } from './lifecycle.service';
+import { mapConference, parseOptionalDate } from './tenancy.mapper';
+import { maxRoleRank } from './role-hierarchy';
+
+@Injectable()
+export class ConferenceService {
+  constructor(
+    private readonly audit: AuditService,
+    private readonly lifecycle: LifecycleService,
+  ) {}
+
+  async listForUser(
+    userId: string,
+    userRoles: RoleKind[],
+    options: { limit?: number; cursor?: string; organizationId?: string },
+  ) {
+    const limit = options.limit ?? 20;
+
+    const conferences = await withTenantContext(
+      {
+        userId,
+        organizationId: options.organizationId,
+        bypass: userRoles.includes('PLATFORM_ADMIN'),
+      },
+      async (tx) => {
+        const memberships = await tx.membership.findMany({
+          where: {
+            userId,
+            scope: 'CONFERENCE',
+            ...(options.organizationId ? { organizationId: options.organizationId } : {}),
+          },
+          select: { conferenceId: true },
+        });
+
+        const conferenceIds = memberships
+          .map((m) => m.conferenceId)
+          .filter((id): id is string => id !== null);
+
+        if (conferenceIds.length === 0 && !userRoles.includes('PLATFORM_ADMIN')) {
+          return [];
+        }
+
+        return tx.conference.findMany({
+          where: {
+            deletedAt: null,
+            ...(userRoles.includes('PLATFORM_ADMIN') && conferenceIds.length === 0
+              ? options.organizationId
+                ? { organizationId: options.organizationId }
+                : {}
+              : { id: { in: conferenceIds } }),
+          },
+          orderBy: { createdAt: 'desc' },
+          take: limit + 1,
+          ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
+        });
+      },
+    );
+
+    const hasMore = conferences.length > limit;
+    const data = hasMore ? conferences.slice(0, limit) : conferences;
+
+    return {
+      data: data.map(mapConference),
+      nextCursor: hasMore ? (data[data.length - 1]?.id ?? null) : null,
+    };
+  }
+
+  async getById(userId: string, conferenceId: string, userRoles: RoleKind[]) {
+    const conference = await this.loadConference(userId, conferenceId, userRoles);
+    return mapConference(conference);
+  }
+
+  async loadConference(
+    userId: string,
+    conferenceId: string,
+    userRoles: RoleKind[],
+  ): Promise<Conference> {
+    const conference = await withTenantContext(
+      {
+        userId,
+        conferenceId,
+        bypass: userRoles.includes('PLATFORM_ADMIN'),
+      },
+      async (tx) =>
+        tx.conference.findFirst({
+          where: { id: conferenceId, deletedAt: null },
+        }),
+    );
+
+    if (!conference) {
+      throw new NotFoundException('Conference not found');
+    }
+
+    return conference;
+  }
+
+  async create(actorUserId: string, input: CreateConferenceInput, userRoles: RoleKind[]) {
+    if (maxRoleRank(userRoles) < maxRoleRank(['ORG_ADMIN'])) {
+      throw new ForbiddenException('Insufficient permissions to create conferences');
+    }
+
+    const orgExists = await withTenantContext(
+      { userId: actorUserId, organizationId: input.organizationId, bypass: true },
+      async (tx) =>
+        tx.organization.findFirst({
+          where: { id: input.organizationId, deletedAt: null },
+        }),
+    );
+
+    if (!orgExists) {
+      throw new NotFoundException('Organization not found');
+    }
+
+    try {
+      const conference = await withTenantContext(
+        { userId: actorUserId, organizationId: input.organizationId, bypass: true },
+        async (tx) =>
+          tx.conference.create({
+            data: {
+              id: generateId(),
+              organizationId: input.organizationId,
+              slug: input.slug,
+              name: input.name,
+              blindingMode: input.blindingMode ?? 'DOUBLE',
+            },
+          }),
+      );
+
+      await withTenantContext(
+        { userId: actorUserId, organizationId: input.organizationId, bypass: true },
+        async (tx) =>
+          tx.membership.create({
+            data: {
+              id: generateId(),
+              userId: actorUserId,
+              organizationId: input.organizationId,
+              conferenceId: conference.id,
+              scope: 'CONFERENCE',
+              roles: {
+                create: {
+                  id: generateId(),
+                  role: 'ORGANIZER',
+                },
+              },
+            },
+          }),
+      );
+
+      await this.audit.log({
+        actorUserId,
+        organizationId: input.organizationId,
+        conferenceId: conference.id,
+        action: 'conference.created',
+        entity: 'conference',
+        entityId: conference.id,
+        diff: { slug: conference.slug, name: conference.name },
+      });
+
+      return mapConference(conference);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('Unique constraint')) {
+        throw new ConflictException('Conference slug already exists in this organization');
+      }
+      throw error;
+    }
+  }
+
+  async updateMetadata(
+    actorUserId: string,
+    conferenceId: string,
+    data: { name?: string; slug?: string },
+    userRoles: RoleKind[],
+  ) {
+    if (maxRoleRank(userRoles) < maxRoleRank(['ORGANIZER'])) {
+      throw new ForbiddenException('Insufficient permissions');
+    }
+
+    const conference = await this.loadConference(actorUserId, conferenceId, userRoles);
+
+    try {
+      const updated = await withTenantContext(
+        {
+          userId: actorUserId,
+          organizationId: conference.organizationId,
+          conferenceId,
+        },
+        async (tx) =>
+          tx.conference.update({
+            where: { id: conferenceId },
+            data: {
+              ...(data.name !== undefined ? { name: data.name } : {}),
+              ...(data.slug !== undefined ? { slug: data.slug } : {}),
+              version: { increment: 1 },
+            },
+          }),
+      );
+
+      await this.audit.log({
+        actorUserId,
+        organizationId: conference.organizationId,
+        conferenceId,
+        action: 'conference.updated',
+        entity: 'conference',
+        entityId: conferenceId,
+        diff: data,
+      });
+
+      return mapConference(updated);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('Unique constraint')) {
+        throw new ConflictException('Conference slug already exists');
+      }
+      throw error;
+    }
+  }
+
+  async updateSettings(
+    actorUserId: string,
+    conferenceId: string,
+    input: UpdateConferenceSettingsInput,
+    userRoles: RoleKind[],
+  ) {
+    if (maxRoleRank(userRoles) < maxRoleRank(['ORGANIZER'])) {
+      throw new ForbiddenException('Insufficient permissions');
+    }
+
+    const conference = await this.loadConference(actorUserId, conferenceId, userRoles);
+
+    if (
+      input.cfpOpensAt &&
+      input.cfpClosesAt &&
+      new Date(input.cfpOpensAt) >= new Date(input.cfpClosesAt)
+    ) {
+      throw new ConflictException('CFP opens must be before CFP closes');
+    }
+
+    const updated = await withTenantContext(
+      {
+        userId: actorUserId,
+        organizationId: conference.organizationId,
+        conferenceId,
+      },
+      async (tx) =>
+        tx.conference.update({
+          where: { id: conferenceId },
+          data: {
+            ...(input.blindingMode !== undefined ? { blindingMode: input.blindingMode } : {}),
+            ...(input.reviewConfig !== undefined ? { reviewConfig: input.reviewConfig } : {}),
+            ...(input.feeSchedule !== undefined ? { feeSchedule: input.feeSchedule } : {}),
+            ...(input.cfpOpensAt !== undefined
+              ? { cfpOpensAt: parseOptionalDate(input.cfpOpensAt) }
+              : {}),
+            ...(input.cfpClosesAt !== undefined
+              ? { cfpClosesAt: parseOptionalDate(input.cfpClosesAt) }
+              : {}),
+            ...(input.biddingOpensAt !== undefined
+              ? { biddingOpensAt: parseOptionalDate(input.biddingOpensAt) }
+              : {}),
+            ...(input.biddingClosesAt !== undefined
+              ? { biddingClosesAt: parseOptionalDate(input.biddingClosesAt) }
+              : {}),
+            ...(input.reviewDueAt !== undefined
+              ? { reviewDueAt: parseOptionalDate(input.reviewDueAt) }
+              : {}),
+            ...(input.rebuttalDueAt !== undefined
+              ? { rebuttalDueAt: parseOptionalDate(input.rebuttalDueAt) }
+              : {}),
+            ...(input.decisionDueAt !== undefined
+              ? { decisionDueAt: parseOptionalDate(input.decisionDueAt) }
+              : {}),
+            ...(input.cameraReadyDueAt !== undefined
+              ? { cameraReadyDueAt: parseOptionalDate(input.cameraReadyDueAt) }
+              : {}),
+            ...(input.registrationDueAt !== undefined
+              ? { registrationDueAt: parseOptionalDate(input.registrationDueAt) }
+              : {}),
+            version: { increment: 1 },
+          },
+        }),
+    );
+
+    const derivedStatus = this.lifecycle.deriveStatus(updated);
+    if (derivedStatus !== updated.status) {
+      const transitioned = await this.lifecycle.transition(
+        actorUserId,
+        conferenceId,
+        derivedStatus,
+        userRoles,
+        updated.version + 1,
+      );
+      return mapConference(transitioned);
+    }
+
+    await this.audit.log({
+      actorUserId,
+      organizationId: conference.organizationId,
+      conferenceId,
+      action: 'conference.settings_updated',
+      entity: 'conference',
+      entityId: conferenceId,
+      diff: input,
+    });
+
+    return mapConference(updated);
+  }
+
+  async transitionStatus(
+    actorUserId: string,
+    conferenceId: string,
+    status: ConferenceStatus,
+    userRoles: RoleKind[],
+  ) {
+    const conference = await this.lifecycle.transition(
+      actorUserId,
+      conferenceId,
+      status,
+      userRoles,
+    );
+    return mapConference(conference);
+  }
+
+  async listTracks(userId: string, conferenceId: string, userRoles: RoleKind[]) {
+    const conference = await this.loadConference(userId, conferenceId, userRoles);
+
+    const tracks = await withTenantContext(
+      {
+        userId,
+        organizationId: conference.organizationId,
+        conferenceId,
+      },
+      async (tx) =>
+        tx.track.findMany({
+          where: { conferenceId, deletedAt: null },
+          orderBy: { name: 'asc' },
+        }),
+    );
+
+    return tracks;
+  }
+
+  async createTrack(
+    actorUserId: string,
+    conferenceId: string,
+    input: { slug: string; name: string; description?: string },
+    userRoles: RoleKind[],
+  ) {
+    if (maxRoleRank(userRoles) < maxRoleRank(['ORGANIZER'])) {
+      throw new ForbiddenException('Insufficient permissions');
+    }
+
+    const conference = await this.loadConference(actorUserId, conferenceId, userRoles);
+
+    try {
+      const track = await withTenantContext(
+        {
+          userId: actorUserId,
+          organizationId: conference.organizationId,
+          conferenceId,
+        },
+        async (tx) =>
+          tx.track.create({
+            data: {
+              id: generateId(),
+              conferenceId,
+              organizationId: conference.organizationId,
+              slug: input.slug,
+              name: input.name,
+              description: input.description ?? null,
+            },
+          }),
+      );
+
+      assertScope(track, { conferenceId });
+
+      await this.audit.log({
+        actorUserId,
+        organizationId: conference.organizationId,
+        conferenceId,
+        action: 'track.created',
+        entity: 'track',
+        entityId: track.id,
+        diff: { slug: track.slug, name: track.name },
+      });
+
+      return track;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('Unique constraint')) {
+        throw new ConflictException('Track slug already exists');
+      }
+      throw error;
+    }
+  }
+
+  async updateTrack(
+    actorUserId: string,
+    conferenceId: string,
+    trackId: string,
+    input: { name?: string; description?: string | null },
+    userRoles: RoleKind[],
+  ) {
+    if (maxRoleRank(userRoles) < maxRoleRank(['ORGANIZER'])) {
+      throw new ForbiddenException('Insufficient permissions');
+    }
+
+    const conference = await this.loadConference(actorUserId, conferenceId, userRoles);
+
+    const track = await withTenantContext(
+      {
+        userId: actorUserId,
+        organizationId: conference.organizationId,
+        conferenceId,
+      },
+      async (tx) =>
+        tx.track.findFirst({
+          where: { id: trackId, conferenceId, deletedAt: null },
+        }),
+    );
+
+    if (!track) {
+      throw new NotFoundException('Track not found');
+    }
+
+    assertScope(track, { conferenceId });
+
+    const updated = await withTenantContext(
+      {
+        userId: actorUserId,
+        organizationId: conference.organizationId,
+        conferenceId,
+      },
+      async (tx) =>
+        tx.track.update({
+          where: { id: trackId },
+          data: {
+            ...(input.name !== undefined ? { name: input.name } : {}),
+            ...(input.description !== undefined ? { description: input.description } : {}),
+          },
+        }),
+    );
+
+    return updated;
+  }
+
+  async deleteTrack(
+    actorUserId: string,
+    conferenceId: string,
+    trackId: string,
+    userRoles: RoleKind[],
+  ) {
+    if (maxRoleRank(userRoles) < maxRoleRank(['ORGANIZER'])) {
+      throw new ForbiddenException('Insufficient permissions');
+    }
+
+    const conference = await this.loadConference(actorUserId, conferenceId, userRoles);
+
+    const track = await withTenantContext(
+      {
+        userId: actorUserId,
+        organizationId: conference.organizationId,
+        conferenceId,
+      },
+      async (tx) =>
+        tx.track.findFirst({
+          where: { id: trackId, conferenceId, deletedAt: null },
+        }),
+    );
+
+    if (!track) {
+      throw new NotFoundException('Track not found');
+    }
+
+    assertScope(track, { conferenceId });
+
+    await withTenantContext(
+      {
+        userId: actorUserId,
+        organizationId: conference.organizationId,
+        conferenceId,
+      },
+      async (tx) =>
+        tx.track.update({
+          where: { id: trackId },
+          data: { deletedAt: new Date() },
+        }),
+    );
+
+    await this.audit.log({
+      actorUserId,
+      organizationId: conference.organizationId,
+      conferenceId,
+      action: 'track.deleted',
+      entity: 'track',
+      entityId: trackId,
+    });
+  }
+}
