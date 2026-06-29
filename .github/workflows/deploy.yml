@@ -1,0 +1,46 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+
+jobs:
+  build-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages and apps
+        run: pnpm build
+
+      - name: Build Docker images
+        run: |
+          docker build -f infra/docker/api.Dockerfile -t openconferences-api:${{ github.sha }} .
+          docker build -f infra/docker/web.Dockerfile -t openconferences-web:${{ github.sha }} .
+          docker build -f infra/docker/worker.Dockerfile -t openconferences-worker:${{ github.sha }} .
+
+      - name: Deploy note
+        run: |
+          echo "Images built. Deploy to Coolify manually per infra/RUNBOOK.md"
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Commit: ${{ github.sha }}"

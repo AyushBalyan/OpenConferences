@@ -1,0 +1,147 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoleKind {
+  PLATFORM_ADMIN
+  ORG_ADMIN
+  ORGANIZER
+  CHAIR
+  REVIEWER
+  AUTHOR
+}
+
+enum MembershipScope {
+  ORGANIZATION
+  CONFERENCE
+}
+
+model User {
+  id               String    @id @db.Uuid
+  name             String
+  email            String    @unique(map: "users_email_active_key")
+  emailVerified    Boolean   @default(false)
+  image            String?
+  twoFactorEnabled Boolean?
+  organizationId   String?   @db.Uuid
+  version          Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  sessions    Session[]
+  accounts    Account[]
+  twoFactor   TwoFactor?
+  memberships Membership[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @db.Uuid
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model Account {
+  id                    String    @id @db.Uuid
+  accountId             String
+  providerId            String
+  userId                String    @db.Uuid
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Verification {
+  id         String    @id @db.Uuid
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime? @default(now())
+  updatedAt  DateTime? @updatedAt
+
+  @@index([identifier])
+  @@map("verifications")
+}
+
+model TwoFactor {
+  id          String @id @db.Uuid
+  secret      String
+  backupCodes String
+  userId      String @unique @db.Uuid
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("two_factors")
+}
+
+model Membership {
+  id             String          @id @db.Uuid
+  userId         String          @db.Uuid
+  organizationId String          @db.Uuid
+  conferenceId   String?         @db.Uuid
+  scope          MembershipScope
+  createdAt      DateTime        @default(now())
+
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roles RoleGrant[]
+
+  @@unique([userId, scope, organizationId, conferenceId])
+  @@index([userId])
+  @@index([conferenceId])
+  @@map("memberships")
+}
+
+model RoleGrant {
+  id           String   @id @db.Uuid
+  membershipId String   @db.Uuid
+  role         RoleKind
+  createdAt    DateTime @default(now())
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, role])
+  @@map("role_grants")
+}
+
+model AuditLog {
+  id             String   @id @db.Uuid
+  actorUserId    String?  @db.Uuid
+  organizationId String?  @db.Uuid
+  conferenceId   String?  @db.Uuid
+  action         String
+  entity         String
+  entityId       String?
+  diff           Json?
+  createdAt      DateTime @default(now())
+
+  @@index([actorUserId])
+  @@index([organizationId, conferenceId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

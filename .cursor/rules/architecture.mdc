@@ -1,0 +1,37 @@
+---
+description: Architecture Rule
+alwaysApply: true
+---
+
+# Architecture Source of Truth
+
+Before implementing ANY feature, modifying ANY code, generating ANY file, or suggesting ANY architectural change, you MUST first read and understand:
+
+1. docs/SYSTEM_DESIGN.md
+2. docs/IMPLEMENTATION_ROADMAP.md
+
+These documents are the authoritative source of truth.
+
+Never make assumptions that contradict these documents.
+
+If implementation appears to conflict with the documents:
+
+- stop
+- explain the conflict
+- ask whether the architecture should change
+
+Never silently modify the architecture through code.
+
+If information is missing, ask for clarification instead of inventing new structures.
+
+Never introduce:
+
+- new entities
+- new relationships
+- new database tables
+- new modules
+- new services
+
+unless they already exist in the architecture documents.
+
+If a new structure is required, explain why and request approval first.

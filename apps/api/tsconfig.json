@@ -1,0 +1,19 @@
+{
+  "extends": "@openconferences/config/tsconfig/base.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "outDir": "./dist",
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "strictPropertyInitialization": false,
+    "baseUrl": ".",
+    "paths": {
+      "@openconferences/config/env": ["../../packages/config/dist/env/index.d.ts"],
+      "@openconferences/contracts": ["../../packages/contracts/dist/index.d.ts"],
+      "@openconferences/db": ["../../packages/db/dist/index.d.ts"],
+      "@openconferences/schemas": ["../../packages/schemas/dist/index.d.ts"]
+    }
+  },
+  "include": ["src/**/*"]
+}

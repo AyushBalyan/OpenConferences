@@ -1,0 +1,42 @@
+{
+  "name": "@openconferences/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint \"src/**/*.ts\" --config eslint.config.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "migrate:dev": "dotenv -e ../../.env -- prisma migrate dev",
+    "migrate:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
+    "migrate:reset": "dotenv -e ../../.env -- prisma migrate reset --force",
+    "generate": "dotenv -e ../../.env -- prisma generate",
+    "seed": "dotenv -e ../../.env -- tsx prisma/seed.ts",
+    "postinstall": "dotenv -e ../../.env -- prisma generate"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.1.0",
+    "uuid": "^11.0.3"
+  },
+  "devDependencies": {
+    "@openconferences/config": "workspace:*",
+    "@types/node": "^22.10.2",
+    "dotenv-cli": "^8.0.0",
+    "eslint": "^9.17.0",
+    "prisma": "^6.1.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}

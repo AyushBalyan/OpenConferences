@@ -1,0 +1,47 @@
+---
+description: Implementation Workflow
+alwaysApply: true
+---
+
+Implementation must follow this order:
+
+1. Read docs/SYSTEM_DESIGN.md
+2. Read docs/IMPLEMENTATION_ROADMAP.md
+3. Read the current implementation plan
+4. Understand the requested feature
+5. Identify affected modules
+6. Verify no architectural conflicts
+7. Implement only the requested feature
+8. Review the implementation for:
+   - security
+   - RBAC
+   - validation
+   - performance
+   - consistency
+
+Every implementation must include:
+
+- validation
+- authorization
+- error handling
+- logging where appropriate
+- TypeScript types
+- Prisma best practices
+- NestJS best practices
+
+Before completion, perform a self-review for:
+
+- security
+- race conditions
+- performance
+- maintainability
+
+Before marking a task complete, verify:
+
+- Does it match the domain model?
+- Does it match the system design?
+- Does it violate any existing architecture?
+- Does it introduce technical debt?
+- Could this break future SaaS migration?
+
+If any answer is yes, stop and explain.

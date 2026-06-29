@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_ENV: test
+  DATABASE_URL: postgresql://openconferences:openconferences@localhost:5432/openconferences_test
+  REDIS_URL: redis://localhost:6379
+  S3_ENDPOINT: http://localhost:9000
+  S3_ACCESS_KEY: minioadmin
+  S3_SECRET_KEY: minioadmin
+  S3_BUCKET: openconferences
+  S3_REGION: us-east-1
+  S3_FORCE_PATH_STYLE: 'true'
+  API_PORT: '3001'
+  CORS_ORIGINS: http://localhost:3000
+  WEB_URL: http://localhost:3000
+  NEXT_PUBLIC_API_URL: http://localhost:3001/api/v1
+  BETTER_AUTH_SECRET: test-secret-at-least-32-characters-long-for-ci
+  BETTER_AUTH_URL: http://localhost:3001
+  MAIL_FROM: noreply@example.com
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: openconferences
+          POSTGRES_PASSWORD: openconferences
+          POSTGRES_DB: openconferences_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U openconferences -d openconferences_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Enable Postgres extensions
+        run: |
+          PGPASSWORD=openconferences psql -h localhost -U openconferences -d openconferences_test -c 'CREATE EXTENSION IF NOT EXISTS "pgcrypto";'
+          PGPASSWORD=openconferences psql -h localhost -U openconferences -d openconferences_test -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";'
+          PGPASSWORD=openconferences psql -h localhost -U openconferences -d openconferences_test -c 'CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";'
+          PGPASSWORD=openconferences psql -h localhost -U openconferences -d openconferences_test -c 'CREATE EXTENSION IF NOT EXISTS "citext";'
+
+      - name: Run migrations
+        run: pnpm db:migrate:deploy
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install chromium --with-deps
+
+      - name: E2E tests
+        run: pnpm test:e2e
+
+      - name: Build
+        run: pnpm build
+
+      - name: Dependency audit
+        run: pnpm audit --audit-level=high
+        continue-on-error: true
