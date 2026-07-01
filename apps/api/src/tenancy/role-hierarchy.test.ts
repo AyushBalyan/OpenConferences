@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { canGrantRole, maxRoleRank, ROLE_RANK } from '../../src/tenancy/role-hierarchy.ts';
+import {
+  canGrantRole,
+  canCoordinateReview,
+  maxRoleRank,
+  ROLE_RANK,
+} from '../../src/tenancy/role-hierarchy.ts';
 
 describe('role hierarchy', () => {
   it('organizer cannot grant organizer or above', () => {
@@ -21,5 +26,12 @@ describe('role hierarchy', () => {
   it('ranks are ordered', () => {
     expect(ROLE_RANK.PLATFORM_ADMIN).toBeGreaterThan(ROLE_RANK.ORG_ADMIN);
     expect(maxRoleRank(['AUTHOR', 'ORGANIZER'])).toBe(ROLE_RANK.ORGANIZER);
+  });
+
+  it('org admin and organizer may coordinate reviews', () => {
+    expect(canCoordinateReview(['CHAIR'])).toBe(true);
+    expect(canCoordinateReview(['ORGANIZER'])).toBe(true);
+    expect(canCoordinateReview(['ORG_ADMIN'])).toBe(true);
+    expect(canCoordinateReview(['REVIEWER'])).toBe(false);
   });
 });

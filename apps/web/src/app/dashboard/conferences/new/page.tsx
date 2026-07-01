@@ -1,8 +1,8 @@
 'use client';
 
-import { ProtectedRoute } from '@/components/auth/protected-route';
+import { PageHeader } from '@/components/dashboard/page-header';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createConference, fetchOrganizations } from '@/lib/api-client';
@@ -17,11 +17,7 @@ import type { z } from 'zod';
 type FormValues = z.infer<typeof createConferenceSchema>;
 
 export default function NewConferencePage() {
-  return (
-    <ProtectedRoute>
-      <NewConferenceContent />
-    </ProtectedRoute>
-  );
+  return <NewConferenceContent />;
 }
 
 function NewConferenceContent() {
@@ -54,15 +50,13 @@ function NewConferenceContent() {
   });
 
   return (
-    <div className="mx-auto max-w-xl px-4 py-10">
-      <Card>
-        <CardHeader>
-          <CardTitle>Create conference</CardTitle>
-          <CardDescription>
-            Set up a new conference edition under your organization.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+    <>
+      <PageHeader
+        title="Create conference"
+        description="Set up a new conference edition under your organization."
+      />
+      <Card className="max-w-xl">
+        <CardContent className="pt-6">
           <form className="space-y-4" onSubmit={onSubmit}>
             <div className="space-y-2">
               <Label htmlFor="organizationId">Organization</Label>
@@ -108,6 +102,6 @@ function NewConferenceContent() {
           </form>
         </CardContent>
       </Card>
-    </div>
+    </>
   );
 }

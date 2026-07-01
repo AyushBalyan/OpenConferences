@@ -9,12 +9,20 @@ import { generateId, withTenantContext } from '@openconferences/db';
 import type {
   CreateConferenceInput,
   UpdateConferenceSettingsInput,
+  ConferenceDto,
+  ConferenceListDto,
+  RoleKind as SchemaRoleKind,
 } from '@openconferences/schemas';
 import { assertScope } from '../common/scope/assert-scope';
 import { AuditService } from '../audit/audit.service';
 import { LifecycleService } from './lifecycle.service';
 import { mapConference, parseOptionalDate } from './tenancy.mapper';
 import { maxRoleRank } from './role-hierarchy';
+
+function toSchemaRoles(roles: RoleKind[]): SchemaRoleKind[] {
+  return roles as SchemaRoleKind[];
+}
+import { effectiveRolesForConference, mergeRolesByConference } from './membership-roles';
 
 @Injectable()
 export class ConferenceService {
@@ -27,10 +35,11 @@ export class ConferenceService {
     userId: string,
     userRoles: RoleKind[],
     options: { limit?: number; cursor?: string; organizationId?: string },
-  ) {
+  ): Promise<ConferenceListDto> {
     const limit = options.limit ?? 20;
+    const globalRoles = userRoles.filter((role) => role === 'PLATFORM_ADMIN');
 
-    const conferences = await withTenantContext(
+    const result = await withTenantContext(
       {
         userId,
         organizationId: options.organizationId,
@@ -54,7 +63,7 @@ export class ConferenceService {
           return [];
         }
 
-        return tx.conference.findMany({
+        const conferences = await tx.conference.findMany({
           where: {
             deletedAt: null,
             ...(userRoles.includes('PLATFORM_ADMIN') && conferenceIds.length === 0
@@ -67,21 +76,59 @@ export class ConferenceService {
           take: limit + 1,
           ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
         });
+
+        if (conferences.length === 0) {
+          return [] as Array<{ conference: Conference; myRoles: RoleKind[] }>;
+        }
+
+        const orgIds = [...new Set(conferences.map((conference) => conference.organizationId))];
+        const scopedConferenceIds = conferences.map((conference) => conference.id);
+
+        const roleMemberships = await tx.membership.findMany({
+          where: {
+            userId,
+            OR: [
+              { conferenceId: { in: scopedConferenceIds }, scope: 'CONFERENCE' },
+              { organizationId: { in: orgIds }, scope: 'ORGANIZATION' },
+            ],
+          },
+          include: { roles: true },
+        });
+
+        const { rolesByConferenceId, rolesByOrganizationId } =
+          mergeRolesByConference(roleMemberships);
+
+        return conferences.map((conference) => ({
+          conference,
+          myRoles: effectiveRolesForConference(
+            conference.id,
+            conference.organizationId,
+            rolesByConferenceId,
+            rolesByOrganizationId,
+            globalRoles,
+          ),
+        }));
       },
     );
 
-    const hasMore = conferences.length > limit;
-    const data = hasMore ? conferences.slice(0, limit) : conferences;
+    const hasMore = result.length > limit;
+    const page = hasMore ? result.slice(0, limit) : result;
 
     return {
-      data: data.map(mapConference),
-      nextCursor: hasMore ? (data[data.length - 1]?.id ?? null) : null,
+      data: page.map(({ conference, myRoles }) =>
+        mapConference(conference, toSchemaRoles(myRoles)),
+      ),
+      nextCursor: hasMore ? (page[page.length - 1]?.conference.id ?? null) : null,
     };
   }
 
-  async getById(userId: string, conferenceId: string, userRoles: RoleKind[]) {
+  async getById(
+    userId: string,
+    conferenceId: string,
+    userRoles: RoleKind[],
+  ): Promise<ConferenceDto> {
     const conference = await this.loadConference(userId, conferenceId, userRoles);
-    return mapConference(conference);
+    return mapConference(conference, toSchemaRoles(userRoles));
   }
 
   async loadConference(
@@ -170,7 +217,7 @@ export class ConferenceService {
         diff: { slug: conference.slug, name: conference.name },
       });
 
-      return mapConference(conference);
+      return mapConference(conference, ['ORGANIZER']);
     } catch (error) {
       if (error instanceof Error && error.message.includes('Unique constraint')) {
         throw new ConflictException('Conference slug already exists in this organization');
@@ -219,7 +266,7 @@ export class ConferenceService {
         diff: data,
       });
 
-      return mapConference(updated);
+      return mapConference(updated, toSchemaRoles(userRoles));
     } catch (error) {
       if (error instanceof Error && error.message.includes('Unique constraint')) {
         throw new ConflictException('Conference slug already exists');
@@ -302,7 +349,7 @@ export class ConferenceService {
         userRoles,
         updated.version + 1,
       );
-      return mapConference(transitioned);
+      return mapConference(transitioned, toSchemaRoles(userRoles));
     }
 
     await this.audit.log({
@@ -315,7 +362,7 @@ export class ConferenceService {
       diff: input,
     });
 
-    return mapConference(updated);
+    return mapConference(updated, toSchemaRoles(userRoles));
   }
 
   async transitionStatus(
@@ -330,7 +377,7 @@ export class ConferenceService {
       status,
       userRoles,
     );
-    return mapConference(conference);
+    return mapConference(conference, toSchemaRoles(userRoles));
   }
 
   async listTracks(userId: string, conferenceId: string, userRoles: RoleKind[]) {

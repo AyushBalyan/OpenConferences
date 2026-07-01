@@ -3,6 +3,12 @@ import { prisma, withTenantContext, generateId } from '../src/index.js';
 const SEED_ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL ?? 'admin@openconf.local';
 const SEED_ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? 'ChangeMe123!';
 const SEED_ADMIN_NAME = process.env.SEED_ADMIN_NAME ?? 'Platform Admin';
+const SEED_AUTHOR_EMAIL = process.env.SEED_AUTHOR_EMAIL ?? 'author@openconf.local';
+const SEED_AUTHOR_PASSWORD = process.env.SEED_AUTHOR_PASSWORD ?? 'ChangeMe123!';
+const SEED_AUTHOR_NAME = process.env.SEED_AUTHOR_NAME ?? 'Demo Author';
+const SEED_REVIEWER_EMAIL = process.env.SEED_REVIEWER_EMAIL ?? 'reviewer@openconf.local';
+const SEED_REVIEWER_PASSWORD = process.env.SEED_REVIEWER_PASSWORD ?? 'ChangeMe123!';
+const SEED_REVIEWER_NAME = process.env.SEED_REVIEWER_NAME ?? 'Demo Reviewer';
 
 async function hashPassword(password: string): Promise<string> {
   const { hashPassword: hash } = await import('better-auth/crypto');
@@ -25,8 +31,15 @@ async function main(): Promise<void> {
   const conferenceId = generateId();
   const trackId = generateId();
   const adminUserId = generateId();
+  const authorUserId = generateId();
+  const reviewerUserId = generateId();
+  const paperId = generateId();
+  const roundId = generateId();
   const orgMembershipId = generateId();
   const confMembershipId = generateId();
+  const authorMembershipId = generateId();
+  const reviewerMembershipId = generateId();
+  const authorshipId = generateId();
 
   await withTenantContext({ bypass: true }, async (tx) => {
     await tx.organization.create({
@@ -43,8 +56,11 @@ async function main(): Promise<void> {
         organizationId: orgId,
         slug: 'demo-conf-2026',
         name: 'Demo Conference 2026',
-        status: 'DRAFT',
+        status: 'CFP_OPEN',
         blindingMode: 'DOUBLE',
+        biddingOpensAt: new Date('2026-01-01T00:00:00Z'),
+        biddingClosesAt: new Date('2026-12-31T23:59:59Z'),
+        reviewDueAt: new Date('2026-12-31T23:59:59Z'),
         reviewConfig: {
           scoreDimensions: ['originality', 'clarity', 'significance'],
           recommendationRequired: true,
@@ -120,12 +136,118 @@ async function main(): Promise<void> {
         },
       },
     });
+
+    const authorPasswordHash = await hashPassword(SEED_AUTHOR_PASSWORD);
+
+    await tx.user.create({
+      data: {
+        id: authorUserId,
+        email: SEED_AUTHOR_EMAIL,
+        name: SEED_AUTHOR_NAME,
+        emailVerified: true,
+        organizationId: orgId,
+        accounts: {
+          create: {
+            id: generateId(),
+            accountId: SEED_AUTHOR_EMAIL,
+            providerId: 'credential',
+            password: authorPasswordHash,
+          },
+        },
+      },
+    });
+
+    await tx.membership.create({
+      data: {
+        id: authorMembershipId,
+        userId: authorUserId,
+        organizationId: orgId,
+        conferenceId,
+        scope: 'CONFERENCE',
+        roles: {
+          create: { id: generateId(), role: 'AUTHOR' },
+        },
+      },
+    });
+
+    await tx.paper.create({
+      data: {
+        id: paperId,
+        organizationId: orgId,
+        conferenceId,
+        trackId,
+        submittedById: authorUserId,
+        title: 'Demo Paper Draft',
+        abstract: 'This is a seeded draft paper for local development.',
+        keywords: ['demo', 'seed'],
+        status: 'SUBMITTED',
+        authorships: {
+          create: {
+            id: authorshipId,
+            userId: authorUserId,
+            order: 1,
+            isCorresponding: true,
+            fullName: SEED_AUTHOR_NAME,
+            email: SEED_AUTHOR_EMAIL,
+            affiliation: 'Demo University',
+          },
+        },
+      },
+    });
+
+    const reviewerPasswordHash = await hashPassword(SEED_REVIEWER_PASSWORD);
+
+    await tx.user.create({
+      data: {
+        id: reviewerUserId,
+        email: SEED_REVIEWER_EMAIL,
+        name: SEED_REVIEWER_NAME,
+        emailVerified: true,
+        organizationId: orgId,
+        accounts: {
+          create: {
+            id: generateId(),
+            accountId: SEED_REVIEWER_EMAIL,
+            providerId: 'credential',
+            password: reviewerPasswordHash,
+          },
+        },
+      },
+    });
+
+    await tx.membership.create({
+      data: {
+        id: reviewerMembershipId,
+        userId: reviewerUserId,
+        organizationId: orgId,
+        conferenceId,
+        scope: 'CONFERENCE',
+        roles: {
+          create: { id: generateId(), role: 'REVIEWER' },
+        },
+      },
+    });
+
+    await tx.reviewRound.create({
+      data: {
+        id: roundId,
+        organizationId: orgId,
+        conferenceId,
+        roundNumber: 1,
+        status: 'OPEN',
+        reviewDueAt: new Date('2026-12-31T23:59:59Z'),
+      },
+    });
   });
 
   console.log('Database seed complete.');
   console.log(`  Organization: demo-org (${orgId})`);
   console.log(`  Conference:   demo-conf-2026 (${conferenceId})`);
   console.log(`  Admin login:  ${SEED_ADMIN_EMAIL} / ${SEED_ADMIN_PASSWORD}`);
+  console.log(`  Author login: ${SEED_AUTHOR_EMAIL} / ${SEED_AUTHOR_PASSWORD}`);
+  console.log(`  Reviewer login: ${SEED_REVIEWER_EMAIL} / ${SEED_REVIEWER_PASSWORD}`);
+  console.log(`  Submitted paper:  ${paperId}`);
+  console.log(`  Review round 1:   ${roundId}`);
 }
 
 main()

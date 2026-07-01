@@ -1,40 +1,29 @@
 'use client';
 
-import { ProtectedRoute } from '@/components/auth/protected-route';
-import { ConferenceNav } from '@/components/dashboard/conference-nav';
+import { PageHeader } from '@/components/dashboard/page-header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { createTrack, fetchConference, fetchTracks } from '@/lib/api-client';
+import { createTrack, fetchTracks } from '@/lib/api-client';
 import type { Track } from '@/lib/conference-types';
-import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 export default function ConferenceTracksPage() {
-  return (
-    <ProtectedRoute>
-      <TracksContent />
-    </ProtectedRoute>
-  );
+  return <TracksContent />;
 }
 
 function TracksContent() {
   const params = useParams<{ id: string }>();
   const conferenceId = params.id;
-  const [conferenceName, setConferenceName] = useState('');
   const [tracks, setTracks] = useState<Track[]>([]);
   const [slug, setSlug] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [conference, trackList] = await Promise.all([
-      fetchConference(conferenceId),
-      fetchTracks(conferenceId),
-    ]);
-    setConferenceName(conference.name);
+    const trackList = await fetchTracks(conferenceId);
     setTracks(trackList);
   }, [conferenceId]);
 
@@ -56,16 +45,8 @@ function TracksContent() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-10 space-y-6">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href={`/dashboard/conferences/${conferenceId}`} className="hover:underline">
-            {conferenceName || 'Conference'}
-          </Link>
-        </p>
-        <h1 className="text-2xl font-semibold">Tracks</h1>
-      </div>
-      <ConferenceNav conferenceId={conferenceId} />
+    <div className="space-y-6">
+      <PageHeader title="Tracks" description="Manage submission tracks for this conference." />
 
       <Card>
         <CardHeader>

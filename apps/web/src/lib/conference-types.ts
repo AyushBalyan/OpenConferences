@@ -6,6 +6,7 @@ export type Conference = {
   status: string;
   blindingMode: string;
   version: number;
+  myRoles: string[];
 };
 
 export type Track = {
@@ -37,4 +38,30 @@ export type AuditEntry = {
   entity: string;
   entityId: string | null;
   createdAt: string;
+};
+
+export type NotificationLogEntry = {
+  id: string;
+  templateKey: string;
+  toEmail: string;
+  subject: string;
+  status: 'QUEUED' | 'SENT' | 'FAILED' | 'BOUNCED';
+  providerMessageId: string | null;
+  error: string | null;
+  queuedAt: string;
+  sentAt: string | null;
+  createdAt: string;
+};
+
+export type NotificationTemplateEntry = {
+  id: string;
+  key: string;
+  version: number;
+  locale: string;
+  subject: string;
+  bodyHtml: string;
+  bodyText: string | null;
+  variables: string[];
+  isActive: boolean;
+  updatedAt: string;
 };

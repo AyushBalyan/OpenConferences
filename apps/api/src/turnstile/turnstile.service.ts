@@ -15,7 +15,8 @@ export class TurnstileService {
 
   isEnabled(): boolean {
     const config = getConfig();
-    return Boolean(config.turnstileSecretKey) && !config.isTest;
+    // Optional in local dev — enforced in staging/production only.
+    return Boolean(config.turnstileSecretKey) && !config.isTest && !config.isDev;
   }
 
   extractToken(req: Request): string | undefined {

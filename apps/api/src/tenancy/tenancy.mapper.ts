@@ -1,7 +1,9 @@
 import type { Conference, ConferenceStatus, Track } from '@openconferences/db';
 import type {
-  ConferenceStatus as SchemaConferenceStatus,
   BlindingMode as SchemaBlindingMode,
+  ConferenceDto,
+  ConferenceStatus as SchemaConferenceStatus,
+  RoleKind as SchemaRoleKind,
 } from '@openconferences/schemas';
 
 type JsonValue = Record<string, unknown>;
@@ -48,7 +50,10 @@ function parseFeeSchedule(value: unknown): {
   };
 }
 
-export function mapConference(conference: Conference) {
+export function mapConference(
+  conference: Conference,
+  myRoles: SchemaRoleKind[] = [],
+): ConferenceDto {
   return {
     id: conference.id,
     organizationId: conference.organizationId,
@@ -68,6 +73,7 @@ export function mapConference(conference: Conference) {
     reviewConfig: parseReviewConfig(conference.reviewConfig),
     feeSchedule: parseFeeSchedule(conference.feeSchedule),
     version: conference.version,
+    myRoles,
     createdAt: conference.createdAt.toISOString(),
     updatedAt: conference.updatedAt.toISOString(),
   };

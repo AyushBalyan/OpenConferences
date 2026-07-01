@@ -8,7 +8,8 @@ import { prisma } from '@openconferences/db';
 import { AppModule } from '../../src/app.module.ts';
 import { APP_FILTER } from '@nestjs/core';
 import { ProblemExceptionFilter } from '../../src/common/filters/problem-exception.filter.ts';
-import { lastTestEmailPayload } from '../../src/mailer/mailer.service.ts';
+import { lastTestNotification } from '../../src/messaging/notification.service.ts';
+import { ensureNotificationTemplates } from '../helpers/notifications.ts';
 
 const testEmail = `auth-test-${Date.now()}@example.com`;
 const testPassword = 'TestPassword123!';
@@ -26,7 +27,7 @@ function extractTokenFromEmail(html: string): string | null {
 }
 
 function extractResetTokenFromEmail(html: string): string | null {
-  const match = html.match(/reset-password\/([^"?&]+)/);
+  const match = html.match(/token=([^"&]+)/);
   return match?.[1] ?? null;
 }
 
@@ -55,6 +56,7 @@ describe('Auth integration', () => {
     app = moduleRef.createNestApplication();
     app.setGlobalPrefix(config.api.basePath.replace(/^\//, ''));
     await app.init();
+    await ensureNotificationTemplates();
   }, 60000);
 
   afterAll(async () => {
@@ -74,8 +76,8 @@ describe('Auth integration', () => {
       .expect(200);
 
     expect(response.body.user ?? response.body).toBeTruthy();
-    expect(lastTestEmailPayload?.to).toBe(testEmail);
-    verificationToken = extractTokenFromEmail(lastTestEmailPayload!.html);
+    expect(lastTestNotification?.to).toBe(testEmail);
+    verificationToken = extractTokenFromEmail(lastTestNotification!.html);
 
     const audit = await prisma.auditLog.findFirst({
       where: { action: 'auth.signup' },
@@ -163,7 +165,7 @@ describe('Auth integration', () => {
       .send({ email: testEmail, redirectTo: 'http://localhost:3000/reset-password' })
       .expect(200);
 
-    const resetToken = extractResetTokenFromEmail(lastTestEmailPayload!.html);
+    const resetToken = extractResetTokenFromEmail(lastTestNotification!.html);
     expect(resetToken).toBeTruthy();
 
     await request(app.getHttpServer())
@@ -212,7 +214,7 @@ describe('Auth integration', () => {
       .send({ email: resetEmail, redirectTo: 'http://localhost:3000/reset-password' })
       .expect(200);
 
-    const resetToken = extractResetTokenFromEmail(lastTestEmailPayload!.html);
+    const resetToken = extractResetTokenFromEmail(lastTestNotification!.html);
     expect(resetToken).toBeTruthy();
 
     await prisma.verification.updateMany({

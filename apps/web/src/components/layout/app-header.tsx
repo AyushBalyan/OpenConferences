@@ -5,8 +5,8 @@ import { SessionNav } from '@/components/auth/session-nav';
 
 export function AppHeader() {
   return (
-    <header className="border-b">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
+    <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+      <div className="flex h-14 items-center justify-between px-4 sm:px-6">
         <Link href="/" className="text-lg font-semibold tracking-tight">
           OpenConferences
         </Link>

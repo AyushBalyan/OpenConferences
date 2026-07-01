@@ -37,6 +37,146 @@ enum BlindingMode {
   OPEN
 }
 
+enum PaperStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  DECISION_MADE
+  CAMERA_READY
+  WITHDRAWN
+  WITHDRAWN_NONPAYMENT
+}
+
+enum VersionKind {
+  SUBMISSION
+  REVISION
+  CAMERA_READY
+  SUPPLEMENTARY
+}
+
+enum FileScanStatus {
+  PENDING_SCAN
+  CLEAN
+  INFECTED
+}
+
+enum BidValue {
+  EAGER
+  YES
+  MAYBE
+  NO
+  CONFLICT
+}
+
+enum CoiType {
+  CO_AUTHOR
+  INSTITUTION
+  ADVISOR_STUDENT
+  PERSONAL
+  FINANCIAL
+  OTHER
+}
+
+enum CoiSource {
+  SELF
+  CHAIR
+  SYSTEM
+}
+
+enum RoundStatus {
+  OPEN
+  REVIEWING
+  REBUTTAL
+  DECIDING
+  CLOSED
+}
+
+enum ReviewVisibility {
+  HIDDEN
+  AUTHOR_VISIBLE
+  PUBLIC
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+enum AssignmentStatus {
+  ASSIGNED
+  ACCEPTED
+  DECLINED
+  COMPLETED
+}
+
+enum Recommendation {
+  STRONG_ACCEPT
+  ACCEPT
+  WEAK_ACCEPT
+  BORDERLINE
+  WEAK_REJECT
+  REJECT
+  STRONG_REJECT
+}
+
+enum DecisionOutcome {
+  ACCEPT
+  REJECT
+  MINOR_REVISION
+  MAJOR_REVISION
+}
+
+enum FeeAudience {
+  REGULAR
+  STUDENT
+}
+
+enum FeeTiming {
+  EARLY
+  REGULAR
+}
+
+enum PaymentStatus {
+  CREATED
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentKind {
+  INITIAL
+  ADDITIONAL
+  REFUND
+}
+
+enum RegistrationStatus {
+  PENDING
+  AWAITING_VERIFICATION
+  ADDITIONAL_PAYMENT_REQUIRED
+  PAID
+  CANCELLED
+  REFUNDED
+  DISCARDED_NONPAYMENT
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CLARIFICATION_REQUESTED
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  FAILED
+  BOUNCED
+}
+
 model Organization {
   id        String    @id @db.Uuid
   slug      String
@@ -49,6 +189,22 @@ model Organization {
   conferences  Conference[]
   memberships  Membership[]
   tracks       Track[]
+  papers       Paper[]
+  fileAssets   FileAsset[]
+  reviewRounds ReviewRound[]
+  reviewerInvitations ReviewerInvitation[]
+  bids         Bid[]
+  conflictsOfInterest ConflictOfInterest[]
+  reviewerAssignments ReviewerAssignment[]
+  reviews      Review[]
+  rebuttals    Rebuttal[]
+  decisions    Decision[]
+  registrations Registration[]
+  payments     Payment[]
+  invoices     Invoice[]
+  studentVerifications StudentVerification[]
+  notificationTemplates NotificationTemplate[]
+  notificationLogs      NotificationLog[]
 
   @@map("organizations")
 }
@@ -69,8 +225,22 @@ model User {
   organization Organization? @relation(fields: [organizationId], references: [id])
   sessions     Session[]
   accounts     Account[]
-  twoFactor    TwoFactor?
-  memberships  Membership[]
+  twoFactor         TwoFactor?
+  memberships       Membership[]
+  submittedPapers   Paper[]        @relation("SubmittedPapers")
+  authorships       Authorship[]
+  uploadedFiles     FileAsset[]    @relation("UploadedFiles")
+  uploadedVersions  PaperVersion[] @relation("UploadedVersions")
+  bids              Bid[]          @relation("ReviewerBids")
+  conflictsOfInterest ConflictOfInterest[] @relation("CoiUser")
+  coiWithUser       ConflictOfInterest[] @relation("CoiWithUser")
+  reviewerAssignments ReviewerAssignment[] @relation("ReviewerAssignments")
+  reviewerInvitations ReviewerInvitation[] @relation("InvitedReviewer")
+  reviews             Review[]             @relation("ReviewerReviews")
+  rebuttals           Rebuttal[]           @relation("AuthoredRebuttals")
+  decisionsMade       Decision[]           @relation("DecidedDecisions")
+  registrationsPaid   Registration[]       @relation("RegistrationPayer")
+  studentVerificationsReviewed StudentVerification[] @relation("VerificationReviewer")
 
   @@map("users")
 }
@@ -162,6 +332,16 @@ model Conference {
   organization Organization @relation(fields: [organizationId], references: [id])
   tracks       Track[]
   memberships  Membership[]
+  papers       Paper[]
+  reviewRounds ReviewRound[]
+  reviewerInvitations ReviewerInvitation[]
+  bids         Bid[]
+  conflictsOfInterest ConflictOfInterest[]
+  reviewerAssignments ReviewerAssignment[]
+  reviews             Review[]
+  rebuttals           Rebuttal[]
+  decisions           Decision[]
+  registrations       Registration[]
 
   @@index([organizationId, status])
   @@map("conferences")
@@ -180,6 +360,7 @@ model Track {
 
   conference   Conference   @relation(fields: [conferenceId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id])
+  papers       Paper[]
 
   @@index([conferenceId])
   @@map("tracks")
@@ -232,4 +413,463 @@ model AuditLog {
   @@index([organizationId, conferenceId])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+model Paper {
+  id               String      @id @db.Uuid
+  organizationId   String      @db.Uuid
+  conferenceId     String      @db.Uuid
+  trackId          String      @db.Uuid
+  submittedById    String      @db.Uuid
+  currentVersionId String?     @unique @db.Uuid
+  title            String
+  abstract         String
+  keywords         String[]
+  status           PaperStatus @default(DRAFT)
+  version          Int         @default(0)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  conference     Conference    @relation(fields: [conferenceId], references: [id])
+  track          Track         @relation(fields: [trackId], references: [id])
+  submittedBy    User          @relation("SubmittedPapers", fields: [submittedById], references: [id])
+  currentVersion PaperVersion? @relation("CurrentVersion", fields: [currentVersionId], references: [id])
+  versions       PaperVersion[] @relation("PaperVersions")
+  authorships    Authorship[]
+  bids           Bid[]
+  conflictsOfInterest ConflictOfInterest[]
+  reviewerAssignments ReviewerAssignment[]
+  reviews             Review[]
+  rebuttals           Rebuttal[]
+  decisions           Decision[]
+  registrations       Registration[]
+
+  @@index([conferenceId, status])
+  @@index([trackId])
+  @@index([submittedById])
+  @@map("papers")
+}
+
+model FileAsset {
+  id               String         @id @db.Uuid
+  organizationId   String         @db.Uuid
+  uploadedById     String         @db.Uuid
+  bucket           String
+  objectKey        String         @unique
+  sizeBytes        BigInt
+  checksumSha256   String
+  mimeType         String
+  originalFilename String
+  scanStatus       FileScanStatus @default(PENDING_SCAN)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  uploadedBy   User           @relation("UploadedFiles", fields: [uploadedById], references: [id])
+  versions     PaperVersion[]
+  studentVerifications StudentVerification[]
+  invoices     Invoice[]
+
+  @@map("file_assets")
+}
+
+model PaperVersion {
+  id            String      @id @db.Uuid
+  paperId       String      @db.Uuid
+  fileAssetId   String      @db.Uuid
+  uploadedById  String      @db.Uuid
+  kind          VersionKind
+  versionNumber Int
+  note          String?
+  createdAt     DateTime    @default(now())
+
+  paper           Paper     @relation("PaperVersions", fields: [paperId], references: [id], onDelete: Cascade)
+  fileAsset       FileAsset @relation(fields: [fileAssetId], references: [id])
+  uploadedBy      User      @relation("UploadedVersions", fields: [uploadedById], references: [id])
+  currentForPaper Paper?    @relation("CurrentVersion")
+
+  @@unique([paperId, kind, versionNumber])
+  @@map("paper_versions")
+}
+
+model Authorship {
+  id              String   @id @db.Uuid
+  paperId         String   @db.Uuid
+  userId          String?  @db.Uuid
+  order           Int
+  isCorresponding Boolean  @default(false)
+  fullName        String
+  email           String
+  affiliation     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  paper Paper @relation(fields: [paperId], references: [id], onDelete: Cascade)
+  user  User? @relation(fields: [userId], references: [id])
+
+  @@unique([paperId, order])
+  @@index([userId])
+  @@index([email])
+  @@map("authorships")
+}
+
+model ReviewRound {
+  id             String       @id @db.Uuid
+  organizationId String       @db.Uuid
+  conferenceId   String       @db.Uuid
+  roundNumber    Int
+  status         RoundStatus  @default(OPEN)
+  reviewDueAt    DateTime?
+  rebuttalDueAt  DateTime?
+  revisionDueAt  DateTime?
+  version        Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  conference   Conference   @relation(fields: [conferenceId], references: [id])
+  assignments  ReviewerAssignment[]
+  reviews      Review[]
+  rebuttals    Rebuttal[]
+  decisions    Decision[]
+
+  @@unique([conferenceId, roundNumber])
+  @@index([conferenceId, status])
+  @@map("review_rounds")
+}
+
+model ReviewerInvitation {
+  id             String           @id @db.Uuid
+  organizationId String           @db.Uuid
+  conferenceId   String           @db.Uuid
+  email          String
+  invitedUserId  String?          @db.Uuid
+  token          String           @unique
+  status         InvitationStatus @default(PENDING)
+  expiresAt      DateTime
+  roleNote       String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  conference   Conference   @relation(fields: [conferenceId], references: [id])
+  invitedUser  User?        @relation("InvitedReviewer", fields: [invitedUserId], references: [id])
+
+  @@index([conferenceId, email])
+  @@index([conferenceId, status])
+  @@map("reviewer_invitations")
+}
+
+model Bid {
+  id             String   @id @db.Uuid
+  organizationId String   @db.Uuid
+  conferenceId   String   @db.Uuid
+  paperId        String   @db.Uuid
+  reviewerUserId String   @db.Uuid
+  value          BidValue
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  conference   Conference   @relation(fields: [conferenceId], references: [id])
+  paper        Paper        @relation(fields: [paperId], references: [id], onDelete: Cascade)
+  reviewer     User         @relation("ReviewerBids", fields: [reviewerUserId], references: [id])
+
+  @@unique([paperId, reviewerUserId])
+  @@index([conferenceId, reviewerUserId])
+  @@map("bids")
+}
+
+model ConflictOfInterest {
+  id             String    @id @db.Uuid
+  organizationId String    @db.Uuid
+  conferenceId   String    @db.Uuid
+  userId         String    @db.Uuid
+  paperId        String?   @db.Uuid
+  withUserId     String?   @db.Uuid
+  type           CoiType
+  source         CoiSource
+  note           String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  conference   Conference   @relation(fields: [conferenceId], references: [id])
+  user         User         @relation("CoiUser", fields: [userId], references: [id])
+  paper        Paper?       @relation(fields: [paperId], references: [id], onDelete: Cascade)
+  withUser     User?        @relation("CoiWithUser", fields: [withUserId], references: [id])
+
+  @@index([conferenceId, userId])
+  @@index([paperId])
+  @@map("conflicts_of_interest")
+}
+
+model ReviewerAssignment {
+  id             String           @id @db.Uuid
+  organizationId String           @db.Uuid
+  conferenceId   String           @db.Uuid
+  roundId        String           @db.Uuid
+  paperId        String           @db.Uuid
+  reviewerUserId String           @db.Uuid
+  status         AssignmentStatus @default(ASSIGNED)
+  dueAt          DateTime?
+  version        Int              @default(0)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  conference   Conference   @relation(fields: [conferenceId], references: [id])
+  round        ReviewRound  @relation(fields: [roundId], references: [id])
+  paper        Paper        @relation(fields: [paperId], references: [id])
+  reviewer     User         @relation("ReviewerAssignments", fields: [reviewerUserId], references: [id])
+  review       Review?
+
+  @@unique([roundId, paperId, reviewerUserId])
+  @@index([conferenceId, reviewerUserId])
+  @@index([roundId])
+  @@map("reviewer_assignments")
+}
+
+model Review {
+  id                 String           @id @db.Uuid
+  organizationId     String           @db.Uuid
+  conferenceId       String           @db.Uuid
+  assignmentId       String           @unique @db.Uuid
+  roundId            String           @db.Uuid
+  paperId            String           @db.Uuid
+  reviewerUserId     String           @db.Uuid
+  scores             Json             @default("{}")
+  recommendation     Recommendation?
+  confidence         Int?
+  commentsToAuthors  String?
+  commentsToChairs   String?
+  visibility         ReviewVisibility @default(HIDDEN)
+  submittedAt        DateTime?
+  version            Int              @default(0)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id])
+  conference   Conference         @relation(fields: [conferenceId], references: [id])
+  assignment   ReviewerAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  round        ReviewRound        @relation(fields: [roundId], references: [id])
+  paper        Paper              @relation(fields: [paperId], references: [id])
+  reviewer     User               @relation("ReviewerReviews", fields: [reviewerUserId], references: [id])
+
+  @@index([paperId])
+  @@index([roundId])
+  @@index([conferenceId, reviewerUserId])
+  @@map("reviews")
+}
+
+model Rebuttal {
+  id               String    @id @db.Uuid
+  organizationId   String    @db.Uuid
+  conferenceId     String    @db.Uuid
+  paperId          String    @db.Uuid
+  roundId          String    @db.Uuid
+  authoredByUserId String    @db.Uuid
+  body             String
+  submittedAt      DateTime?
+  version          Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  conference   Conference   @relation(fields: [conferenceId], references: [id])
+  paper        Paper        @relation(fields: [paperId], references: [id])
+  round        ReviewRound  @relation(fields: [roundId], references: [id])
+  authoredBy   User         @relation("AuthoredRebuttals", fields: [authoredByUserId], references: [id])
+
+  @@unique([paperId, roundId])
+  @@index([conferenceId])
+  @@map("rebuttals")
+}
+
+model Decision {
+  id             String          @id @db.Uuid
+  organizationId String          @db.Uuid
+  conferenceId   String          @db.Uuid
+  paperId        String          @db.Uuid
+  roundId        String          @db.Uuid
+  decidedById    String          @db.Uuid
+  outcome        DecisionOutcome
+  rationale      String?
+  notifiedAt     DateTime?
+  version        Int             @default(0)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  conference   Conference   @relation(fields: [conferenceId], references: [id])
+  paper        Paper        @relation(fields: [paperId], references: [id])
+  round        ReviewRound  @relation(fields: [roundId], references: [id])
+  decidedBy    User         @relation("DecidedDecisions", fields: [decidedById], references: [id])
+
+  @@unique([paperId, roundId])
+  @@index([conferenceId])
+  @@map("decisions")
+}
+
+model Registration {
+  id             String             @id @db.Uuid
+  organizationId String             @db.Uuid
+  conferenceId   String             @db.Uuid
+  paperId        String             @db.Uuid
+  userId         String?            @db.Uuid
+  audience       FeeAudience
+  lockedTiming   FeeTiming?
+  amountDueMinor Int                @default(0)
+  currency       String             @db.Char(3)
+  status         RegistrationStatus @default(PENDING)
+  version        Int                @default(0)
+  windowOpensAt  DateTime           @default(now())
+  deadlineAt     DateTime
+  additionalGraceUntil DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  conference   Conference   @relation(fields: [conferenceId], references: [id])
+  paper        Paper        @relation(fields: [paperId], references: [id])
+  payer        User?        @relation("RegistrationPayer", fields: [userId], references: [id])
+  payments     Payment[]
+  studentVerifications StudentVerification[]
+
+  @@unique([conferenceId, paperId])
+  @@index([userId])
+  @@index([conferenceId, status])
+  @@map("registrations")
+}
+
+model Payment {
+  id                String        @id @db.Uuid
+  organizationId    String        @db.Uuid
+  registrationId    String        @db.Uuid
+  provider          String
+  providerOrderId   String?
+  providerPaymentId String?
+  status            PaymentStatus @default(CREATED)
+  amountMinor       Int
+  currency          String        @db.Char(3)
+  kind              PaymentKind
+  idempotencyKey    String?
+  rawPayload        Json?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  invoice      Invoice?
+
+  @@unique([provider, providerPaymentId])
+  @@index([registrationId])
+  @@index([idempotencyKey])
+  @@map("payments")
+}
+
+model Invoice {
+  id             String   @id @db.Uuid
+  organizationId String   @db.Uuid
+  paymentId      String   @unique @db.Uuid
+  fileAssetId    String   @db.Uuid
+  number         String
+  issuedAt       DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  payment        Payment      @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  fileAsset      FileAsset    @relation(fields: [fileAssetId], references: [id])
+
+  @@index([organizationId])
+  @@map("invoices")
+}
+
+model StudentVerification {
+  id             String             @id @db.Uuid
+  organizationId String             @db.Uuid
+  registrationId String             @db.Uuid
+  fileAssetId    String             @db.Uuid
+  reviewedById   String?            @db.Uuid
+  status         VerificationStatus @default(PENDING)
+  note           String?
+  submittedAt    DateTime           @default(now())
+  reviewedAt     DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  fileAsset      FileAsset    @relation(fields: [fileAssetId], references: [id])
+  reviewedBy     User?        @relation("VerificationReviewer", fields: [reviewedById], references: [id])
+
+  @@index([registrationId])
+  @@index([status])
+  @@map("student_verifications")
+}
+
+model InvoiceCounter {
+  organizationId String @db.Uuid
+  fiscalYear     Int
+  lastNumber     BigInt @default(0)
+
+  @@id([organizationId, fiscalYear])
+  @@map("invoice_counters")
+}
+
+model NotificationTemplate {
+  id             String   @id @db.Uuid
+  organizationId String?  @db.Uuid
+  key            String
+  version        Int
+  locale         String   @default("en")
+  subject        String
+  bodyHtml       String
+  bodyText       String?
+  variables      Json     @default("[]")
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, key, version])
+  @@index([organizationId, key, isActive])
+  @@map("notification_templates")
+}
+
+model NotificationLog {
+  id                String             @id @db.Uuid
+  organizationId    String?            @db.Uuid
+  conferenceId      String?            @db.Uuid
+  templateKey       String
+  templateVersion   Int?
+  toEmail           String
+  subject           String
+  renderedHtml      String?
+  status            NotificationStatus @default(QUEUED)
+  providerMessageId String?
+  error             String?
+  idempotencyKey    String?            @unique
+  queuedAt          DateTime           @default(now())
+  sentAt            DateTime?
+  relatedEntity     String?
+  relatedEntityId   String?
+  createdAt         DateTime           @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([conferenceId, createdAt])
+  @@index([status])
+  @@index([toEmail])
+  @@map("notification_logs")
+}
+
+model EmailSuppression {
+  id        String   @id @db.Uuid
+  email     String   @unique
+  reason    String
+  createdAt DateTime @default(now())
+
+  @@map("email_suppressions")
 }

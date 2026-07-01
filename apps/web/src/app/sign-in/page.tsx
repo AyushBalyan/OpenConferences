@@ -1,7 +1,7 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { signInSchema, type SignInInput } from '@openconferences/schemas';
@@ -12,10 +12,21 @@ import { isTurnstileEnabled, turnstileFetchOptions, withTurnstileBody } from '@/
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  clearStoredReviewerInviteToken,
+  resolveReviewerInviteToken,
+} from '@/lib/reviewer-invite-pending';
+import { acceptPendingReviewerInvitations } from '@/lib/api-client';
 import type { TurnstileInstance } from '@marsidev/react-turnstile';
 
-export default function SignInPage() {
+function reviewerInviteQuery(reviewerInvite: string | null) {
+  return reviewerInvite ? `?reviewerInvite=${encodeURIComponent(reviewerInvite)}` : '';
+}
+
+function SignInContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const reviewerInvite = resolveReviewerInviteToken(searchParams.get('reviewerInvite'));
   const turnstileRef = useRef<TurnstileInstance | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -68,20 +79,50 @@ export default function SignInPage() {
       return;
     }
 
+    try {
+      const pending = await acceptPendingReviewerInvitations();
+      if (pending.data.length > 0) {
+        clearStoredReviewerInviteToken();
+        router.push(`/dashboard/conferences/${pending.data[0].conferenceId}/reviews/bidding`);
+        router.refresh();
+        return;
+      }
+    } catch {
+      // Fall through to token-based accept or dashboard.
+    }
+
+    if (reviewerInvite) {
+      router.push(`/reviewer-invite/accept?token=${encodeURIComponent(reviewerInvite)}&auto=1`);
+      router.refresh();
+      return;
+    }
+
+    clearStoredReviewerInviteToken();
     router.push('/dashboard');
     router.refresh();
   });
 
+  const signUpHref = `/sign-up${reviewerInviteQuery(reviewerInvite)}`;
+
   return (
     <AuthShell
       title="Welcome back"
-      description="Sign in to manage submissions, reviews, and conferences."
+      description={
+        reviewerInvite
+          ? 'Sign in with the invited email address to accept your reviewer invitation.'
+          : 'Sign in to manage submissions, reviews, and conferences.'
+      }
       footer={
         <>
-          Need an account? <AuthLink href="/sign-up">Sign up</AuthLink>
+          Need an account? <AuthLink href={signUpHref}>Sign up</AuthLink>
         </>
       }
     >
+      {reviewerInvite ? (
+        <p className="rounded-md border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+          You have a pending reviewer invitation. Sign in to accept it.
+        </p>
+      ) : null}
       <form className="space-y-4" onSubmit={onSubmit}>
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>
@@ -114,5 +155,13 @@ export default function SignInPage() {
         </Button>
       </form>
     </AuthShell>
+  );
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-sm">Loading…</div>}>
+      <SignInContent />
+    </Suspense>
   );
 }

@@ -16,9 +16,23 @@ export const MFA_REQUIRED_ROLES: RoleKind[] = ['PLATFORM_ADMIN', 'ORG_ADMIN', 'O
 
 export const SEED_ONLY_ROLES: RoleKind[] = ['PLATFORM_ADMIN'];
 
+/** Conference roles that may perform review coordination (rounds, assignments, bid oversight). */
+export const REVIEW_COORDINATION_ROLES: RoleKind[] = ['ORG_ADMIN', 'ORGANIZER', 'CHAIR'];
+
+/** Conference/org roles that may manage reviewer invitations and conference review setup. */
+export const CONFERENCE_ORGANIZER_ROLES: RoleKind[] = ['ORG_ADMIN', 'ORGANIZER'];
+
 export function maxRoleRank(roles: RoleKind[]): number {
   if (roles.length === 0) return 0;
   return Math.max(...roles.map((role) => ROLE_RANK[role]));
+}
+
+export function canCoordinateReview(roles: RoleKind[]): boolean {
+  return maxRoleRank(roles) >= maxRoleRank(['CHAIR']);
+}
+
+export function canManageConferenceReview(roles: RoleKind[]): boolean {
+  return maxRoleRank(roles) >= maxRoleRank(['ORGANIZER']);
 }
 
 export function canGrantRole(grantorRoles: RoleKind[], targetRole: RoleKind): boolean {

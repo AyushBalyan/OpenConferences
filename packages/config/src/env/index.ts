@@ -59,7 +59,21 @@ const baseEnvSchema = z.object({
   AUTH_LOCKOUT_WINDOW_SECONDS: z.coerce.number().int().positive().default(900),
   MAIL_FROM: z.string().email().default('noreply@example.com'),
   ZEPTO_MAIL_API_KEY: z.string().optional(),
+  ZEPTO_MAIL_API_URL: z.string().url().default('https://api.zeptomail.in/v1.1/email'),
+  ZEPTO_WEBHOOK_SECRET: z.string().optional(),
+  NOTIFICATION_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
   TURNSTILE_SECRET_KEY: z.string().optional(),
+  CLAMAV_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  CLAMAV_HOST: z.string().default('127.0.0.1'),
+  CLAMAV_PORT: z.coerce.number().int().positive().default(3310),
+  RAZORPAY_KEY_ID: z.string().optional(),
+  RAZORPAY_KEY_SECRET: z.string().optional(),
+  RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
+  REGISTRATION_ADDITIONAL_GRACE_DAYS: z.coerce.number().int().nonnegative().default(7),
+  PAYMENT_WEBHOOK_REPLAY_WINDOW_SECONDS: z.coerce.number().int().positive().default(300),
 });
 
 export type AppConfig = {
@@ -94,8 +108,25 @@ export type AppConfig = {
   mail: {
     from: string;
     zeptoApiKey?: string;
+    zeptoApiUrl: string;
+    zeptoWebhookSecret?: string;
+    retentionDays: number;
   };
   turnstileSecretKey?: string;
+  clamav: {
+    enabled: boolean;
+    host: string;
+    port: number;
+  };
+  razorpay: {
+    keyId?: string;
+    keySecret?: string;
+    webhookSecret?: string;
+  };
+  billing: {
+    additionalGraceDays: number;
+    webhookReplayWindowSeconds: number;
+  };
   isDev: boolean;
   isTest: boolean;
   isProd: boolean;
@@ -148,8 +179,25 @@ function parseEnv(env: Record<string, string | undefined> = process.env): AppCon
     mail: {
       from: data.MAIL_FROM,
       zeptoApiKey: data.ZEPTO_MAIL_API_KEY,
+      zeptoApiUrl: data.ZEPTO_MAIL_API_URL,
+      zeptoWebhookSecret: data.ZEPTO_WEBHOOK_SECRET,
+      retentionDays: data.NOTIFICATION_RETENTION_DAYS,
     },
     turnstileSecretKey: data.TURNSTILE_SECRET_KEY,
+    clamav: {
+      enabled: data.CLAMAV_ENABLED ?? false,
+      host: data.CLAMAV_HOST,
+      port: data.CLAMAV_PORT,
+    },
+    razorpay: {
+      keyId: data.RAZORPAY_KEY_ID,
+      keySecret: data.RAZORPAY_KEY_SECRET,
+      webhookSecret: data.RAZORPAY_WEBHOOK_SECRET,
+    },
+    billing: {
+      additionalGraceDays: data.REGISTRATION_ADDITIONAL_GRACE_DAYS,
+      webhookReplayWindowSeconds: data.PAYMENT_WEBHOOK_REPLAY_WINDOW_SECONDS,
+    },
     isDev: data.NODE_ENV === 'development',
     isTest: data.NODE_ENV === 'test',
     isProd: data.NODE_ENV === 'production',

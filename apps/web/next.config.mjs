@@ -29,7 +29,6 @@ loadSharedEnv(path.join(__dirname, '.env.local'));
 const nextConfig = {
   output: 'standalone',
   outputFileTracingRoot: new URL('../../', import.meta.url).pathname,
-  transpilePackages: ['@openconferences/contracts', '@openconferences/schemas'],
 };
 
 export default nextConfig;

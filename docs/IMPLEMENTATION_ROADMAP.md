@@ -278,6 +278,8 @@ Phases 1–2.
 
 ## Phase 4 — Reviewer Management & Assignment
 
+**Status:** ✅ **Complete** (2026-06-30)
+
 **Objective.** Reviewer invitations, bidding, **conflict-of-interest** declaration, and assignment into `ReviewRound 1` (respecting bids + COI), with assignment UI and notifications.
 
 **Business value.** Connects people to papers — the setup step that makes peer review possible. Encodes the COI invariant (§5.3, §19) that protects review integrity.
@@ -311,6 +313,19 @@ Phases 1–2.
 ### Exit criteria
 
 - Organizer invites reviewers, reviewers bid + declare COI, organizer assigns into Round 1 with COI/blinding enforced; assignment emails sent. Tests green.
+
+### Definition of Done
+
+- [x] Schema + migration: `review_rounds`, `reviewer_invitations`, `bids`, `conflicts_of_interest`, `reviewer_assignments` with RLS (§19.1).
+- [x] Zod schemas + ts-rest contracts registered in `packages/contracts`.
+- [x] Backend: invitation issue/accept/decline (token email → sign-up link); bid upsert; COI CRUD; assignment service with COI invariant (authorship, declared COI, `CONFLICT` bid); round open/update lifecycle; audit + mailer hooks.
+- [x] Reviewer UI: blinded paper pool (per `blindingMode`), bidding, COI declaration, invitation accept flow.
+- [x] Organizer UI: review rounds, assignments (manual assign + bid overview), reviewer invitations.
+- [x] Blinding enforced in API payloads (not UI-only); assignment scope-checked; IDOR tests pass.
+- [x] `ORG_ADMIN` and `ORGANIZER` may perform all review-coordination actions (rounds, assignments, bid oversight).
+- [x] Integration suite `review.test.ts` green (COI blocks, blinding modes, invitation lifecycle, round lifecycle, assignment emails).
+
+**Deferred to later phases (not Phase 4 scope):** reviewer “my assignments” dashboard and review editor → Phase 5; production Zepto delivery → Phase 9; auto-matching reviewers → future.
 
 ### Estimated complexity
 
@@ -567,9 +582,27 @@ Phase 0 (queue), Phase 1 (interface); consumed by 1,3,4,6,8.
 
 ## Phase 10 — Dashboards, Search & Analytics
 
+**Status:** 🟡 **In progress** (2026-06-30) — role-based dashboard declutter slice shipped; analytics/search/aggregation deferred.
+
 **Objective.** Complete the author/reviewer/organizer dashboards (§12), cross-conference aggregation, analytics, search, filtering, and pagination.
 
 **Business value.** Turns the working workflows into a productive daily-use product; analytics gives organizers operational visibility.
+
+### Completed (declutter slice)
+
+- [x] **`myRoles` on conference API responses** — `GET /conferences` and `GET /conferences/:id` return effective roles (conference + org-inherited) per conference.
+- [x] **Role-aware navigation** — conference nav grouped by Author / Reviewer / Organize; links gated by role (CHAIR vs ORGANIZER via coordination vs admin helpers).
+- [x] **Role-scoped landing surfaces** — conference overview shows Author, Reviewer, and Organizer workspace cards; `/dashboard` home is role-neutral with per-conference role labels.
+- [x] **Create-conference CTA gated** — shown only when user holds `ORG_ADMIN` or `PLATFORM_ADMIN`.
+
+### Remaining (deferred)
+
+- [ ] Cross-conference **`/me/dashboard`** aggregation home (§12).
+- [ ] Organizer **analytics overview** — funnel (submissions, reviews completed, decisions, registrations, revenue).
+- [ ] **Search and filter** on list endpoints with saved filters.
+- [ ] **Cursor pagination** standardized on all list endpoints.
+- [ ] Cached/materialized **aggregates** for organizer funnel/revenue (read-replica-friendly).
+- [ ] Integration tests for pagination correctness, filter authorization, and analytics reconciliation.
 
 ### Backend / Database tasks
 
@@ -670,7 +703,7 @@ graph TD
   P1[Phase 1 · Auth & Identity]
   P2[Phase 2 · Conference & RBAC]
   P3[Phase 3 · Paper Submission]
-  P4[Phase 4 · Reviewer Assignment]
+  P4[Phase 4 · Reviewer Assignment ✓]
   P5[Phase 5 · Reviews]
   P6[Phase 6 · Decisions]
   P7[Phase 7 · Camera-Ready]

@@ -1,20 +1,14 @@
 'use client';
 
-import { ProtectedRoute } from '@/components/auth/protected-route';
-import { ConferenceNav } from '@/components/dashboard/conference-nav';
+import { PageHeader } from '@/components/dashboard/page-header';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { fetchAuditLogs } from '@/lib/api-client';
 import type { AuditEntry } from '@/lib/conference-types';
-import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 export default function ConferenceAuditPage() {
-  return (
-    <ProtectedRoute>
-      <AuditContent />
-    </ProtectedRoute>
-  );
+  return <AuditContent />;
 }
 
 function AuditContent() {
@@ -33,17 +27,8 @@ function AuditContent() {
   }, [load]);
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-10 space-y-6">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href={`/dashboard/conferences/${conferenceId}`} className="hover:underline">
-            Back to overview
-          </Link>
-        </p>
-        <h1 className="text-2xl font-semibold">Audit log</h1>
-        <p className="text-sm text-muted-foreground">Email delivery log arrives in Phase 9.</p>
-      </div>
-      <ConferenceNav conferenceId={conferenceId} />
+    <div className="space-y-6">
+      <PageHeader title="Audit log" description="Recent actions recorded for this conference." />
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 

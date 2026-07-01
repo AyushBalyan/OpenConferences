@@ -4,7 +4,7 @@ import type Redis from 'ioredis';
 import { fromNodeHeaders } from 'better-auth/node';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { AuditService } from '../audit/audit.service';
-import { MailerService } from '../mailer/mailer.service';
+import { NotificationPublisher } from '../messaging/notification.publisher';
 import { createAuthInstance, type AuthInstance } from './auth.config';
 import type { AuthSession, AuthUser } from './auth.types';
 
@@ -12,8 +12,12 @@ import type { AuthSession, AuthUser } from './auth.types';
 export class AuthService {
   readonly auth: AuthInstance;
 
-  constructor(@Inject(REDIS_CLIENT) redis: Redis, mailer: MailerService, audit: AuditService) {
-    this.auth = createAuthInstance({ redis, mailer, audit });
+  constructor(
+    @Inject(REDIS_CLIENT) redis: Redis,
+    notifications: NotificationPublisher,
+    audit: AuditService,
+  ) {
+    this.auth = createAuthInstance({ redis, notifications, audit });
   }
 
   async getSession(headers: IncomingHttpHeaders): Promise<AuthSession | null> {

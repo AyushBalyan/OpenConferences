@@ -1,7 +1,7 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { signUpSchema, type SignUpInput } from '@openconferences/schemas';
@@ -9,13 +9,21 @@ import { authClient } from '@/lib/auth-client';
 import { AuthShell, AuthLink } from '@/components/auth/auth-shell';
 import { TurnstileField } from '@/components/auth/turnstile-field';
 import { isTurnstileEnabled, turnstileFetchOptions, withTurnstileBody } from '@/lib/turnstile';
+import { resolveReviewerInviteToken } from '@/lib/reviewer-invite-pending';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { TurnstileInstance } from '@marsidev/react-turnstile';
 
-export default function SignUpPage() {
+function reviewerInviteQuery(reviewerInvite: string | null) {
+  return reviewerInvite ? `?reviewerInvite=${encodeURIComponent(reviewerInvite)}` : '';
+}
+
+function SignUpContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const reviewerInvite = resolveReviewerInviteToken(searchParams.get('reviewerInvite'));
+  const invitedEmail = searchParams.get('email');
   const turnstileRef = useRef<TurnstileInstance | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +34,9 @@ export default function SignUpPage() {
     formState: { errors, isSubmitting },
   } = useForm<SignUpInput>({
     resolver: zodResolver(signUpSchema),
+    defaultValues: {
+      email: invitedEmail ?? '',
+    },
   });
 
   const onSubmit = handleSubmit(async (values) => {
@@ -61,19 +72,34 @@ export default function SignUpPage() {
     }
 
     setMessage('Account created. Check your email to verify your address before signing in.');
-    router.push('/verify-email?sent=1');
+    const verifyParams = new URLSearchParams({ sent: '1' });
+    if (reviewerInvite) {
+      verifyParams.set('reviewerInvite', reviewerInvite);
+    }
+    router.push(`/verify-email?${verifyParams.toString()}`);
   });
+
+  const signInHref = `/sign-in${reviewerInviteQuery(reviewerInvite)}`;
 
   return (
     <AuthShell
       title="Create your account"
-      description="One global identity for every conference you join."
+      description={
+        reviewerInvite
+          ? 'Sign up with the invited email address to join as a reviewer.'
+          : 'One global identity for every conference you join.'
+      }
       footer={
         <>
-          Already have an account? <AuthLink href="/sign-in">Sign in</AuthLink>
+          Already have an account? <AuthLink href={signInHref}>Sign in</AuthLink>
         </>
       }
     >
+      {reviewerInvite ? (
+        <p className="rounded-md border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+          You were invited to review. Use the same email address that received the invitation.
+        </p>
+      ) : null}
       <form className="space-y-4" onSubmit={onSubmit}>
         <div className="space-y-2">
           <Label htmlFor="name">Full name</Label>
@@ -105,5 +131,13 @@ export default function SignUpPage() {
         </Button>
       </form>
     </AuthShell>
+  );
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-sm">Loading…</div>}>
+      <SignUpContent />
+    </Suspense>
   );
 }

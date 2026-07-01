@@ -8,7 +8,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import type { RoleKind } from '@openconferences/db';
-import { prisma } from '@openconferences/db';
+import { prisma, withTenantContext } from '@openconferences/db';
 import type { AuthenticatedRequest } from './auth.guard';
 import { MFA_REQUIRED_KEY, REQUIRED_ROLES_KEY, REQUIRE_MEMBERSHIP_KEY } from './guard.constants';
 import { MFA_REQUIRED_ROLES } from '../../tenancy/role-hierarchy';
@@ -36,6 +36,11 @@ function resolveRouteScope(request: Request): {
 
   if (path.includes('/conferences/') && params.id) {
     return { conferenceId: params.id as string };
+  }
+
+  const conferenceMatch = path.match(/\/conferences\/([^/]+)/);
+  if (conferenceMatch?.[1]) {
+    return { conferenceId: conferenceMatch[1] };
   }
 
   if (path.includes('/organizations/') && params.id) {
@@ -66,44 +71,63 @@ export class MembershipGuard implements CanActivate {
     request.conferenceId = conferenceId;
     request.organizationId = organizationId;
 
-    const memberships = await prisma.membership.findMany({
-      where: {
-        userId: user.id,
-        ...(conferenceId
-          ? {
-              OR: [
-                { conferenceId, scope: 'CONFERENCE' },
-                ...(organizationId ? [{ organizationId, scope: 'ORGANIZATION' as const }] : []),
-              ],
-            }
-          : organizationId
-            ? { organizationId, scope: 'ORGANIZATION' }
-            : {}),
-      },
-      include: { roles: true },
-    });
+    let resolvedOrganizationId = organizationId;
 
-    // For conference routes, also inherit org-level roles from the conference's org
-    let orgLevelRoles: RoleKind[] = [];
     if (conferenceId && !organizationId) {
-      const conference = await prisma.conference.findFirst({
-        where: { id: conferenceId, deletedAt: null },
-        select: { organizationId: true },
-      });
-
+      const conference = await withTenantContext({ userId: user.id, conferenceId }, async (tx) =>
+        tx.conference.findFirst({
+          where: { id: conferenceId, deletedAt: null },
+          select: { organizationId: true },
+        }),
+      );
       if (conference) {
+        resolvedOrganizationId = conference.organizationId;
         request.organizationId = conference.organizationId;
-        const orgMemberships = await prisma.membership.findMany({
+      }
+    }
+
+    const { memberships, orgLevelRoles } = await withTenantContext(
+      {
+        userId: user.id,
+        conferenceId,
+        organizationId: resolvedOrganizationId,
+      },
+      async (tx) => {
+        const scopedMemberships = await tx.membership.findMany({
           where: {
             userId: user.id,
-            organizationId: conference.organizationId,
-            scope: 'ORGANIZATION',
+            ...(conferenceId
+              ? {
+                  OR: [
+                    { conferenceId, scope: 'CONFERENCE' },
+                    ...(resolvedOrganizationId
+                      ? [{ organizationId: resolvedOrganizationId, scope: 'ORGANIZATION' as const }]
+                      : []),
+                  ],
+                }
+              : resolvedOrganizationId
+                ? { organizationId: resolvedOrganizationId, scope: 'ORGANIZATION' }
+                : {}),
           },
           include: { roles: true },
         });
-        orgLevelRoles = orgMemberships.flatMap((m) => m.roles.map((g) => g.role));
-      }
-    }
+
+        let inheritedOrgRoles: RoleKind[] = [];
+        if (conferenceId && resolvedOrganizationId) {
+          const orgMemberships = await tx.membership.findMany({
+            where: {
+              userId: user.id,
+              organizationId: resolvedOrganizationId,
+              scope: 'ORGANIZATION',
+            },
+            include: { roles: true },
+          });
+          inheritedOrgRoles = orgMemberships.flatMap((m) => m.roles.map((g) => g.role));
+        }
+
+        return { memberships: scopedMemberships, orgLevelRoles: inheritedOrgRoles };
+      },
+    );
 
     const roleGrants = [
       ...new Set([

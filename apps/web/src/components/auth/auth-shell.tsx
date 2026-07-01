@@ -12,15 +12,15 @@ type AuthShellProps = {
 
 export function AuthShell({ title, description, children, footer }: AuthShellProps) {
   return (
-    <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12">
-      <Card className="w-full max-w-md">
+    <div className="flex min-h-dvh items-center justify-center bg-slate-50 px-4 py-12">
+      <Card className="w-full max-w-md border-slate-200 shadow-sm">
         <CardHeader>
-          <CardTitle>{title}</CardTitle>
+          <CardTitle className="text-2xl text-slate-900">{title}</CardTitle>
           <CardDescription>{description}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">{children}</CardContent>
         {footer ? (
-          <div className="border-t px-6 py-4 text-sm text-muted-foreground">{footer}</div>
+          <div className="border-t border-slate-100 px-6 py-4 text-sm text-slate-500">{footer}</div>
         ) : null}
       </Card>
     </div>
@@ -29,6 +29,9 @@ export function AuthShell({ title, description, children, footer }: AuthShellPro
 
 export function AuthLink(props: React.ComponentProps<typeof Link>) {
   return (
-    <Link className="font-medium text-primary underline-offset-4 hover:underline" {...props} />
+    <Link
+      className="font-medium text-indigo-600 underline-offset-4 hover:text-indigo-700 hover:underline"
+      {...props}
+    />
   );
 }

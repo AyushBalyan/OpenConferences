@@ -64,7 +64,25 @@ services:
       exit 0;
       "
 
+  clamav:
+    # Official image is amd64-only; Rosetta/QEMU on Apple Silicon.
+    image: clamav/clamav:1.4
+    platform: linux/amd64
+    container_name: openconferences-clamav
+    restart: unless-stopped
+    ports:
+      - '3310:3310'
+    volumes:
+      - clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ['CMD', '/usr/local/bin/clamdcheck.sh']
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+
 volumes:
   postgres_data:
   redis_data:
   minio_data:
+  clamav_data:

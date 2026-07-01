@@ -48,6 +48,8 @@ export const organizationSchema = z.object({
 
 export const feeScheduleSchema = z.object({
   currency: z.string().length(3),
+  earlyBirdEndsAt: z.string().datetime().nullable().optional(),
+  registrationDeadlineAt: z.string().datetime().nullable().optional(),
   matrix: z.record(
     z.enum(['REGULAR', 'STUDENT']),
     z.record(z.enum(['EARLY', 'REGULAR']), z.number().int().nonnegative()),
@@ -111,6 +113,7 @@ export const conferenceSchema = z.object({
   reviewConfig: reviewConfigSchema,
   feeSchedule: feeScheduleSchema,
   version: z.number().int(),
+  myRoles: z.array(roleKindSchema),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -195,6 +198,8 @@ export type RoleKind = z.infer<typeof roleKindSchema>;
 export type MembershipScope = z.infer<typeof membershipScopeSchema>;
 export type ConferenceStatus = z.infer<typeof conferenceStatusSchema>;
 export type BlindingMode = z.infer<typeof blindingModeSchema>;
+export type ConferenceDto = z.infer<typeof conferenceSchema>;
+export type ConferenceListDto = z.infer<typeof conferenceListSchema>;
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
 export type CreateConferenceInput = z.infer<typeof createConferenceSchema>;
 export type UpdateConferenceSettingsInput = z.infer<typeof updateConferenceSettingsSchema>;

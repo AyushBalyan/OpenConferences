@@ -2,6 +2,10 @@ import { z } from 'zod';
 
 export * from './auth.js';
 export * from './tenancy.js';
+export * from './submission.js';
+export * from './review.js';
+export * from './billing.js';
+export * from './messaging.js';
 
 export const problemEnvelopeSchema = z.object({
   type: z.string().url().or(z.string().startsWith('https://')),

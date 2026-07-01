@@ -16,6 +16,10 @@ import {
   problemEnvelopeSchema,
 } from '@openconferences/schemas';
 import { organizationsContract, conferencesContract } from './tenancy.js';
+import { submissionContract } from './submission.js';
+import { reviewContract } from './review.js';
+import { billingContract, webhookContract } from './billing.js';
+import { messagingContract } from './messaging.js';
 
 const c = initContract();
 
@@ -154,9 +158,22 @@ export const apiContract = c.router({
   auth: authContract,
   organizations: organizationsContract,
   conferences: conferencesContract,
+  submission: submissionContract,
+  review: reviewContract,
+  billing: billingContract,
+  webhooks: webhookContract,
+  messaging: messagingContract,
 });
 
 export type ApiContract = typeof apiContract;
 
 export { organizationsContract, conferencesContract } from './tenancy.js';
 export type { OrganizationsContract, ConferencesContract } from './tenancy.js';
+export { submissionContract } from './submission.js';
+export type { SubmissionContract } from './submission.js';
+export { reviewContract } from './review.js';
+export type { ReviewContract } from './review.js';
+export { billingContract, webhookContract } from './billing.js';
+export type { BillingContract, WebhookContract } from './billing.js';
+export { messagingContract } from './messaging.js';
+export type { MessagingContract } from './messaging.js';

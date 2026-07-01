@@ -1,6 +1,8 @@
 export const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 
-export const isTurnstileEnabled = turnstileSiteKey.length > 0;
+/** Match API: Turnstile is optional in local dev, required in production builds. */
+export const isTurnstileEnabled =
+  turnstileSiteKey.length > 0 && process.env.NODE_ENV !== 'development';
 
 export const TURNSTILE_RESPONSE_HEADER = 'cf-turnstile-response';
 
