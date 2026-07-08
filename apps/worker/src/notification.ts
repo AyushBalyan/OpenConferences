@@ -1,5 +1,6 @@
 import { withTenantContext } from '@openconferences/db';
 import type { NotificationJobPayload } from '@openconferences/schemas';
+import { formatMailError } from './mail-error.js';
 import { createMailerAdapter } from './mailer.js';
 
 const mailer = createMailerAdapter();
@@ -10,6 +11,7 @@ export async function processNotificationJob(payload: NotificationJobPayload): P
       to: payload.to,
       subject: payload.subject,
       html: payload.html,
+      text: payload.text,
       replyTo: payload.replyTo,
       tags: payload.tags,
     });
@@ -26,7 +28,7 @@ export async function processNotificationJob(payload: NotificationJobPayload): P
       }),
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown send error';
+    const message = formatMailError(err);
 
     await withTenantContext({ bypass: true }, async (tx) =>
       tx.notificationLog.update({

@@ -20,6 +20,12 @@ import type {
   MakeDecisionInput,
   NotifyDecisionsInput,
 } from '@openconferences/schemas';
+import {
+  paginateItems,
+  prismaCursorArgs,
+  resolveLimit,
+  type CursorPaginationOptions,
+} from '../common/pagination/cursor';
 import type { TransactionClient } from '../common/types/transaction-client';
 import { assertScope } from '../common/scope/assert-scope';
 import { AuditService } from '../audit/audit.service';
@@ -62,37 +68,43 @@ export class DecisionsService {
     userId: string,
     conferenceId: string,
     roles: RoleKind[],
-    roundId?: string,
+    options: CursorPaginationOptions & { roundId?: string; outcome?: DecisionOutcome } = {},
   ): Promise<DecisionListDto> {
     if (!canCoordinateReview(roles)) {
       throw new ForbiddenException('Insufficient permissions to list decisions');
     }
 
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
+    const limit = resolveLimit(options.limit);
 
-    const decisions = await withTenantContext(
+    const rows = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.decision.findMany({
           where: {
             conferenceId,
-            ...(roundId ? { roundId } : {}),
+            ...(options.roundId ? { roundId: options.roundId } : {}),
+            ...(options.outcome ? { outcome: options.outcome } : {}),
           },
           include: {
             paper: { select: { title: true } },
             round: { select: { roundNumber: true } },
           },
-          orderBy: [{ createdAt: 'desc' }],
+          orderBy: { createdAt: 'desc' },
+          ...prismaCursorArgs(options, limit),
         }),
     );
 
+    const page = paginateItems(rows, limit, (row) => row.id);
+
     return {
-      data: decisions.map((d) => ({
+      data: page.data.map((d) => ({
         ...mapDecision(d),
         paperTitle: d.paper.title,
         roundNumber: d.round.roundNumber,
       })),
-      roundId,
+      roundId: options.roundId,
+      nextCursor: page.nextCursor,
     };
   }
 
@@ -544,11 +556,15 @@ export class DecisionsService {
         organizationId: paper.organizationId,
         paperTitle: title,
         outcomeLabel,
-        rationaleBlock: decision.rationale ?? '',
+        rationaleBlock: decision.rationale?.trim()
+          ? `Committee note: ${decision.rationale.trim()}`
+          : '',
         acceptBlock:
           decision.outcome === 'ACCEPT'
-            ? 'Please proceed with camera-ready submission and conference registration.'
-            : '',
+            ? 'Next steps: upload your camera-ready version and complete conference registration before the deadline.'
+            : decision.outcome === 'REJECT'
+              ? 'Thank you for your submission. We encourage you to consider the reviewer feedback when preparing future work.'
+              : '',
         decisionId: decision.id,
         idempotencyKey: `decision-${decision.paperId}-${roundId}`,
       });

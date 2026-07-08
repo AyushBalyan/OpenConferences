@@ -38,8 +38,8 @@ export class ReviewController {
   @TsRestHandler(reviewContract.listRounds)
   @RequireMembership()
   listRounds(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
-    return tsRestHandler(reviewContract.listRounds, async ({ params }) => {
-      const result = await this.rounds.list(user.id, params.conferenceId, roles);
+    return tsRestHandler(reviewContract.listRounds, async ({ params, query }) => {
+      const result = await this.rounds.list(user.id, params.conferenceId, roles, query);
       return { status: 200 as const, body: result };
     });
   }
@@ -74,8 +74,8 @@ export class ReviewController {
   @RequireConferenceOrganizer()
   @RequireMembership()
   listInvitations(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
-    return tsRestHandler(reviewContract.listInvitations, async ({ params }) => {
-      const result = await this.invitations.list(user.id, params.conferenceId, roles);
+    return tsRestHandler(reviewContract.listInvitations, async ({ params, query }) => {
+      const result = await this.invitations.list(user.id, params.conferenceId, roles, query);
       return { status: 200 as const, body: result };
     });
   }
@@ -90,6 +90,21 @@ export class ReviewController {
     });
   }
 
+  @TsRestHandler(reviewContract.resendInvitation)
+  @RequireConferenceOrganizer()
+  @RequireMembership()
+  resendInvitation(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(reviewContract.resendInvitation, async ({ params }) => {
+      const result = await this.invitations.resend(
+        user.id,
+        params.conferenceId,
+        params.invitationId,
+        roles,
+      );
+      return { status: 200 as const, body: result };
+    });
+  }
+
   @TsRestHandler(reviewContract.listBids)
   @RequireReviewCoordination()
   @RequireMembership()
@@ -101,7 +116,6 @@ export class ReviewController {
   }
 
   @TsRestHandler(reviewContract.getPaperPool)
-  @RequireRole('REVIEWER')
   @RequireMembership()
   getPaperPool(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
     return tsRestHandler(reviewContract.getPaperPool, async ({ params, query }) => {
@@ -123,8 +137,8 @@ export class ReviewController {
   @TsRestHandler(reviewContract.listCoi)
   @RequireMembership()
   listCoi(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
-    return tsRestHandler(reviewContract.listCoi, async ({ params }) => {
-      const result = await this.coi.list(user.id, params.conferenceId, roles);
+    return tsRestHandler(reviewContract.listCoi, async ({ params, query }) => {
+      const result = await this.coi.list(user.id, params.conferenceId, roles, query);
       return { status: 200 as const, body: result };
     });
   }
@@ -151,12 +165,13 @@ export class ReviewController {
   @RequireReviewCoordination()
   @RequireMembership()
   listAssignments(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
-    return tsRestHandler(reviewContract.listAssignments, async ({ params }) => {
+    return tsRestHandler(reviewContract.listAssignments, async ({ params, query }) => {
       const result = await this.assignments.list(
         user.id,
         params.conferenceId,
         params.roundId,
         roles,
+        query,
       );
       return { status: 200 as const, body: result };
     });
@@ -211,8 +226,13 @@ export class ReviewController {
   @RequireRole('REVIEWER')
   @RequireMembership()
   listMyAssignments(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
-    return tsRestHandler(reviewContract.listMyAssignments, async ({ params }) => {
-      const result = await this.reviews.listMyAssignments(user.id, params.conferenceId, roles);
+    return tsRestHandler(reviewContract.listMyAssignments, async ({ params, query }) => {
+      const result = await this.reviews.listMyAssignments(
+        user.id,
+        params.conferenceId,
+        roles,
+        query,
+      );
       return { status: 200 as const, body: result };
     });
   }
@@ -273,7 +293,7 @@ export class ReviewController {
         params.conferenceId,
         params.paperId,
         roles,
-        query.roundId,
+        query,
       );
       return { status: 200 as const, body: result };
     });
@@ -333,12 +353,7 @@ export class ReviewController {
   @RequireMembership()
   listDecisions(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
     return tsRestHandler(reviewContract.listDecisions, async ({ params, query }) => {
-      const result = await this.decisions.listDecisions(
-        user.id,
-        params.conferenceId,
-        roles,
-        query.roundId,
-      );
+      const result = await this.decisions.listDecisions(user.id, params.conferenceId, roles, query);
       return { status: 200 as const, body: result };
     });
   }

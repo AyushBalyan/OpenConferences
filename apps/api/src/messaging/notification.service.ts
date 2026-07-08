@@ -98,6 +98,7 @@ export class NotificationService {
 
     const subject = renderTemplate(template.subject, input.context);
     const html = renderTemplate(template.bodyHtml, input.context);
+    const text = template.bodyText ? renderTemplate(template.bodyText, input.context) : undefined;
 
     if (getConfig().isTest) {
       lastTestNotification = {
@@ -135,6 +136,7 @@ export class NotificationService {
       to: normalizedEmail,
       subject,
       html,
+      text,
       replyTo: input.replyTo,
       tags: input.tags ?? [input.templateKey],
       idempotencyKey: input.idempotencyKey,

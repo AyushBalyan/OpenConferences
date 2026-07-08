@@ -78,6 +78,9 @@ export async function withTenantContext<T>(
 
 export { PrismaClient, Prisma };
 export { generateId } from './id.js';
+export { syncPlatformNotificationTemplates } from './sync-notification-templates.js';
+export { PLATFORM_NOTIFICATION_TEMPLATES } from './notification-templates.js';
+export type { PlatformNotificationTemplate } from './notification-templates.js';
 export { applyScanResult } from './scan.js';
 export type { ApplyScanResultInput } from './scan.js';
 export type {

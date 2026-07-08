@@ -15,6 +15,12 @@ import type {
   SaveReviewInput,
   SubmitReviewInput,
 } from '@openconferences/schemas';
+import {
+  paginateItems,
+  prismaCursorArgs,
+  resolveLimit,
+  type CursorPaginationOptions,
+} from '../common/pagination/cursor';
 import { assertScope } from '../common/scope/assert-scope';
 import { AuditService } from '../audit/audit.service';
 import { NotificationPublisher } from '../messaging/notification.publisher';
@@ -49,14 +55,16 @@ export class ReviewsService {
     userId: string,
     conferenceId: string,
     roles: RoleKind[],
-  ): Promise<{ data: MyAssignmentItemDto[] }> {
+    options: CursorPaginationOptions = {},
+  ): Promise<{ data: MyAssignmentItemDto[]; nextCursor: string | null }> {
     if (!roles.includes('REVIEWER') && !isPrivilegedReader(roles)) {
       throw new ForbiddenException('Reviewer role required');
     }
 
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
+    const limit = resolveLimit(options.limit);
 
-    const assignments = await withTenantContext(
+    const rows = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.reviewerAssignment.findMany({
@@ -70,18 +78,22 @@ export class ReviewsService {
             round: { select: { roundNumber: true, status: true } },
             review: true,
           },
-          orderBy: [{ dueAt: 'asc' }, { createdAt: 'desc' }],
+          orderBy: { createdAt: 'desc' },
+          ...prismaCursorArgs(options, limit),
         }),
     );
 
+    const page = paginateItems(rows, limit, (row) => row.id);
+
     return {
-      data: assignments.map((a) => ({
+      data: page.data.map((a) => ({
         ...mapReviewerAssignment(a),
         paperTitle: a.paper.title,
         roundNumber: a.round.roundNumber,
         roundStatus: a.round.status,
         review: a.review ? mapReview(a.review) : null,
       })),
+      nextCursor: page.nextCursor,
     };
   }
 
@@ -272,9 +284,11 @@ export class ReviewsService {
     conferenceId: string,
     paperId: string,
     roles: RoleKind[],
-    roundId?: string,
+    options: CursorPaginationOptions & { roundId?: string } = {},
   ): Promise<ReviewListDto> {
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
+    const limit = resolveLimit(options.limit);
+    const roundId = options.roundId;
 
     const paper = await withTenantContext({ userId, conferenceId }, async (tx) =>
       tx.paper.findFirst({
@@ -297,7 +311,7 @@ export class ReviewsService {
       throw new ForbiddenException('Insufficient permissions to view reviews');
     }
 
-    const reviews = await withTenantContext(
+    const rows = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.review.findMany({
@@ -307,11 +321,14 @@ export class ReviewsService {
             ...(roundId ? { roundId } : {}),
             ...(privileged ? {} : { visibility: 'AUTHOR_VISIBLE' }),
           },
-          orderBy: { createdAt: 'asc' },
+          orderBy: { createdAt: 'desc' },
+          ...prismaCursorArgs(options, limit),
         }),
     );
 
-    const activeRoundId = roundId ?? reviews[0]?.roundId;
+    const page = paginateItems(rows, limit, (row) => row.id);
+
+    const activeRoundId = roundId ?? page.data[0]?.roundId;
     let roundStatus: RoundStatus | undefined;
 
     if (activeRoundId) {
@@ -322,13 +339,14 @@ export class ReviewsService {
     }
 
     const data = privileged
-      ? reviews.map((r) => mapReview(r))
-      : reviews.map((r) => mapReviewForAuthor(r));
+      ? page.data.map((r) => mapReview(r))
+      : page.data.map((r) => mapReviewForAuthor(r));
 
     return {
       data,
       roundId: activeRoundId,
       roundStatus,
+      nextCursor: page.nextCursor,
     };
   }
 

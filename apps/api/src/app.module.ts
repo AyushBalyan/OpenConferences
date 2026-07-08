@@ -6,6 +6,7 @@ import { HealthModule } from './health/health.module';
 import { DebugModule } from './debug/debug.module';
 import { RedisModule } from './redis/redis.module';
 import { QueueModule } from './queue/queue.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthModule } from './auth/auth.module';
 import { TenancyModule } from './tenancy/tenancy.module';
 import { SubmissionModule } from './submission/submission.module';
@@ -53,6 +54,7 @@ const config = getConfig();
     SubmissionModule,
     ReviewModule,
     BillingModule,
+    AnalyticsModule,
     HealthModule,
     ...(config.isDev ? [DebugModule] : []),
   ],

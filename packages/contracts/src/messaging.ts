@@ -6,6 +6,7 @@ import {
   notificationTemplateSchema,
   createNotificationTemplateSchema,
   updateNotificationTemplateSchema,
+  notificationTemplateListQuerySchema,
   resendNotificationResponseSchema,
   problemEnvelopeSchema,
 } from '@openconferences/schemas';
@@ -59,6 +60,7 @@ export const messagingContract = c.router({
     method: 'GET',
     path: '/conferences/:id/notification-templates',
     pathParams: conferenceIdParams,
+    query: notificationTemplateListQuerySchema,
     responses: {
       200: notificationTemplateListSchema,
       401: problemEnvelopeSchema,

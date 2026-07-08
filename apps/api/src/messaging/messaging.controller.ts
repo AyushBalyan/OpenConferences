@@ -1,7 +1,9 @@
-import { Controller } from '@nestjs/common';
+import { Controller, UseGuards } from '@nestjs/common';
 import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
 import { messagingContract } from '@openconferences/contracts';
 import type { RoleKind } from '@openconferences/db';
+import { AuthGuard } from '../common/guards/auth.guard';
+import { MembershipGuard } from '../common/guards/membership.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequireRole } from '../common/decorators/require-role.decorator';
 import { RoleGrants } from '../common/decorators/role-grants.decorator';
@@ -11,6 +13,7 @@ import { NotificationService } from './notification.service';
 import { TemplateService } from './template.service';
 
 @Controller()
+@UseGuards(AuthGuard, MembershipGuard)
 export class MessagingController {
   constructor(
     private readonly conferences: ConferenceService,
@@ -41,10 +44,10 @@ export class MessagingController {
   @TsRestHandler(messagingContract.listNotificationTemplates)
   @RequireRole('ORGANIZER', 'ORG_ADMIN', 'PLATFORM_ADMIN')
   listNotificationTemplates(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
-    return tsRestHandler(messagingContract.listNotificationTemplates, async ({ params }) => {
+    return tsRestHandler(messagingContract.listNotificationTemplates, async ({ params, query }) => {
       const conference = await this.conferences.loadConference(user.id, params.id, roles);
-      const data = await this.templates.listForOrganization(conference.organizationId);
-      return { status: 200 as const, body: { data } };
+      const result = await this.templates.listForOrganization(conference.organizationId, query);
+      return { status: 200 as const, body: result };
     });
   }
 

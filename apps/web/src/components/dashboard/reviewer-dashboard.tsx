@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   DataTable,
   DataTableBody,
@@ -30,8 +30,8 @@ export function ReviewerDashboard({ conferenceId, conferenceName }: ReviewerDash
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const data = await fetchMyAssignments(conferenceId);
-    setAssignments(data);
+    const result = await fetchMyAssignments(conferenceId);
+    setAssignments(result.data);
   }, [conferenceId]);
 
   useEffect(() => {
@@ -191,24 +191,41 @@ export function ReviewerDashboard({ conferenceId, conferenceName }: ReviewerDash
       </div>
 
       {!loading && assignments.some((item) => item.review?.submittedAt) ? (
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle>Completed reviews</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-slate-600">
-            {assignments
-              .filter((item) => item.review?.submittedAt)
-              .map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-center justify-between border-b border-slate-100 py-2 last:border-0"
-                >
-                  <span>{item.paperTitle}</span>
-                  <WorkflowBadge label="Submitted" tone="success" />
-                </div>
-              ))}
-          </CardContent>
-        </Card>
+        <div className="mt-6 space-y-3">
+          <h2 className="text-lg font-medium text-slate-900">Completed reviews</h2>
+          <DataTable>
+            <DataTableHeader>
+              <tr>
+                <DataTableHead>Paper</DataTableHead>
+                <DataTableHead>Status</DataTableHead>
+                <DataTableHead className="text-right">Action</DataTableHead>
+              </tr>
+            </DataTableHeader>
+            <DataTableBody>
+              {assignments
+                .filter((item) => item.review?.submittedAt)
+                .map((item) => (
+                  <DataTableRow key={item.id}>
+                    <DataTableCell>
+                      <p className="font-medium text-slate-900">{item.paperTitle}</p>
+                    </DataTableCell>
+                    <DataTableCell>
+                      <WorkflowBadge label="Submitted" tone="success" />
+                    </DataTableCell>
+                    <DataTableCell className="text-right">
+                      <Button asChild size="sm" variant="ghost">
+                        <Link
+                          href={`/dashboard/conferences/${conferenceId}/reviews/assignments/${item.id}`}
+                        >
+                          View
+                        </Link>
+                      </Button>
+                    </DataTableCell>
+                  </DataTableRow>
+                ))}
+            </DataTableBody>
+          </DataTable>
+        </div>
       ) : null}
     </>
   );

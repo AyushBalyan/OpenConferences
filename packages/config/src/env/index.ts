@@ -57,7 +57,18 @@ const baseEnvSchema = z.object({
   BETTER_AUTH_URL: z.string().url().default('http://localhost:3001'),
   AUTH_LOCKOUT_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   AUTH_LOCKOUT_WINDOW_SECONDS: z.coerce.number().int().positive().default(900),
-  MAIL_FROM: z.string().email().default('noreply@example.com'),
+  MAIL_FROM: z
+    .string()
+    .refine(
+      (value) => {
+        const match = value.match(/^(.+?\s*)?<([^>]+)>$/);
+        const email = (match?.[2] ?? value).trim();
+        return z.string().email().safeParse(email).success;
+      },
+      { message: 'Invalid MAIL_FROM address' },
+    )
+    .default('OpenConferences <noreply@example.com>'),
+  MAIL_FROM_NAME: z.string().optional(),
   ZEPTO_MAIL_API_KEY: z.string().optional(),
   ZEPTO_MAIL_API_URL: z.string().url().default('https://api.zeptomail.in/v1.1/email'),
   ZEPTO_WEBHOOK_SECRET: z.string().optional(),
@@ -107,6 +118,7 @@ export type AppConfig = {
   };
   mail: {
     from: string;
+    fromName?: string;
     zeptoApiKey?: string;
     zeptoApiUrl: string;
     zeptoWebhookSecret?: string;
@@ -178,6 +190,7 @@ function parseEnv(env: Record<string, string | undefined> = process.env): AppCon
     },
     mail: {
       from: data.MAIL_FROM,
+      fromName: data.MAIL_FROM_NAME,
       zeptoApiKey: data.ZEPTO_MAIL_API_KEY,
       zeptoApiUrl: data.ZEPTO_MAIL_API_URL,
       zeptoWebhookSecret: data.ZEPTO_WEBHOOK_SECRET,

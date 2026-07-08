@@ -3,6 +3,11 @@ import { apiContract } from '@openconferences/contracts';
 
 const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1';
 
+export type PaginatedResult<T> = {
+  data: T[];
+  nextCursor: string | null;
+};
+
 export const apiClient = initClient(apiContract, {
   baseUrl,
   baseHeaders: {},
@@ -23,6 +28,38 @@ export async function fetchMe() {
     return result.body;
   }
   return null;
+}
+
+export async function setupAccount(body: {
+  name: string;
+  password: string;
+  confirmPassword: string;
+}) {
+  const result = await apiClient.auth.setupAccount({ body });
+  if (result.status === 200) {
+    return result.body;
+  }
+  if (result.status === 409) {
+    throw new Error(result.body.detail ?? 'Account already has a password');
+  }
+  if (result.status === 400) {
+    throw new Error(result.body.detail ?? 'Invalid account setup request');
+  }
+  throw new Error('Failed to set up account');
+}
+
+export async function fetchMeDashboard() {
+  const result = await apiClient.auth.dashboard();
+  if (result.status === 200) return result.body;
+  throw new Error('Failed to load dashboard');
+}
+
+export async function fetchAnalyticsOverview(conferenceId: string) {
+  const result = await apiClient.analytics.getOverview({ params: { conferenceId } });
+  if (result.status === 200) return result.body;
+  if (result.status === 403) throw new Error(result.body.detail ?? 'Forbidden');
+  if (result.status === 404) throw new Error('Conference not found');
+  throw new Error('Failed to load analytics');
 }
 
 export async function fetchOrganizations() {
@@ -124,12 +161,15 @@ export async function revokeRole(
   throw new Error('Failed to revoke role');
 }
 
-export async function fetchAuditLogs(conferenceId: string) {
+export async function fetchAuditLogs(
+  conferenceId: string,
+  query?: { cursor?: string; limit?: number },
+) {
   const result = await apiClient.conferences.listAuditLogs({
     params: { id: conferenceId },
-    query: { limit: 50 },
+    query: query ?? {},
   });
-  if (result.status === 200) return result.body.data;
+  if (result.status === 200) return result.body;
   throw new Error('Failed to load audit logs');
 }
 
@@ -160,6 +200,7 @@ export async function resendNotification(conferenceId: string, logId: string) {
 export async function fetchNotificationTemplates(conferenceId: string) {
   const result = await apiClient.messaging.listNotificationTemplates({
     params: { id: conferenceId },
+    query: {},
   });
   if (result.status === 200) return result.body.data;
   throw new Error('Failed to load notification templates');
@@ -218,10 +259,20 @@ export async function transitionConferenceStatus(
   throw new Error('Failed to transition status');
 }
 
-export async function fetchPapers(conferenceId: string, mine?: boolean) {
+export async function fetchPapers(
+  conferenceId: string,
+  query?: {
+    mine?: boolean;
+    cursor?: string;
+    limit?: number;
+    status?: import('@openconferences/schemas').PaperDto['status'];
+    trackId?: string;
+    q?: string;
+  },
+) {
   const result = await apiClient.submission.listPapers({
     params: { conferenceId },
-    query: mine ? { mine: true } : {},
+    query: query ?? {},
   });
   if (result.status === 200) return result.body;
   throw new Error('Failed to load submissions');
@@ -434,6 +485,16 @@ export async function issueReviewerInvitation(
   throw new Error('Failed to issue invitation');
 }
 
+export async function resendReviewerInvitation(conferenceId: string, invitationId: string) {
+  const result = await apiClient.review.resendInvitation({
+    params: { conferenceId, invitationId },
+  });
+  if (result.status === 200) return result.body;
+  if (result.status === 409) throw new Error(result.body.detail ?? 'Cannot resend invitation');
+  if (result.status === 404) throw new Error('Invitation not found');
+  throw new Error('Failed to resend invitation');
+}
+
 export async function acceptReviewerInvitation(token: string) {
   const result = await apiClient.review.acceptInvitation({ body: { token } });
   if (result.status === 200) return result.body;
@@ -562,9 +623,15 @@ export async function deleteAssignment(conferenceId: string, assignmentId: strin
 
 // --- Reviews (Phase 5) ---
 
-export async function fetchMyAssignments(conferenceId: string) {
-  const result = await apiClient.review.listMyAssignments({ params: { conferenceId } });
-  if (result.status === 200) return result.body.data;
+export async function fetchMyAssignments(
+  conferenceId: string,
+  query?: { cursor?: string; limit?: number },
+) {
+  const result = await apiClient.review.listMyAssignments({
+    params: { conferenceId },
+    query: query ?? {},
+  });
+  if (result.status === 200) return result.body;
   throw new Error('Failed to load assignments');
 }
 
@@ -801,9 +868,13 @@ export async function initiatePayment(conferenceId: string, paperId: string) {
   throw new Error('Failed to initiate payment');
 }
 
-export async function fetchRegistrations(conferenceId: string) {
+export async function fetchRegistrations(
+  conferenceId: string,
+  query?: { cursor?: string; limit?: number },
+) {
   const result = await apiClient.billing.listRegistrations({
     params: { conferenceId },
+    query: query ?? {},
   });
   if (result.status === 200) return result.body;
   throw new Error('Failed to load registrations');

@@ -17,7 +17,10 @@ import {
   memberListSchema,
   transitionStatusSchema,
   auditLogListSchema,
+  auditLogListQuerySchema,
+  organizationListSchema,
   problemEnvelopeSchema,
+  cursorPaginationQuerySchema,
 } from '@openconferences/schemas';
 import { z } from 'zod';
 
@@ -32,9 +35,7 @@ const trackIdParams = z.object({
   trackId: z.string().uuid(),
 });
 
-const listQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).optional(),
-  cursor: z.string().uuid().optional(),
+const listQuerySchema = cursorPaginationQuerySchema.extend({
   organizationId: z.string().uuid().optional(),
 });
 
@@ -44,7 +45,7 @@ export const organizationsContract = c.router({
     path: '/organizations',
     query: listQuerySchema,
     responses: {
-      200: z.object({ data: z.array(organizationSchema) }),
+      200: organizationListSchema,
       401: problemEnvelopeSchema,
       403: problemEnvelopeSchema,
     },
@@ -173,6 +174,7 @@ export const conferencesContract = c.router({
     method: 'GET',
     path: '/conferences/:id/tracks',
     pathParams: conferenceIdParams,
+    query: cursorPaginationQuerySchema,
     responses: {
       200: trackListSchema,
       401: problemEnvelopeSchema,
@@ -224,6 +226,7 @@ export const conferencesContract = c.router({
     method: 'GET',
     path: '/conferences/:id/members',
     pathParams: conferenceIdParams,
+    query: cursorPaginationQuerySchema,
     responses: {
       200: memberListSchema,
       401: problemEnvelopeSchema,
@@ -263,7 +266,7 @@ export const conferencesContract = c.router({
     method: 'GET',
     path: '/conferences/:id/audit-logs',
     pathParams: conferenceIdParams,
-    query: z.object({ limit: z.coerce.number().int().min(1).max(100).optional() }),
+    query: auditLogListQuerySchema,
     responses: {
       200: auditLogListSchema,
       401: problemEnvelopeSchema,

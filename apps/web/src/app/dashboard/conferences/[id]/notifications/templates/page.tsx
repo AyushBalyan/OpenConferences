@@ -130,8 +130,8 @@ function TemplatesContent() {
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-      <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
-        <div className="space-y-3">
+      <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)] lg:items-start">
+        <aside className="max-h-[calc(100dvh-13rem)] space-y-3 overflow-y-auto overscroll-contain pr-1">
           {templates.map((template) => (
             <Card
               key={template.id}
@@ -151,7 +151,7 @@ function TemplatesContent() {
             </Card>
           ))}
 
-          <div className="space-y-2 rounded-lg border p-4">
+          <div className="space-y-2 rounded-lg border bg-white p-4">
             <Label htmlFor="new-key">New template key</Label>
             <Input
               id="new-key"
@@ -163,10 +163,10 @@ function TemplatesContent() {
               Create template
             </Button>
           </div>
-        </div>
+        </aside>
 
         {selected ? (
-          <div className="space-y-4 rounded-lg border p-4">
+          <div className="sticky top-8 space-y-4 rounded-lg border bg-white p-4 lg:max-h-[calc(100dvh-13rem)] lg:overflow-y-auto">
             <div className="flex items-center justify-between">
               <h3 className="font-medium">{selected.key}</h3>
               <Button

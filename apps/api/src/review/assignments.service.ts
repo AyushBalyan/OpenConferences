@@ -12,6 +12,12 @@ import type {
   CreateAssignmentInput,
   ReviewerAssignmentDto,
 } from '@openconferences/schemas';
+import {
+  paginateItems,
+  prismaCursorArgs,
+  resolveLimit,
+  type CursorPaginationOptions,
+} from '../common/pagination/cursor';
 import { assertScope } from '../common/scope/assert-scope';
 import { AuditService } from '../audit/audit.service';
 import { NotificationPublisher } from '../messaging/notification.publisher';
@@ -42,6 +48,7 @@ export class AssignmentsService {
     conferenceId: string,
     roundId: string,
     roles: RoleKind[],
+    options: CursorPaginationOptions = {},
   ): Promise<{
     data: Array<
       ReviewerAssignmentDto & {
@@ -51,6 +58,7 @@ export class AssignmentsService {
         bidValue?: BidValue | null;
       }
     >;
+    nextCursor: string | null;
   }> {
     if (!canCoordinateReview(roles)) {
       throw new ForbiddenException('Insufficient permissions to list assignments');
@@ -58,8 +66,9 @@ export class AssignmentsService {
 
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
     await this.rounds.loadRound(userId, conferenceId, roundId, roles);
+    const limit = resolveLimit(options.limit);
 
-    const assignments = await withTenantContext(
+    const rows = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.reviewerAssignment.findMany({
@@ -69,8 +78,11 @@ export class AssignmentsService {
             reviewer: { select: { name: true, email: true } },
           },
           orderBy: { createdAt: 'desc' },
+          ...prismaCursorArgs(options, limit),
         }),
     );
+
+    const page = paginateItems(rows, limit, (row) => row.id);
 
     const bids = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
@@ -78,8 +90,8 @@ export class AssignmentsService {
         tx.bid.findMany({
           where: {
             conferenceId,
-            paperId: { in: assignments.map((a) => a.paperId) },
-            reviewerUserId: { in: assignments.map((a) => a.reviewerUserId) },
+            paperId: { in: page.data.map((a) => a.paperId) },
+            reviewerUserId: { in: page.data.map((a) => a.reviewerUserId) },
           },
         }),
     );
@@ -87,13 +99,14 @@ export class AssignmentsService {
     const bidMap = new Map(bids.map((b) => [`${b.paperId}:${b.reviewerUserId}`, b.value]));
 
     return {
-      data: assignments.map((a) => ({
+      data: page.data.map((a) => ({
         ...mapReviewerAssignment(a),
         paperTitle: a.paper.title,
         reviewerName: a.reviewer.name,
         reviewerEmail: a.reviewer.email,
         bidValue: bidMap.get(`${a.paperId}:${a.reviewerUserId}`) ?? null,
       })),
+      nextCursor: page.nextCursor,
     };
   }
 

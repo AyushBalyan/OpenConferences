@@ -57,6 +57,7 @@ async function enqueueDirect(
 
   const subject = renderTemplate(template.subject, input.context);
   const html = renderTemplate(template.bodyHtml, input.context);
+  const text = template.bodyText ? renderTemplate(template.bodyText, input.context) : undefined;
   const logId = generateId();
 
   await withTenantContext({ bypass: true }, async (tx) =>
@@ -85,6 +86,7 @@ async function enqueueDirect(
       to: normalizedEmail,
       subject,
       html,
+      text,
       tags: [input.templateKey],
       idempotencyKey: input.idempotencyKey,
     },

@@ -31,7 +31,7 @@ export function AuthorDashboard({ conferenceId, conference }: AuthorDashboardPro
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const result = await fetchPapers(conferenceId, true);
+    const result = await fetchPapers(conferenceId, { mine: true });
     setPapers(result.data);
   }, [conferenceId]);
 

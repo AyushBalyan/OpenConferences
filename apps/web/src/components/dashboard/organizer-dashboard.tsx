@@ -16,17 +16,16 @@ import { PageHeader } from '@/components/dashboard/page-header';
 import { StatusBadge } from '@/components/dashboard/status-badge';
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
 import {
+  fetchAnalyticsOverview,
   fetchAuditLogs,
   fetchPapers,
-  fetchRegistrations,
-  fetchReviewRounds,
-  fetchAssignments,
   transitionConferenceStatus,
 } from '@/lib/api-client';
 import type { AuditEntry, Conference } from '@/lib/conference-types';
 import { paperStatusLabel, paperStatusTone } from '@/lib/paper-status-styles';
 import type { PaperDto } from '@/lib/submission-types';
 import { canCoordinateReview, canManageConference } from '@/lib/roles';
+import type { ConferenceAnalyticsOverview } from '@openconferences/schemas';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 type OrganizerDashboardProps = {
@@ -43,38 +42,24 @@ export function OrganizerDashboard({
   onRefresh,
 }: OrganizerDashboardProps) {
   const [papers, setPapers] = useState<PaperDto[]>([]);
-  const [pendingReviews, setPendingReviews] = useState<number | null>(null);
-  const [registrationCount, setRegistrationCount] = useState<number | null>(null);
+  const [analytics, setAnalytics] = useState<ConferenceAnalyticsOverview | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    setLoadError(null);
     const tasks: Promise<void>[] = [];
 
     if (canCoordinateReview(roles) || canManageConference(roles)) {
-      tasks.push(fetchPapers(conferenceId).then((result) => setPapers(result.data)));
+      tasks.push(fetchPapers(conferenceId, { limit: 20 }).then((result) => setPapers(result.data)));
     }
 
     if (canCoordinateReview(roles)) {
       tasks.push(
-        (async () => {
-          const rounds = await fetchReviewRounds(conferenceId);
-          const activeRound = rounds.find((round) => round.status !== 'CLOSED') ?? rounds[0];
-          if (!activeRound) {
-            setPendingReviews(0);
-            return;
-          }
-          const assignments = await fetchAssignments(conferenceId, activeRound.id);
-          const pending = assignments.filter((item) => item.status !== 'COMPLETED').length;
-          setPendingReviews(pending);
-        })(),
-        fetchRegistrations(conferenceId)
-          .then((result) => setRegistrationCount(result.data.length))
-          .catch(() => setRegistrationCount(0)),
-        fetchAuditLogs(conferenceId)
-          .then(setAuditLogs)
-          .catch(() => setAuditLogs([])),
+        fetchAnalyticsOverview(conferenceId).then(setAnalytics),
+        fetchAuditLogs(conferenceId, { limit: 5 }).then((result) => setAuditLogs(result.data)),
       );
     }
 
@@ -84,19 +69,30 @@ export function OrganizerDashboard({
   useEffect(() => {
     setLoading(true);
     load()
-      .catch(() => {
+      .catch((err) => {
+        setLoadError(err instanceof Error ? err.message : 'Failed to load dashboard');
         setPapers([]);
-        setPendingReviews(null);
-        setRegistrationCount(null);
+        setAnalytics(null);
         setAuditLogs([]);
       })
       .finally(() => setLoading(false));
   }, [load]);
 
-  const underReviewCount = useMemo(
-    () => papers.filter((paper) => paper.status === 'UNDER_REVIEW').length,
-    [papers],
-  );
+  const underReviewCount = useMemo(() => {
+    if (analytics) {
+      return (
+        analytics.submissions.byStatus.find((item) => item.status === 'UNDER_REVIEW')?.count ?? 0
+      );
+    }
+    return papers.filter((paper) => paper.status === 'UNDER_REVIEW').length;
+  }, [analytics, papers]);
+
+  const pendingReviews =
+    analytics != null
+      ? Math.max(analytics.reviews.assigned - analytics.reviews.completed, 0)
+      : null;
+  const registrationCount = analytics?.registrations.paid ?? null;
+  const submissionCount = analytics?.submissions.total ?? papers.length;
 
   async function openCfp() {
     setActionError(null);
@@ -122,10 +118,12 @@ export function OrganizerDashboard({
         }
       />
 
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
+
       <KpiGrid className="mb-8">
         <KpiCard
           label="Active submissions"
-          value={loading ? '—' : papers.length}
+          value={loading ? '—' : submissionCount}
           hint={`${underReviewCount} under review`}
           loading={loading}
         />
@@ -139,7 +137,7 @@ export function OrganizerDashboard({
         <KpiCard
           label="Registrations"
           value={registrationCount ?? '—'}
-          hint="Accepted paper registrations"
+          hint="Paid registrations"
           loading={loading && canCoordinateReview(roles)}
         />
       </KpiGrid>
@@ -223,6 +221,9 @@ export function OrganizerDashboard({
                   <Link href={`/dashboard/conferences/${conferenceId}/reviews/decisions`}>
                     Decisions
                   </Link>
+                </Button>
+                <Button asChild size="sm" variant="outline">
+                  <Link href={`/dashboard/conferences/${conferenceId}/analytics`}>Analytics</Link>
                 </Button>
               </CardContent>
             </Card>

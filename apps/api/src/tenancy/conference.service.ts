@@ -23,6 +23,12 @@ function toSchemaRoles(roles: RoleKind[]): SchemaRoleKind[] {
   return roles as SchemaRoleKind[];
 }
 import { effectiveRolesForConference, mergeRolesByConference } from './membership-roles';
+import {
+  paginateItems,
+  prismaCursorArgs,
+  resolveLimit,
+  type CursorPaginationOptions,
+} from '../common/pagination/cursor';
 
 @Injectable()
 export class ConferenceService {
@@ -380,8 +386,14 @@ export class ConferenceService {
     return mapConference(conference, toSchemaRoles(userRoles));
   }
 
-  async listTracks(userId: string, conferenceId: string, userRoles: RoleKind[]) {
+  async listTracks(
+    userId: string,
+    conferenceId: string,
+    userRoles: RoleKind[],
+    options: CursorPaginationOptions = {},
+  ) {
     const conference = await this.loadConference(userId, conferenceId, userRoles);
+    const limit = resolveLimit(options.limit);
 
     const tracks = await withTenantContext(
       {
@@ -393,10 +405,52 @@ export class ConferenceService {
         tx.track.findMany({
           where: { conferenceId, deletedAt: null },
           orderBy: { name: 'asc' },
+          ...prismaCursorArgs(options, limit),
         }),
     );
 
-    return tracks;
+    const page = paginateItems(tracks, limit, (track) => track.id);
+    return { data: page.data, nextCursor: page.nextCursor };
+  }
+
+  async listAuditLogs(
+    userId: string,
+    conferenceId: string,
+    userRoles: RoleKind[],
+    options: CursorPaginationOptions = {},
+  ) {
+    const conference = await this.loadConference(userId, conferenceId, userRoles);
+    const limit = resolveLimit(options.limit, 50);
+
+    const logs = await withTenantContext(
+      {
+        userId,
+        organizationId: conference.organizationId,
+        conferenceId,
+      },
+      async (tx) =>
+        tx.auditLog.findMany({
+          where: { conferenceId },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          ...prismaCursorArgs(options, limit),
+        }),
+    );
+
+    const page = paginateItems(logs, limit, (log) => log.id);
+    return {
+      data: page.data.map((log) => ({
+        id: log.id,
+        actorUserId: log.actorUserId,
+        organizationId: log.organizationId,
+        conferenceId: log.conferenceId,
+        action: log.action,
+        entity: log.entity,
+        entityId: log.entityId,
+        diff: (log.diff as Record<string, unknown> | null) ?? null,
+        createdAt: log.createdAt.toISOString(),
+      })),
+      nextCursor: page.nextCursor,
+    };
   }
 
   async createTrack(

@@ -3,12 +3,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { fetchDecisions, fetchPapers, fetchReviewRounds } from '@/lib/api-client';
 import { resolveDecisionRound } from '@/lib/review-rounds';
+import type { PaperDto } from '@/lib/submission-types';
 import type { DecisionDto, DecisionOutcome, ReviewRoundDto } from '@/lib/review-types';
 
 type PaperRow = {
   id: string;
   title: string;
-  status: string;
+  status: PaperDto['status'];
   version: number;
 };
 

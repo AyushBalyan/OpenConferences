@@ -1,7 +1,10 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-import { MembersDirectoryPanel } from '@/components/dashboard/members/members-panels';
+type PageProps = {
+  params: Promise<{ id: string }>;
+};
 
-export default function MembersDirectoryPage() {
-  return <MembersDirectoryPanel />;
+export default async function MembersDirectoryPage({ params }: PageProps) {
+  const { id } = await params;
+  redirect(`/dashboard/conferences/${id}/members/organisers`);
 }

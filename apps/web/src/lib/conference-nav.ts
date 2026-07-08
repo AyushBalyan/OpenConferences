@@ -84,6 +84,10 @@ export function navGroupsForRoles(roles: string[]): NavGroupConfig[] {
     if (canCoordinateReview(roles)) {
       organizeItems.push(
         {
+          label: 'Analytics',
+          href: (conferenceId) => `/dashboard/conferences/${conferenceId}/analytics`,
+        },
+        {
           label: 'Bidding oversight',
           href: (conferenceId) => `/dashboard/conferences/${conferenceId}/reviews/bidding`,
         },
@@ -100,7 +104,7 @@ export function navGroupsForRoles(roles: string[]): NavGroupConfig[] {
           href: (conferenceId) => `/dashboard/conferences/${conferenceId}/reviews/rounds`,
         },
         {
-          label: 'Assignments',
+          label: 'Assignments/Reviewers',
           href: (conferenceId) => `/dashboard/conferences/${conferenceId}/reviews/assignments`,
           children: [
             { label: 'Current assignments', segment: 'current' },
@@ -146,7 +150,9 @@ export function navGroupsForRoles(roles: string[]): NavGroupConfig[] {
           label: 'Members',
           href: (conferenceId) => `/dashboard/conferences/${conferenceId}/members`,
           children: [
-            { label: 'Directory', segment: 'directory' },
+            { label: 'Organisers', segment: 'organisers' },
+            { label: 'Reviewers', segment: 'reviewers' },
+            { label: 'Authors', segment: 'authors' },
             { label: 'Grant role', segment: 'grant' },
           ],
         },

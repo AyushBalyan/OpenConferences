@@ -3,6 +3,8 @@ import {
   registrationSchema,
   registrationDetailSchema,
   registrationListSchema,
+  registrationListQuerySchema,
+  studentVerificationListQuerySchema,
   createRegistrationSchema,
   initiatePaymentSchema,
   initiatePaymentResponseSchema,
@@ -130,6 +132,7 @@ export const billingContract = c.router({
     method: 'GET',
     path: '/conferences/:conferenceId/registrations',
     pathParams: conferenceParams,
+    query: registrationListQuerySchema,
     responses: {
       200: registrationListSchema,
       401: problemEnvelopeSchema,
@@ -142,6 +145,7 @@ export const billingContract = c.router({
     method: 'GET',
     path: '/conferences/:conferenceId/student-verifications',
     pathParams: conferenceParams,
+    query: studentVerificationListQuerySchema,
     responses: {
       200: studentVerificationListSchema,
       401: problemEnvelopeSchema,

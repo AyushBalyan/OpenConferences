@@ -23,8 +23,22 @@ export class AuthController {
   async handleBetterAuth(@Req() req: Request, @Res() res: Response): Promise<void> {
     const isSignUp = req.path.endsWith('/sign-up/email') && req.method === 'POST';
     const isSignIn = req.path.endsWith('/sign-in/email') && req.method === 'POST';
+    const isMagicLinkRequest = req.path.endsWith('/sign-in/magic-link') && req.method === 'POST';
     const isMfa = req.path.includes('two-factor') && req.method === 'POST';
     let email: string | undefined;
+
+    if (isMagicLinkRequest) {
+      throw new HttpException(
+        {
+          type: 'https://errors.openconf.dev/forbidden',
+          title: 'Forbidden',
+          status: HttpStatus.FORBIDDEN,
+          detail: 'Magic link sign-in is not available',
+          instance: req.url,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
 
     if ((isSignUp || isSignIn) && this.turnstile.isEnabled()) {
       const token = this.turnstile.extractToken(req);

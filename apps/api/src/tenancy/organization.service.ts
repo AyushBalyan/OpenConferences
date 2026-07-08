@@ -8,19 +8,27 @@ import { generateId, withTenantContext, type RoleKind } from '@openconferences/d
 import type { CreateOrganizationInput } from '@openconferences/schemas';
 import { AuditService } from '../audit/audit.service';
 import { maxRoleRank } from './role-hierarchy';
+import {
+  paginateItems,
+  prismaCursorArgs,
+  resolveLimit,
+  type CursorPaginationOptions,
+} from '../common/pagination/cursor';
 
 @Injectable()
 export class OrganizationService {
   constructor(private readonly audit: AuditService) {}
 
-  async listForUser(userId: string, userRoles: RoleKind[]) {
+  async listForUser(userId: string, userRoles: RoleKind[], options: CursorPaginationOptions = {}) {
+    const limit = resolveLimit(options.limit);
     const isPlatformAdmin = userRoles.includes('PLATFORM_ADMIN');
 
-    return withTenantContext({ userId, bypass: isPlatformAdmin }, async (tx) => {
+    const orgs = await withTenantContext({ userId, bypass: isPlatformAdmin }, async (tx) => {
       if (isPlatformAdmin) {
         return tx.organization.findMany({
           where: { deletedAt: null },
           orderBy: { name: 'asc' },
+          ...prismaCursorArgs(options, limit),
         });
       }
 
@@ -35,8 +43,21 @@ export class OrganizationService {
       return tx.organization.findMany({
         where: { id: { in: orgIds }, deletedAt: null },
         orderBy: { name: 'asc' },
+        ...prismaCursorArgs(options, limit),
       });
     });
+
+    const page = paginateItems(orgs, limit, (org) => org.id);
+    return {
+      data: page.data.map((org) => ({
+        id: org.id,
+        slug: org.slug,
+        name: org.name,
+        createdAt: org.createdAt.toISOString(),
+        updatedAt: org.updatedAt.toISOString(),
+      })),
+      nextCursor: page.nextCursor,
+    };
   }
 
   async getById(userId: string, organizationId: string, userRoles: RoleKind[]) {

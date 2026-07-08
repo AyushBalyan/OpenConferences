@@ -10,7 +10,9 @@ const MEMBERS_NAV = {
   label: 'Members',
   href: (conferenceId: string) => `/dashboard/conferences/${conferenceId}/members`,
   children: [
-    { label: 'Directory', segment: 'directory' },
+    { label: 'Organisers', segment: 'organisers' },
+    { label: 'Reviewers', segment: 'reviewers' },
+    { label: 'Authors', segment: 'authors' },
     { label: 'Grant role', segment: 'grant' },
   ],
 } as const;
@@ -21,7 +23,10 @@ export default function MembersLayout({ children }: { children: React.ReactNode 
 
   return (
     <MembersWorkspaceProvider conferenceId={params.id}>
-      <PageHeader title="Members & roles" description="Grant and revoke conference roles." />
+      <PageHeader
+        title="Members & roles"
+        description="Browse organisers, reviewers, and authors. Grant or revoke conference roles."
+      />
       <SectionSubnav tabs={tabs} ariaLabel="Members sections" />
       {children}
     </MembersWorkspaceProvider>

@@ -44,6 +44,13 @@ import {
   bulkDecisionResponseSchema,
   notifyDecisionsResponseSchema,
   decisionQuerySchema,
+  reviewRoundListQuerySchema,
+  reviewerInvitationListQuerySchema,
+  coiListQuerySchema,
+  assignmentListQuerySchema,
+  myAssignmentsQuerySchema,
+  reviewListQuerySchema,
+  cursorPaginationQuerySchema,
 } from '@openconferences/schemas';
 import { z } from 'zod';
 
@@ -73,23 +80,24 @@ const assignmentParams = z.object({
   assignmentId: z.string().uuid(),
 });
 
-const bidListQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).optional(),
-  cursor: z.string().uuid().optional(),
+const invitationParams = z.object({
+  conferenceId: z.string().uuid(),
+  invitationId: z.string().uuid(),
+});
+
+const bidListQuerySchema = cursorPaginationQuerySchema.extend({
   paperId: z.string().uuid().optional(),
   reviewerUserId: z.string().uuid().optional(),
 });
 
-const paperPoolQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).optional(),
-  cursor: z.string().uuid().optional(),
-});
+const paperPoolQuerySchema = cursorPaginationQuerySchema;
 
 export const reviewContract = c.router({
   listRounds: {
     method: 'GET',
     path: '/conferences/:conferenceId/rounds',
     pathParams: conferenceParams,
+    query: reviewRoundListQuerySchema,
     responses: {
       200: reviewRoundListSchema,
       401: problemEnvelopeSchema,
@@ -131,6 +139,7 @@ export const reviewContract = c.router({
     method: 'GET',
     path: '/conferences/:conferenceId/reviewer-invitations',
     pathParams: conferenceParams,
+    query: reviewerInvitationListQuerySchema,
     responses: {
       200: reviewerInvitationListSchema,
       401: problemEnvelopeSchema,
@@ -153,6 +162,21 @@ export const reviewContract = c.router({
       409: problemEnvelopeSchema,
     },
     summary: 'Issue a reviewer invitation by email',
+  },
+  resendInvitation: {
+    method: 'POST',
+    path: '/conferences/:conferenceId/reviewer-invitations/:invitationId/resend',
+    pathParams: invitationParams,
+    body: c.noBody(),
+    responses: {
+      200: invitationActionResponseSchema,
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+      409: problemEnvelopeSchema,
+      500: problemEnvelopeSchema,
+    },
+    summary: 'Resend the reviewer invitation email',
   },
   acceptInvitation: {
     method: 'POST',
@@ -235,6 +259,7 @@ export const reviewContract = c.router({
     method: 'GET',
     path: '/conferences/:conferenceId/conflicts-of-interest',
     pathParams: conferenceParams,
+    query: coiListQuerySchema,
     responses: {
       200: coiListSchema,
       401: problemEnvelopeSchema,
@@ -273,6 +298,7 @@ export const reviewContract = c.router({
     method: 'GET',
     path: '/conferences/:conferenceId/rounds/:roundId/assignments',
     pathParams: roundParams,
+    query: assignmentListQuerySchema,
     responses: {
       200: assignmentListSchema,
       401: problemEnvelopeSchema,
@@ -328,6 +354,7 @@ export const reviewContract = c.router({
     method: 'GET',
     path: '/conferences/:conferenceId/review/my-assignments',
     pathParams: conferenceParams,
+    query: myAssignmentsQuerySchema,
     responses: {
       200: myAssignmentsSchema,
       401: problemEnvelopeSchema,
@@ -382,7 +409,7 @@ export const reviewContract = c.router({
     method: 'GET',
     path: '/conferences/:conferenceId/papers/:paperId/reviews',
     pathParams: paperParams,
-    query: z.object({ roundId: z.string().uuid().optional() }),
+    query: reviewListQuerySchema,
     responses: {
       200: reviewListSchema,
       401: problemEnvelopeSchema,

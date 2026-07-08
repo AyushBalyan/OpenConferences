@@ -4,6 +4,7 @@ import {
   updatePaperSchema,
   paperSchema,
   paperListSchema,
+  paperListQuerySchema,
   authorshipInputSchema,
   authorshipSchema,
   reorderAuthorshipsSchema,
@@ -38,12 +39,6 @@ const versionParams = z.object({
   conferenceId: z.string().uuid(),
   paperId: z.string().uuid(),
   versionId: z.string().uuid(),
-});
-
-const paperListQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).optional(),
-  cursor: z.string().uuid().optional(),
-  mine: z.coerce.boolean().optional(),
 });
 
 export const submissionContract = c.router({

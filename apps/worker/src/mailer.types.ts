@@ -1,7 +1,9 @@
 export type MailSendInput = {
   to: string;
+  toName?: string;
   subject: string;
   html: string;
+  text?: string;
   replyTo?: string;
   tags?: string[];
 };

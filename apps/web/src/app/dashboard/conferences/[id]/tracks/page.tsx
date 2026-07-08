@@ -5,6 +5,15 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableFooter,
+  DataTableHead,
+  DataTableHeader,
+  DataTableRow,
+} from '@/components/dashboard/data-table';
 import { createTrack, fetchTracks } from '@/lib/api-client';
 import type { Track } from '@/lib/conference-types';
 import { useParams } from 'next/navigation';
@@ -72,17 +81,40 @@ function TracksContent() {
       </Card>
 
       <div className="space-y-3">
-        {tracks.map((track) => (
-          <Card key={track.id}>
-            <CardHeader>
-              <CardTitle className="text-base">{track.name}</CardTitle>
-              <CardDescription>{track.slug}</CardDescription>
-            </CardHeader>
-          </Card>
-        ))}
         {tracks.length === 0 ? (
           <p className="text-sm text-muted-foreground">No tracks yet.</p>
-        ) : null}
+        ) : (
+          <DataTable
+            footer={
+              <DataTableFooter>
+                {tracks.length} track{tracks.length === 1 ? '' : 's'}
+              </DataTableFooter>
+            }
+          >
+            <DataTableHeader>
+              <tr>
+                <DataTableHead>Name</DataTableHead>
+                <DataTableHead>Slug</DataTableHead>
+                <DataTableHead>Description</DataTableHead>
+              </tr>
+            </DataTableHeader>
+            <DataTableBody>
+              {tracks.map((track) => (
+                <DataTableRow key={track.id}>
+                  <DataTableCell>
+                    <p className="font-medium text-slate-900">{track.name}</p>
+                  </DataTableCell>
+                  <DataTableCell className="font-mono text-xs text-slate-500">
+                    {track.slug}
+                  </DataTableCell>
+                  <DataTableCell className="text-slate-500">
+                    {track.description ?? '—'}
+                  </DataTableCell>
+                </DataTableRow>
+              ))}
+            </DataTableBody>
+          </DataTable>
+        )}
       </div>
     </div>
   );

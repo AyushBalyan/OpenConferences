@@ -19,6 +19,8 @@
     "db:migrate": "pnpm --filter @openconferences/db migrate:dev",
     "db:migrate:deploy": "pnpm --filter @openconferences/db migrate:deploy",
     "db:seed": "pnpm --filter @openconferences/db seed",
+    "mail:test": "pnpm --filter @openconferences/worker mail:test",
+    "easydmrctest": "pnpm --filter @openconferences/worker easydmrctest",
     "prepare": "husky"
   },
   "devDependencies": {

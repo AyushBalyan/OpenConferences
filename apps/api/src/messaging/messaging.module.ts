@@ -1,4 +1,5 @@
 import { Global, Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
 import { TenancyModule } from '../tenancy/tenancy.module';
 import { QueueModule } from '../queue/queue.module';
 import { MessagingController } from './messaging.controller';
@@ -11,7 +12,7 @@ import { MessagingWebhookService } from './messaging-webhook.service';
 
 @Global()
 @Module({
-  imports: [TenancyModule, QueueModule],
+  imports: [AuthModule, TenancyModule, QueueModule],
   controllers: [MessagingController, MessagingWebhookController],
   providers: [
     NotificationService,

@@ -5,6 +5,7 @@ import { AppHeader } from '@/components/layout/app-header';
 
 const HIDDEN_PREFIXES = [
   '/dashboard',
+  '/me',
   '/sign-in',
   '/sign-up',
   '/forgot-password',
@@ -12,6 +13,7 @@ const HIDDEN_PREFIXES = [
   '/verify-email',
   '/mfa',
   '/reviewer-invite',
+  '/join',
 ];
 
 export function ConditionalAppHeader() {

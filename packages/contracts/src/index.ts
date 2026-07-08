@@ -6,11 +6,13 @@ import {
   signInSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  accountSetupSchema,
   verifyEmailSchema,
   resendVerificationSchema,
   mfaEnrollSchema,
   mfaVerifySchema,
   userProfileSchema,
+  meDashboardSchema,
   genericAuthMessageSchema,
   mfaEnrollResponseSchema,
   problemEnvelopeSchema,
@@ -20,6 +22,7 @@ import { submissionContract } from './submission.js';
 import { reviewContract } from './review.js';
 import { billingContract, webhookContract } from './billing.js';
 import { messagingContract } from './messaging.js';
+import { analyticsContract } from './analytics.js';
 
 const c = initContract();
 
@@ -149,6 +152,27 @@ export const authContract = c.router({
     },
     summary: 'Get current authenticated user profile',
   },
+  setupAccount: {
+    method: 'POST',
+    path: '/auth/account/setup',
+    body: accountSetupSchema,
+    responses: {
+      200: genericAuthMessageSchema,
+      400: problemEnvelopeSchema,
+      401: problemEnvelopeSchema,
+      409: problemEnvelopeSchema,
+    },
+    summary: 'Set display name and password for passwordless accounts',
+  },
+  dashboard: {
+    method: 'GET',
+    path: '/me/dashboard',
+    responses: {
+      200: meDashboardSchema,
+      401: problemEnvelopeSchema,
+    },
+    summary: 'Cross-conference aggregated dashboard home',
+  },
 });
 
 export type AuthContract = typeof authContract;
@@ -163,6 +187,7 @@ export const apiContract = c.router({
   billing: billingContract,
   webhooks: webhookContract,
   messaging: messagingContract,
+  analytics: analyticsContract,
 });
 
 export type ApiContract = typeof apiContract;
@@ -177,3 +202,5 @@ export { billingContract, webhookContract } from './billing.js';
 export type { BillingContract, WebhookContract } from './billing.js';
 export { messagingContract } from './messaging.js';
 export type { MessagingContract } from './messaging.js';
+export { analyticsContract } from './analytics.js';
+export type { AnalyticsContract } from './analytics.js';

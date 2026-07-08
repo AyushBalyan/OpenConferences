@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { paperSchema } from './submission.js';
+import { cursorPaginationQuerySchema } from './pagination.js';
 
 export const bidValueSchema = z.enum(['EAGER', 'YES', 'MAYBE', 'NO', 'CONFLICT']);
 export const coiTypeSchema = z.enum([
@@ -39,7 +40,10 @@ export type ReviewRoundDto = z.infer<typeof reviewRoundSchema>;
 
 export const reviewRoundListSchema = z.object({
   data: z.array(reviewRoundSchema),
+  nextCursor: z.string().uuid().nullable(),
 });
+
+export const reviewRoundListQuerySchema = cursorPaginationQuerySchema;
 
 export const createReviewRoundSchema = z.object({
   roundNumber: z.number().int().positive().default(1),
@@ -77,7 +81,10 @@ export type ReviewerInvitationDto = z.infer<typeof reviewerInvitationSchema>;
 
 export const reviewerInvitationListSchema = z.object({
   data: z.array(reviewerInvitationSchema),
+  nextCursor: z.string().uuid().nullable(),
 });
+
+export const reviewerInvitationListQuerySchema = cursorPaginationQuerySchema;
 
 export const issueReviewerInvitationSchema = z.object({
   email: z.string().email(),
@@ -155,6 +162,16 @@ export const blindedPaperPoolItemSchema = z.object({
     )
     .optional(),
   myBid: bidValueSchema.nullable().optional(),
+  bids: z
+    .array(
+      z.object({
+        reviewerUserId: z.string().uuid(),
+        reviewerName: z.string(),
+        reviewerEmail: z.string().email(),
+        value: bidValueSchema,
+      }),
+    )
+    .optional(),
 });
 
 export type BlindedPaperPoolItemDto = z.infer<typeof blindedPaperPoolItemSchema>;
@@ -163,6 +180,7 @@ export const blindedPaperPoolSchema = z.object({
   data: z.array(blindedPaperPoolItemSchema),
   nextCursor: z.string().uuid().nullable(),
   blindingMode: z.enum(['SINGLE', 'DOUBLE', 'OPEN']),
+  mode: z.enum(['reviewer', 'oversight']).optional(),
 });
 
 export const conflictOfInterestSchema = z.object({
@@ -202,7 +220,10 @@ export const coiListSchema = z.object({
       paperTitle: z.string().nullable().optional(),
     }),
   ),
+  nextCursor: z.string().uuid().nullable(),
 });
+
+export const coiListQuerySchema = cursorPaginationQuerySchema;
 
 export const reviewerAssignmentSchema = z.object({
   id: z.string().uuid(),
@@ -237,7 +258,10 @@ export const assignmentListSchema = z.object({
       bidValue: bidValueSchema.nullable().optional(),
     }),
   ),
+  nextCursor: z.string().uuid().nullable(),
 });
+
+export const assignmentListQuerySchema = cursorPaginationQuerySchema;
 
 export const assignmentActionResponseSchema = z.object({
   assignment: reviewerAssignmentSchema,
@@ -338,6 +362,11 @@ export const reviewListSchema = z.object({
   data: z.array(reviewSchema),
   roundId: z.string().uuid().optional(),
   roundStatus: roundStatusSchema.optional(),
+  nextCursor: z.string().uuid().nullable(),
+});
+
+export const reviewListQuerySchema = cursorPaginationQuerySchema.extend({
+  roundId: z.string().uuid().optional(),
 });
 
 export type ReviewListDto = z.infer<typeof reviewListSchema>;
@@ -353,7 +382,10 @@ export type MyAssignmentItemDto = z.infer<typeof myAssignmentItemSchema>;
 
 export const myAssignmentsSchema = z.object({
   data: z.array(myAssignmentItemSchema),
+  nextCursor: z.string().uuid().nullable(),
 });
+
+export const myAssignmentsQuerySchema = cursorPaginationQuerySchema;
 
 export const releaseReviewsSchema = z.object({
   version: z.number().int().nonnegative(),
@@ -433,6 +465,12 @@ export const decisionListSchema = z.object({
     }),
   ),
   roundId: z.string().uuid().optional(),
+  nextCursor: z.string().uuid().nullable(),
+});
+
+export const decisionQuerySchema = cursorPaginationQuerySchema.extend({
+  roundId: z.string().uuid().optional(),
+  outcome: decisionOutcomeSchema.optional(),
 });
 
 export type DecisionListDto = z.infer<typeof decisionListSchema>;
@@ -487,7 +525,3 @@ export const notifyDecisionsResponseSchema = z.object({
 });
 
 export type NotifyDecisionsResponse = z.infer<typeof notifyDecisionsResponseSchema>;
-
-export const decisionQuerySchema = z.object({
-  roundId: z.string().uuid().optional(),
-});

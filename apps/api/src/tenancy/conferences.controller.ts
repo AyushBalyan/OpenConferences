@@ -1,7 +1,6 @@
 import { Controller, UseGuards } from '@nestjs/common';
 import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
 import { conferencesContract } from '@openconferences/contracts';
-import { prisma } from '@openconferences/db';
 import type { RoleKind } from '@openconferences/db';
 import { AuthGuard } from '../common/guards/auth.guard';
 import { MembershipGuard } from '../common/guards/membership.guard';
@@ -88,11 +87,11 @@ export class ConferencesController {
   @TsRestHandler(conferencesContract.listTracks)
   @RequireMembership()
   listTracks(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
-    return tsRestHandler(conferencesContract.listTracks, async ({ params }) => {
-      const tracks = await this.conferences.listTracks(user.id, params.id, roles);
+    return tsRestHandler(conferencesContract.listTracks, async ({ params, query }) => {
+      const result = await this.conferences.listTracks(user.id, params.id, roles, query);
       return {
         status: 200 as const,
-        body: { data: tracks.map(mapTrack) },
+        body: { data: result.data.map(mapTrack), nextCursor: result.nextCursor },
       };
     });
   }
@@ -136,9 +135,9 @@ export class ConferencesController {
   @TsRestHandler(conferencesContract.listMembers)
   @RequireRole('ORGANIZER', 'ORG_ADMIN', 'PLATFORM_ADMIN', 'CHAIR')
   listMembers(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
-    return tsRestHandler(conferencesContract.listMembers, async ({ params }) => {
-      const members = await this.roleGrants.listMembers(user.id, params.id, roles);
-      return { status: 200 as const, body: { data: members } };
+    return tsRestHandler(conferencesContract.listMembers, async ({ params, query }) => {
+      const result = await this.roleGrants.listMembers(user.id, params.id, roles, query);
+      return { status: 200 as const, body: result };
     });
   }
 
@@ -148,7 +147,7 @@ export class ConferencesController {
   grantRole(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
     return tsRestHandler(conferencesContract.grantRole, async ({ params, body }) => {
       const members = await this.roleGrants.grantRole(user.id, params.id, body, roles);
-      return { status: 201 as const, body: { data: members } };
+      return { status: 201 as const, body: { data: members.data, nextCursor: members.nextCursor } };
     });
   }
 
@@ -158,7 +157,7 @@ export class ConferencesController {
   revokeRole(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
     return tsRestHandler(conferencesContract.revokeRole, async ({ params, body }) => {
       const members = await this.roleGrants.revokeRole(user.id, params.id, body, roles);
-      return { status: 200 as const, body: { data: members } };
+      return { status: 200 as const, body: { data: members.data, nextCursor: members.nextCursor } };
     });
   }
 
@@ -166,31 +165,8 @@ export class ConferencesController {
   @RequireRole('ORGANIZER', 'ORG_ADMIN', 'PLATFORM_ADMIN')
   listAuditLogs(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
     return tsRestHandler(conferencesContract.listAuditLogs, async ({ params, query }) => {
-      await this.conferences.loadConference(user.id, params.id, roles);
-      const limit = query.limit ?? 50;
-
-      const logs = await prisma.auditLog.findMany({
-        where: { conferenceId: params.id },
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-      });
-
-      return {
-        status: 200 as const,
-        body: {
-          data: logs.map((log) => ({
-            id: log.id,
-            actorUserId: log.actorUserId,
-            organizationId: log.organizationId,
-            conferenceId: log.conferenceId,
-            action: log.action,
-            entity: log.entity,
-            entityId: log.entityId,
-            diff: (log.diff as Record<string, unknown> | null) ?? null,
-            createdAt: log.createdAt.toISOString(),
-          })),
-        },
-      };
+      const result = await this.conferences.listAuditLogs(user.id, params.id, roles, query);
+      return { status: 200 as const, body: result };
     });
   }
 }

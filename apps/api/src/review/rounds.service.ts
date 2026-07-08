@@ -7,6 +7,12 @@ import {
 import type { RoleKind, ReviewRound } from '@openconferences/db';
 import { generateId, withTenantContext } from '@openconferences/db';
 import type { CreateReviewRoundInput, UpdateReviewRoundInput } from '@openconferences/schemas';
+import {
+  paginateItems,
+  prismaCursorArgs,
+  resolveLimit,
+  type CursorPaginationOptions,
+} from '../common/pagination/cursor';
 import { assertScope } from '../common/scope/assert-scope';
 import { AuditService } from '../audit/audit.service';
 import { ConferenceService } from '../tenancy/conference.service';
@@ -31,19 +37,31 @@ export class RoundsService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(userId: string, conferenceId: string, roles: RoleKind[]) {
+  async list(
+    userId: string,
+    conferenceId: string,
+    roles: RoleKind[],
+    options: CursorPaginationOptions = {},
+  ) {
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
+    const limit = resolveLimit(options.limit);
 
-    const rounds = await withTenantContext(
+    const rows = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.reviewRound.findMany({
           where: { conferenceId },
           orderBy: { roundNumber: 'asc' },
+          ...prismaCursorArgs(options, limit),
         }),
     );
 
-    return { data: rounds.map(mapReviewRound) };
+    const page = paginateItems(rows, limit, (row) => row.id);
+
+    return {
+      data: page.data.map(mapReviewRound),
+      nextCursor: page.nextCursor,
+    };
   }
 
   async create(

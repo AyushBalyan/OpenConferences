@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cursorPaginationQuerySchema } from './pagination.js';
 
 export const notificationStatusSchema = z.enum(['QUEUED', 'SENT', 'FAILED', 'BOUNCED']);
 
@@ -51,7 +52,10 @@ export const notificationTemplateSchema = z.object({
 
 export const notificationTemplateListSchema = z.object({
   data: z.array(notificationTemplateSchema),
+  nextCursor: z.string().uuid().nullable(),
 });
+
+export const notificationTemplateListQuerySchema = cursorPaginationQuerySchema;
 
 export const createNotificationTemplateSchema = z.object({
   key: z.string().min(1).max(128),
@@ -81,6 +85,7 @@ export const notificationJobPayloadSchema = z.object({
   to: z.string().email(),
   subject: z.string().min(1),
   html: z.string().min(1),
+  text: z.string().optional(),
   replyTo: z.string().email().optional(),
   tags: z.array(z.string()).optional(),
   idempotencyKey: z.string().optional(),

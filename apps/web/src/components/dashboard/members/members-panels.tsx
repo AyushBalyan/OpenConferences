@@ -5,16 +5,44 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableFooter,
+  DataTableHead,
+  DataTableHeader,
+  DataTableRow,
+} from '@/components/dashboard/data-table';
+import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
 import { grantRole, revokeRole } from '@/lib/api-client';
 import type { Member } from '@/lib/conference-types';
 import { useState } from 'react';
 import { useMembersWorkspace } from './members-workspace';
+import {
+  categoryRolesForMember,
+  filterMembersByCategory,
+  formatMemberScope,
+  formatRoleLabel,
+  type MemberCategory,
+} from './members-utils';
 
 const GRANTABLE_ROLES = ['AUTHOR', 'REVIEWER', 'CHAIR', 'ORGANIZER'] as const;
 type GrantableRole = (typeof GRANTABLE_ROLES)[number];
 
 function isGrantableRole(role: string): role is GrantableRole {
   return (GRANTABLE_ROLES as readonly string[]).includes(role);
+}
+
+function scopeTone(scope: Member['scope']) {
+  return scope === 'ORGANIZATION' ? 'info' : 'neutral';
+}
+
+function roleTone(role: string) {
+  if (role === 'PLATFORM_ADMIN' || role === 'ORG_ADMIN') return 'info';
+  if (role === 'ORGANIZER' || role === 'CHAIR') return 'success';
+  if (role === 'REVIEWER') return 'pending';
+  return 'neutral';
 }
 
 export function MembersGrantPanel() {
@@ -62,7 +90,7 @@ export function MembersGrantPanel() {
             >
               {GRANTABLE_ROLES.map((r) => (
                 <option key={r} value={r}>
-                  {r}
+                  {formatRoleLabel(r)}
                 </option>
               ))}
             </select>
@@ -76,7 +104,12 @@ export function MembersGrantPanel() {
   );
 }
 
-export function MembersDirectoryPanel() {
+type MembersTablePanelProps = {
+  category: MemberCategory;
+  emptyMessage: string;
+};
+
+export function MembersTablePanel({ category, emptyMessage }: MembersTablePanelProps) {
   const {
     conferenceId,
     members,
@@ -87,6 +120,8 @@ export function MembersDirectoryPanel() {
     setMembers,
     loading,
   } = useMembersWorkspace();
+
+  const filteredMembers = filterMembersByCategory(members, category);
 
   async function onRevoke(member: Member, roleToRevoke: string) {
     if (!isGrantableRole(roleToRevoke) && roleToRevoke !== 'ORG_ADMIN') return;
@@ -111,8 +146,9 @@ export function MembersDirectoryPanel() {
   if (loading) {
     return (
       <div className="space-y-3">
+        <Skeleton className="h-10 w-full rounded-xl" />
         {[1, 2, 3].map((key) => (
-          <Skeleton key={key} className="h-24 w-full rounded-xl" />
+          <Skeleton key={key} className="h-14 w-full rounded-xl" />
         ))}
       </div>
     );
@@ -121,55 +157,85 @@ export function MembersDirectoryPanel() {
   return (
     <div className="space-y-3">
       {error ? <p className="text-sm text-rose-600">{error}</p> : null}
-      {members.length === 0 ? (
+      {filteredMembers.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-slate-500">
-            No members yet.
+            {emptyMessage}
           </CardContent>
         </Card>
       ) : (
-        members.map((member) => (
-          <Card key={member.membershipId}>
-            <CardHeader>
-              <CardTitle className="text-base">{member.name}</CardTitle>
-              <CardDescription>
-                {member.email} · {member.scope}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {member.roles.length === 0 ? (
-                <p className="text-sm text-slate-500">No roles assigned.</p>
-              ) : (
-                <ul className="flex flex-wrap gap-2">
-                  {member.roles.map((memberRole) => {
-                    const key = `${member.membershipId}:${memberRole}`;
-                    const canRevoke = isGrantableRole(memberRole) || memberRole === 'ORG_ADMIN';
-                    return (
-                      <li
-                        key={key}
-                        className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm"
-                      >
-                        <span className="font-medium">{memberRole}</span>
-                        {canRevoke ? (
+        <DataTable
+          footer={
+            <DataTableFooter>
+              {filteredMembers.length} member{filteredMembers.length === 1 ? '' : 's'}
+            </DataTableFooter>
+          }
+        >
+          <DataTableHeader>
+            <tr>
+              <DataTableHead>Name</DataTableHead>
+              <DataTableHead>Email</DataTableHead>
+              <DataTableHead>Scope</DataTableHead>
+              <DataTableHead>Roles</DataTableHead>
+              <DataTableHead className="text-right">Actions</DataTableHead>
+            </tr>
+          </DataTableHeader>
+          <DataTableBody>
+            {filteredMembers.map((member) => {
+              const roles = categoryRolesForMember(member, category);
+
+              return (
+                <DataTableRow key={member.membershipId}>
+                  <DataTableCell>
+                    <p className="font-medium text-slate-900">{member.name}</p>
+                    <p className="mt-0.5 font-mono text-xs text-slate-400">{member.userId}</p>
+                  </DataTableCell>
+                  <DataTableCell>{member.email}</DataTableCell>
+                  <DataTableCell>
+                    <WorkflowBadge
+                      label={formatMemberScope(member.scope)}
+                      tone={scopeTone(member.scope)}
+                    />
+                  </DataTableCell>
+                  <DataTableCell>
+                    <div className="flex flex-wrap gap-1.5">
+                      {roles.map((role) => (
+                        <WorkflowBadge
+                          key={`${member.membershipId}:${role}`}
+                          label={formatRoleLabel(role)}
+                          tone={roleTone(role)}
+                        />
+                      ))}
+                    </div>
+                  </DataTableCell>
+                  <DataTableCell className="text-right">
+                    <div className="flex flex-wrap justify-end gap-1">
+                      {roles.map((role) => {
+                        const key = `${member.membershipId}:${role}`;
+                        const canRevoke = isGrantableRole(role) || role === 'ORG_ADMIN';
+                        if (!canRevoke) return null;
+
+                        return (
                           <Button
+                            key={key}
                             type="button"
                             variant="ghost"
                             size="sm"
                             className="h-7 px-2 text-rose-600 hover:text-rose-700"
                             disabled={revokingKey === key}
-                            onClick={() => void onRevoke(member, memberRole)}
+                            onClick={() => void onRevoke(member, role)}
                           >
-                            {revokingKey === key ? 'Revoking…' : 'Revoke'}
+                            {revokingKey === key ? 'Revoking…' : `Revoke ${formatRoleLabel(role)}`}
                           </Button>
-                        ) : null}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-        ))
+                        );
+                      })}
+                    </div>
+                  </DataTableCell>
+                </DataTableRow>
+              );
+            })}
+          </DataTableBody>
+        </DataTable>
       )}
     </div>
   );

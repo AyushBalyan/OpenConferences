@@ -3,8 +3,17 @@
 import { PageHeader } from '@/components/dashboard/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import {
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableFooter,
+  DataTableHead,
+  DataTableHeader,
+  DataTableRow,
+} from '@/components/dashboard/data-table';
 import { fetchNotificationLogs, resendNotification } from '@/lib/api-client';
 import type { NotificationLogEntry } from '@/lib/conference-types';
 import Link from 'next/link';
@@ -79,37 +88,66 @@ function NotificationsContent() {
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-      <div className="space-y-3">
-        {logs.map((log) => (
-          <Card key={log.id}>
-            <CardHeader className="flex flex-row items-start justify-between gap-4">
-              <div className="space-y-1">
-                <CardTitle className="text-base">{log.subject}</CardTitle>
-                <CardDescription>
-                  {log.toEmail} · {log.templateKey} · {new Date(log.createdAt).toLocaleString()}
-                </CardDescription>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant={statusVariant[log.status]}>{log.status}</Badge>
-                {log.status !== 'QUEUED' ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={resendingId === log.id}
-                    onClick={() => void handleResend(log.id)}
-                  >
-                    Resend
-                  </Button>
-                ) : null}
-              </div>
-            </CardHeader>
-            {log.error ? <p className="px-6 pb-4 text-sm text-destructive">{log.error}</p> : null}
-          </Card>
-        ))}
-        {logs.length === 0 && !error ? (
-          <p className="text-sm text-muted-foreground">No emails logged yet.</p>
-        ) : null}
-      </div>
+      {logs.length === 0 && !error ? (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-slate-500">
+            No emails logged yet.
+          </CardContent>
+        </Card>
+      ) : (
+        <DataTable
+          footer={
+            <DataTableFooter>
+              {logs.length} email{logs.length === 1 ? '' : 's'}
+            </DataTableFooter>
+          }
+        >
+          <DataTableHeader>
+            <tr>
+              <DataTableHead>Subject</DataTableHead>
+              <DataTableHead>Recipient</DataTableHead>
+              <DataTableHead>Template</DataTableHead>
+              <DataTableHead>Status</DataTableHead>
+              <DataTableHead>Sent</DataTableHead>
+              <DataTableHead className="text-right">Actions</DataTableHead>
+            </tr>
+          </DataTableHeader>
+          <DataTableBody>
+            {logs.map((log) => (
+              <DataTableRow key={log.id}>
+                <DataTableCell>
+                  <div>
+                    <p className="font-medium text-slate-900">{log.subject}</p>
+                    {log.error ? <p className="mt-0.5 text-xs text-rose-600">{log.error}</p> : null}
+                  </div>
+                </DataTableCell>
+                <DataTableCell>{log.toEmail}</DataTableCell>
+                <DataTableCell className="font-mono text-xs text-slate-500">
+                  {log.templateKey}
+                </DataTableCell>
+                <DataTableCell>
+                  <Badge variant={statusVariant[log.status]}>{log.status}</Badge>
+                </DataTableCell>
+                <DataTableCell className="font-mono text-xs text-slate-500">
+                  {new Date(log.createdAt).toLocaleString()}
+                </DataTableCell>
+                <DataTableCell className="text-right">
+                  {log.status !== 'QUEUED' ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={resendingId === log.id}
+                      onClick={() => void handleResend(log.id)}
+                    >
+                      Resend
+                    </Button>
+                  ) : null}
+                </DataTableCell>
+              </DataTableRow>
+            ))}
+          </DataTableBody>
+        </DataTable>
+      )}
     </div>
   );
 }

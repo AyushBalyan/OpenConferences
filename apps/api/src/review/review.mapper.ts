@@ -191,6 +191,12 @@ export function blindAuthorships(
     return undefined;
   }
 
+  return mapOversightAuthorships(authorships);
+}
+
+export function mapOversightAuthorships(
+  authorships: Authorship[],
+): NonNullable<BlindedPaperPoolItemDto['authorships']> {
   return authorships.map((a) => ({
     id: a.id,
     fullName: a.fullName,

@@ -6,5 +6,5 @@ type PageProps = {
 
 export default async function MembersIndexPage({ params }: PageProps) {
   const { id } = await params;
-  redirect(`/dashboard/conferences/${id}/members/directory`);
+  redirect(`/dashboard/conferences/${id}/members/organisers`);
 }

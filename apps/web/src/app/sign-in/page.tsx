@@ -83,7 +83,7 @@ function SignInContent() {
       const pending = await acceptPendingReviewerInvitations();
       if (pending.data.length > 0) {
         clearStoredReviewerInviteToken();
-        router.push(`/dashboard/conferences/${pending.data[0].conferenceId}/reviews/bidding`);
+        router.push(`/dashboard/conferences/${pending.data[0]!.conferenceId}/reviews/bidding`);
         router.refresh();
         return;
       }
@@ -98,7 +98,7 @@ function SignInContent() {
     }
 
     clearStoredReviewerInviteToken();
-    router.push('/dashboard');
+    router.push('/me/dashboard');
     router.refresh();
   });
 

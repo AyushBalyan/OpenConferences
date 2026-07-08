@@ -17,20 +17,9 @@ export class OrganizationsController {
 
   @TsRestHandler(organizationsContract.list)
   list(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
-    return tsRestHandler(organizationsContract.list, async () => {
-      const orgs = await this.organizations.listForUser(user.id, roles);
-      return {
-        status: 200 as const,
-        body: {
-          data: orgs.map((org) => ({
-            id: org.id,
-            slug: org.slug,
-            name: org.name,
-            createdAt: org.createdAt.toISOString(),
-            updatedAt: org.updatedAt.toISOString(),
-          })),
-        },
-      };
+    return tsRestHandler(organizationsContract.list, async ({ query }) => {
+      const result = await this.organizations.listForUser(user.id, roles, query);
+      return { status: 200 as const, body: result };
     });
   }
 

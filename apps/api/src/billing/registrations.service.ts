@@ -12,6 +12,12 @@ import type {
   BillingFeeSchedule,
   RegistrationDetailDto,
 } from '@openconferences/schemas';
+import {
+  paginateItems,
+  prismaCursorArgs,
+  resolveLimit,
+  type CursorPaginationOptions,
+} from '../common/pagination/cursor';
 import { assertScope } from '../common/scope/assert-scope';
 import { AuditService } from '../audit/audit.service';
 import { NotificationPublisher } from '../messaging/notification.publisher';
@@ -243,28 +249,44 @@ export class RegistrationsService {
     return mapRegistration(updated);
   }
 
-  async listRegistrations(userId: string, conferenceId: string, roles: RoleKind[]) {
+  async listRegistrations(
+    userId: string,
+    conferenceId: string,
+    roles: RoleKind[],
+    options: CursorPaginationOptions & {
+      status?: Registration['status'] | 'at-risk' | 'unpaid' | 'paid';
+      audience?: Registration['audience'];
+    } = {},
+  ) {
     if (!canCoordinateReview(roles)) {
       throw new ForbiddenException('Insufficient permissions to list registrations');
     }
 
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
+    const limit = resolveLimit(options.limit);
 
     const rows = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.registration.findMany({
-          where: { conferenceId },
+          where: {
+            conferenceId,
+            ...this.buildRegistrationListFilters(options),
+          },
           include: { paper: { select: { title: true } } },
           orderBy: { createdAt: 'desc' },
+          ...prismaCursorArgs(options, limit),
         }),
     );
 
+    const page = paginateItems(rows, limit, (row) => row.id);
+
     return {
-      data: rows.map((row) => ({
+      data: page.data.map((row) => ({
         ...mapRegistration(row),
         paperTitle: row.paper.title,
       })),
+      nextCursor: page.nextCursor,
     };
   }
 
@@ -368,6 +390,34 @@ export class RegistrationsService {
       registration: mapRegistration(updated),
       message: 'Registration deadline extended',
     };
+  }
+
+  private buildRegistrationListFilters(options: {
+    status?: Registration['status'] | 'at-risk' | 'unpaid' | 'paid';
+    audience?: Registration['audience'];
+  }) {
+    const filters: {
+      status?: Registration['status'] | { notIn: Registration['status'][] };
+      audience?: Registration['audience'];
+      deadlineAt?: { lte: Date };
+    } = {};
+
+    if (options.audience) {
+      filters.audience = options.audience;
+    }
+
+    if (options.status === 'paid') {
+      filters.status = 'PAID';
+    } else if (options.status === 'unpaid') {
+      filters.status = { notIn: ['PAID', 'REFUNDED'] };
+    } else if (options.status === 'at-risk') {
+      filters.status = { notIn: ['PAID', 'CANCELLED', 'REFUNDED', 'DISCARDED_NONPAYMENT'] };
+      filters.deadlineAt = { lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) };
+    } else if (options.status) {
+      filters.status = options.status;
+    }
+
+    return filters;
   }
 
   private async assertPaperAccepted(paperId: string, conferenceId: string) {

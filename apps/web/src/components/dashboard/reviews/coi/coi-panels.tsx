@@ -5,6 +5,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableFooter,
+  DataTableHead,
+  DataTableHeader,
+  DataTableRow,
+} from '@/components/dashboard/data-table';
+import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
 import { COI_TYPE_OPTIONS } from '@/lib/review-types';
 import { declareCoi, deleteCoi } from '@/lib/api-client';
 import { useState } from 'react';
@@ -118,30 +128,59 @@ export function CoiListPanel({ title, description }: { title: string; descriptio
           </CardContent>
         </Card>
       ) : (
-        cois.map((coi) => (
-          <Card key={coi.id}>
-            <CardHeader className="flex flex-row items-start justify-between gap-4">
-              <div>
-                <CardTitle className="text-base">{coi.paperTitle ?? 'General conflict'}</CardTitle>
-                <CardDescription>
-                  {coi.type} · {coi.source}
-                  {coi.userName ? ` · ${coi.userName}` : ''}
-                  {coi.note ? ` · ${coi.note}` : ''}
-                </CardDescription>
-              </div>
-              {coi.source !== 'SYSTEM' ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => void handleRemove(coi.id)}
-                >
-                  Remove
-                </Button>
-              ) : null}
-            </CardHeader>
-          </Card>
-        ))
+        <DataTable
+          footer={
+            <DataTableFooter>
+              {cois.length} conflict{cois.length === 1 ? '' : 's'}
+            </DataTableFooter>
+          }
+        >
+          <DataTableHeader>
+            <tr>
+              <DataTableHead>Paper</DataTableHead>
+              <DataTableHead>Reviewer</DataTableHead>
+              <DataTableHead>Type</DataTableHead>
+              <DataTableHead>Source</DataTableHead>
+              <DataTableHead>Note</DataTableHead>
+              <DataTableHead className="text-right">Actions</DataTableHead>
+            </tr>
+          </DataTableHeader>
+          <DataTableBody>
+            {cois.map((coi) => (
+              <DataTableRow key={coi.id}>
+                <DataTableCell>
+                  <p className="font-medium text-slate-900">
+                    {coi.paperTitle ?? 'General conflict'}
+                  </p>
+                </DataTableCell>
+                <DataTableCell>{coi.userName ?? '—'}</DataTableCell>
+                <DataTableCell>
+                  <WorkflowBadge label={coi.type.replace(/_/g, ' ')} tone="neutral" />
+                </DataTableCell>
+                <DataTableCell className="text-slate-500">{coi.source}</DataTableCell>
+                <DataTableCell>
+                  {coi.note ? (
+                    <p className="line-clamp-2 text-sm text-slate-500">{coi.note}</p>
+                  ) : (
+                    <span className="text-sm text-slate-400">—</span>
+                  )}
+                </DataTableCell>
+                <DataTableCell className="text-right">
+                  {coi.source !== 'SYSTEM' ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => void handleRemove(coi.id)}
+                    >
+                      Remove
+                    </Button>
+                  ) : null}
+                </DataTableCell>
+              </DataTableRow>
+            ))}
+          </DataTableBody>
+        </DataTable>
       )}
     </div>
   );

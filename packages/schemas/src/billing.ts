@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { feeScheduleSchema } from './tenancy.js';
+import { cursorPaginationQuerySchema } from './pagination.js';
 
 export const feeAudienceSchema = z.enum(['REGULAR', 'STUDENT']);
 export const feeTimingSchema = z.enum(['EARLY', 'REGULAR']);
@@ -62,6 +63,17 @@ export const registrationListSchema = z.object({
       paperTitle: z.string().optional(),
     }),
   ),
+  nextCursor: z.string().uuid().nullable(),
+});
+
+export const registrationListStatusFilterSchema = z.union([
+  registrationStatusSchema,
+  z.enum(['at-risk', 'unpaid', 'paid']),
+]);
+
+export const registrationListQuerySchema = cursorPaginationQuerySchema.extend({
+  status: registrationListStatusFilterSchema.optional(),
+  audience: feeAudienceSchema.optional(),
 });
 
 export const paymentSchema = z.object({
@@ -112,7 +124,10 @@ export const studentVerificationListSchema = z.object({
       registrationAudience: feeAudienceSchema.optional(),
     }),
   ),
+  nextCursor: z.string().uuid().nullable(),
 });
+
+export const studentVerificationListQuerySchema = cursorPaginationQuerySchema;
 
 export const initiateStudentDocUploadSchema = z.object({
   originalFilename: z.string().min(1).max(255),

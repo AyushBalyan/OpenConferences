@@ -7,6 +7,12 @@ import {
 import type { Authorship, FileAsset, Paper, PaperVersion, RoleKind } from '@openconferences/db';
 import { generateId, withTenantContext } from '@openconferences/db';
 import type { CreatePaperInput, UpdatePaperInput } from '@openconferences/schemas';
+import {
+  paginateItems,
+  prismaCursorArgs,
+  resolveLimit,
+  type CursorPaginationOptions,
+} from '../common/pagination/cursor';
 import { assertScope } from '../common/scope/assert-scope';
 import { AuditService } from '../audit/audit.service';
 import { NotificationPublisher } from '../messaging/notification.publisher';
@@ -111,36 +117,42 @@ export class PapersService {
     userId: string,
     conferenceId: string,
     roles: RoleKind[],
-    options: { limit?: number; cursor?: string; mine?: boolean },
+    options: CursorPaginationOptions & {
+      mine?: boolean;
+      status?: LoadedPaper['status'];
+      trackId?: string;
+      q?: string;
+    },
   ) {
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-    const limit = options.limit ?? 20;
+    const limit = resolveLimit(options.limit);
     const privileged = isPrivilegedReader(roles);
     const mineOnly = options.mine ?? !privileged;
 
-    const papers = await withTenantContext(
+    const rows = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.paper.findMany({
-          where: mineOnly
-            ? {
-                conferenceId,
-                OR: [{ submittedById: userId }, { authorships: { some: { userId } } }],
-              }
-            : { conferenceId },
+          where: {
+            conferenceId,
+            ...(mineOnly
+              ? { OR: [{ submittedById: userId }, { authorships: { some: { userId } } }] }
+              : {}),
+            ...(options.status ? { status: options.status } : {}),
+            ...(options.trackId ? { trackId: options.trackId } : {}),
+            ...(options.q ? { title: { contains: options.q, mode: 'insensitive' } } : {}),
+          },
           include: paperInclude,
           orderBy: { createdAt: 'desc' },
-          take: limit + 1,
-          ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
+          ...prismaCursorArgs(options, limit),
         }),
     );
 
-    const hasMore = papers.length > limit;
-    const data = hasMore ? papers.slice(0, limit) : papers;
+    const page = paginateItems(rows, limit, (row) => row.id);
 
     return {
-      data: data.map(mapPaper),
-      nextCursor: hasMore ? (data[data.length - 1]?.id ?? null) : null,
+      data: page.data.map(mapPaper),
+      nextCursor: page.nextCursor,
     };
   }
 

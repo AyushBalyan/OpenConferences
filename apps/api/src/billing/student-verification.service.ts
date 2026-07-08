@@ -15,6 +15,12 @@ import type {
   ReviewVerificationInput,
   StudentVerificationListDto,
 } from '@openconferences/schemas';
+import {
+  paginateItems,
+  prismaCursorArgs,
+  resolveLimit,
+  type CursorPaginationOptions,
+} from '../common/pagination/cursor';
 import { getConfig } from '@openconferences/config/env';
 import { assertScope } from '../common/scope/assert-scope';
 import { AuditService } from '../audit/audit.service';
@@ -120,12 +126,14 @@ export class StudentVerificationService {
     userId: string,
     conferenceId: string,
     roles: RoleKind[],
+    options: CursorPaginationOptions = {},
   ): Promise<StudentVerificationListDto> {
     if (!canCoordinateReview(roles)) {
       throw new ForbiddenException('Insufficient permissions to view verifications');
     }
 
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
+    const limit = resolveLimit(options.limit);
 
     const rows = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
@@ -142,15 +150,19 @@ export class StudentVerificationService {
             },
           },
           orderBy: { submittedAt: 'asc' },
+          ...prismaCursorArgs(options, limit),
         }),
     );
 
+    const page = paginateItems(rows, limit, (row) => row.id);
+
     return {
-      data: rows.map((row) => ({
+      data: page.data.map((row) => ({
         ...mapStudentVerification(row),
         paperTitle: row.registration.paper.title,
         registrationAudience: row.registration.audience,
       })),
+      nextCursor: page.nextCursor,
     };
   }
 

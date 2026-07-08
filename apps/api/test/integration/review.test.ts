@@ -16,6 +16,39 @@ import { ProblemExceptionFilter } from '../../src/common/filters/problem-excepti
 
 const config = getConfig();
 
+function extractCookies(setCookie: string | string[] | undefined): string {
+  if (!setCookie) return '';
+  const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
+  return cookies.map((cookie) => cookie.split(';')[0]).join('; ');
+}
+
+function extractReviewerJoinUrlFromEmail(html: string): string | null {
+  const match = html.match(/href="([^"]*\/join\/reviewer[^"]*)"/);
+  return match?.[1]?.replace(/&amp;/g, '&') ?? null;
+}
+
+function buildMagicLinkVerifyPath(joinUrl: string): string {
+  const parsed = new URL(joinUrl);
+  const magicToken = parsed.searchParams.get('token');
+  const invitationToken = parsed.searchParams.get('invitationToken');
+
+  if (!magicToken || !invitationToken) {
+    throw new Error('Reviewer join URL is missing token parameters');
+  }
+
+  const callbackURL = new URL('/join/reviewer/complete', config.webUrl);
+  callbackURL.searchParams.set('invitationToken', invitationToken);
+
+  const errorCallbackURL = new URL('/join/reviewer/error', config.webUrl);
+
+  const verifyUrl = new URL('/api/v1/auth/magic-link/verify', config.auth.url);
+  verifyUrl.searchParams.set('token', magicToken);
+  verifyUrl.searchParams.set('callbackURL', callbackURL.toString());
+  verifyUrl.searchParams.set('errorCallbackURL', errorCallbackURL.toString());
+
+  return verifyUrl.pathname + verifyUrl.search;
+}
+
 async function createUserWithSession(
   app: INestApplication,
   email: string,
@@ -444,8 +477,9 @@ describe('Reviewer management & assignment integration', () => {
     expect(res.body.email).toBe(inviteeEmail.toLowerCase());
     expect(res.body.status).toBe('PENDING');
     expect(lastTestNotification?.to).toBe(inviteeEmail.toLowerCase());
-    expect(lastTestNotification?.html).toContain('/sign-up?');
-    expect(lastTestNotification?.html).toContain('reviewerInvite=');
+    expect(lastTestNotification?.html).toContain('/join/reviewer');
+    expect(lastTestNotification?.html).not.toContain('magic-link');
+    expect(lastTestNotification?.html).not.toContain('/sign-up?');
 
     const invitation = await withTenantContext({ bypass: true }, async (tx) =>
       tx.reviewerInvitation.findFirst({ where: { email: inviteeEmail.toLowerCase() } }),
@@ -454,10 +488,90 @@ describe('Reviewer management & assignment integration', () => {
     expect(invitationToken.length).toBeGreaterThanOrEqual(32);
   });
 
-  it('accepts pending invitations for signed-in user email', async () => {
+  it('resends a pending reviewer invitation email', async () => {
+    resetLastTestNotification();
+
+    const invitation = await withTenantContext({ bypass: true }, async (tx) =>
+      tx.reviewerInvitation.findFirst({ where: { email: inviteeEmail.toLowerCase() } }),
+    );
+    expect(invitation?.id).toBeTruthy();
+
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/reviewer-invitations/${invitation!.id}/resend`)
+      .set('Cookie', chairCookie)
+      .send();
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toContain('resent');
+    expect(res.body.invitation.status).toBe('PENDING');
+    expect(lastTestNotification?.to).toBe(inviteeEmail.toLowerCase());
+    expect(lastTestNotification?.html).toContain('/join/reviewer');
+    expect(lastTestNotification?.html).not.toContain('magic-link');
+  });
+
+  it('completes reviewer onboarding via magic link and accepts invitation', async () => {
+    expect(lastTestNotification?.html).toBeTruthy();
+    const joinUrl = extractReviewerJoinUrlFromEmail(lastTestNotification!.html);
+    expect(joinUrl).toBeTruthy();
+
+    const verifyPath = buildMagicLinkVerifyPath(joinUrl!);
+
+    const verifyRes = await request(app.getHttpServer())
+      .get(verifyPath)
+      .set('Origin', config.api.corsOrigins[0] ?? 'http://localhost:3000');
+
+    expect(verifyRes.status).toBeGreaterThanOrEqual(200);
+    expect(verifyRes.status).toBeLessThan(400);
+
+    const magicCookie = extractCookies(verifyRes.headers['set-cookie']);
+    expect(magicCookie.length).toBeGreaterThan(0);
+    inviteeCookie = magicCookie;
+
+    const acceptRes = await request(app.getHttpServer())
+      .post('/api/v1/reviewer-invitations/accept')
+      .set('Cookie', magicCookie)
+      .send({ token: invitationToken });
+
+    expect(acceptRes.status).toBe(200);
+    expect(acceptRes.body.invitation.status).toBe('ACCEPTED');
+
+    const membership = await withTenantContext({ bypass: true }, async (tx) =>
+      tx.membership.findFirst({
+        where: { userId: inviteeUserId, conferenceId: confId },
+        include: { roles: true },
+      }),
+    );
+
+    expect(membership?.roles.some((r) => r.role === 'REVIEWER')).toBe(true);
+  });
+
+  it('accepts pending invitations for signed-in user email when none remain', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/v1/reviewer-invitations/accept-pending')
       .set('Cookie', inviteeCookie)
+      .send();
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(0);
+    expect(res.body.message).toContain('No pending');
+  });
+
+  it('accepts pending invitations for signed-in user email (legacy path)', async () => {
+    const legacyEmail = `legacy-invitee-${Date.now()}@example.com`;
+    resetLastTestNotification();
+
+    const legacyInvitee = await createUserWithSession(app, legacyEmail, 'Legacy Invitee');
+
+    const issueRes = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/reviewer-invitations`)
+      .set('Cookie', chairCookie)
+      .send({ email: legacyEmail });
+
+    expect(issueRes.status).toBe(201);
+
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/reviewer-invitations/accept-pending')
+      .set('Cookie', legacyInvitee.cookie)
       .send();
 
     expect(res.status).toBe(200);
@@ -466,7 +580,7 @@ describe('Reviewer management & assignment integration', () => {
 
     const membership = await withTenantContext({ bypass: true }, async (tx) =>
       tx.membership.findFirst({
-        where: { userId: inviteeUserId, conferenceId: confId },
+        where: { userId: legacyInvitee.userId, conferenceId: confId },
         include: { roles: true },
       }),
     );
@@ -485,6 +599,21 @@ describe('Reviewer management & assignment integration', () => {
     expect(res.body.message).toContain('already accepted');
   });
 
+  it('cannot resend an accepted reviewer invitation', async () => {
+    const invitation = await withTenantContext({ bypass: true }, async (tx) =>
+      tx.reviewerInvitation.findFirst({ where: { email: inviteeEmail.toLowerCase() } }),
+    );
+    expect(invitation?.id).toBeTruthy();
+
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/reviewer-invitations/${invitation!.id}/resend`)
+      .set('Cookie', chairCookie)
+      .send();
+
+    expect(res.status).toBe(409);
+    expect(res.body.detail).toContain('no longer pending');
+  });
+
   it('hides author identities in DOUBLE blinding paper pool', async () => {
     const res = await request(app.getHttpServer())
       .get(`/api/v1/conferences/${confId}/review/paper-pool`)
@@ -492,9 +621,22 @@ describe('Reviewer management & assignment integration', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.blindingMode).toBe('DOUBLE');
+    expect(res.body.mode).toBe('reviewer');
     const item = res.body.data.find((p: { id: string }) => p.id === paperId);
     expect(item).toBeTruthy();
     expect(item.authorships).toBeUndefined();
+  });
+
+  it('allows chair to view paper pool in oversight mode', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/review/paper-pool`)
+      .set('Cookie', chairCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.mode).toBe('oversight');
+    expect(res.body.data.length).toBeGreaterThan(0);
+    const item = res.body.data.find((p: { id: string }) => p.id === paperId);
+    expect(item?.authorships?.length).toBeGreaterThan(0);
   });
 
   it('shows author identities in SINGLE blinding paper pool', async () => {

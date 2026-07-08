@@ -33,8 +33,8 @@ function MyAssignments() {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const data = await fetchMyAssignments(conferenceId);
-    setAssignments(data);
+    const result = await fetchMyAssignments(conferenceId);
+    setAssignments(result.data);
     setError(null);
   }, [conferenceId]);
 

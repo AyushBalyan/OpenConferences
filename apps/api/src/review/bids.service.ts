@@ -11,6 +11,12 @@ import type {
   UpsertBidInput,
   BlindedPaperPoolItemDto,
 } from '@openconferences/schemas';
+import {
+  paginateItems,
+  prismaCursorArgs,
+  resolveLimit,
+  type CursorPaginationOptions,
+} from '../common/pagination/cursor';
 import { assertScope } from '../common/scope/assert-scope';
 import { AuditService } from '../audit/audit.service';
 import { ConferenceService } from '../tenancy/conference.service';
@@ -18,7 +24,7 @@ import { CoiCheckService } from './coi-check.service';
 import {
   blindAuthorships,
   isPrivilegedReader,
-  isReviewer,
+  mapOversightAuthorships,
   mapBid,
   mapConflictOfInterest,
 } from './review.mapper';
@@ -85,13 +91,19 @@ export class BidsService {
     data: BlindedPaperPoolItemDto[];
     nextCursor: string | null;
     blindingMode: 'SINGLE' | 'DOUBLE' | 'OPEN';
+    mode: 'reviewer' | 'oversight';
   }> {
-    if (!isReviewer(roles)) {
-      throw new ForbiddenException('Reviewer role required');
+    const oversight = isPrivilegedReader(roles);
+    const canBid = roles.includes('REVIEWER');
+
+    if (!oversight && !canBid) {
+      throw new ForbiddenException('Reviewer or coordinator role required');
     }
 
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-    this.assertBiddingOpen(conference);
+    if (!oversight) {
+      this.assertBiddingOpen(conference);
+    }
 
     const limit = options.limit ?? 20;
 
@@ -102,13 +114,17 @@ export class BidsService {
           where: {
             conferenceId,
             status: { in: ['SUBMITTED', 'UNDER_REVIEW'] },
-            NOT: {
-              authorships: { some: { userId } },
-            },
+            ...(canBid && !oversight ? { NOT: { authorships: { some: { userId } } } } : {}),
           },
           include: {
             authorships: { orderBy: { order: 'asc' } },
-            bids: { where: { reviewerUserId: userId } },
+            bids: oversight
+              ? {
+                  include: {
+                    reviewer: { select: { name: true, email: true } },
+                  },
+                }
+              : { where: { reviewerUserId: userId } },
           },
           orderBy: { createdAt: 'desc' },
           take: limit + 1,
@@ -120,6 +136,7 @@ export class BidsService {
     const data = hasMore ? papers.slice(0, limit) : papers;
 
     return {
+      mode: oversight ? 'oversight' : 'reviewer',
       data: data.map((paper) => ({
         id: paper.id,
         title: paper.title,
@@ -127,8 +144,27 @@ export class BidsService {
         keywords: paper.keywords,
         trackId: paper.trackId,
         status: paper.status,
-        authorships: blindAuthorships(conference.blindingMode, paper.authorships),
-        myBid: paper.bids[0]?.value ?? null,
+        authorships: oversight
+          ? mapOversightAuthorships(paper.authorships)
+          : blindAuthorships(conference.blindingMode, paper.authorships),
+        myBid: canBid
+          ? oversight
+            ? (paper.bids.find((bid) => bid.reviewerUserId === userId)?.value ?? null)
+            : (paper.bids[0]?.value ?? null)
+          : undefined,
+        bids: oversight
+          ? paper.bids
+              .filter(
+                (bid): bid is typeof bid & { reviewer: { name: string; email: string } } =>
+                  'reviewer' in bid,
+              )
+              .map((bid) => ({
+                reviewerUserId: bid.reviewerUserId,
+                reviewerName: bid.reviewer.name,
+                reviewerEmail: bid.reviewer.email,
+                value: bid.value,
+              }))
+          : undefined,
       })),
       nextCursor: hasMore ? (data[data.length - 1]?.id ?? null) : null,
       blindingMode: conference.blindingMode,
@@ -236,11 +272,17 @@ export class CoiService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(userId: string, conferenceId: string, roles: RoleKind[]) {
+  async list(
+    userId: string,
+    conferenceId: string,
+    roles: RoleKind[],
+    options: CursorPaginationOptions = {},
+  ) {
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
     const privileged = isPrivilegedReader(roles);
+    const limit = resolveLimit(options.limit);
 
-    const cois = await withTenantContext(
+    const rows = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.conflictOfInterest.findMany({
@@ -253,15 +295,19 @@ export class CoiService {
             paper: { select: { title: true } },
           },
           orderBy: { createdAt: 'desc' },
+          ...prismaCursorArgs(options, limit),
         }),
     );
 
+    const page = paginateItems(rows, limit, (row) => row.id);
+
     return {
-      data: cois.map((coi) => ({
+      data: page.data.map((coi) => ({
         ...mapConflictOfInterest(coi),
         userName: coi.user.name,
         paperTitle: coi.paper?.title ?? null,
       })),
+      nextCursor: page.nextCursor,
     };
   }
 

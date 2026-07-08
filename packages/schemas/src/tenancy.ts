@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cursorPaginationQuerySchema } from './pagination.js';
 
 export const roleKindSchema = z.enum([
   'PLATFORM_ADMIN',
@@ -147,7 +148,10 @@ export const trackSchema = z.object({
 
 export const trackListSchema = z.object({
   data: z.array(trackSchema),
+  nextCursor: z.string().uuid().nullable(),
 });
+
+export const trackListQuerySchema = cursorPaginationQuerySchema;
 
 export const grantRoleSchema = z.object({
   userId: z.string().uuid(),
@@ -172,7 +176,10 @@ export const memberSchema = z.object({
 
 export const memberListSchema = z.object({
   data: z.array(memberSchema),
+  nextCursor: z.string().uuid().nullable(),
 });
+
+export const memberListQuerySchema = cursorPaginationQuerySchema;
 
 export const transitionStatusSchema = z.object({
   status: conferenceStatusSchema,
@@ -192,6 +199,14 @@ export const auditLogEntrySchema = z.object({
 
 export const auditLogListSchema = z.object({
   data: z.array(auditLogEntrySchema),
+  nextCursor: z.string().uuid().nullable(),
+});
+
+export const auditLogListQuerySchema = cursorPaginationQuerySchema;
+
+export const organizationListSchema = z.object({
+  data: z.array(organizationSchema),
+  nextCursor: z.string().uuid().nullable(),
 });
 
 export type RoleKind = z.infer<typeof roleKindSchema>;

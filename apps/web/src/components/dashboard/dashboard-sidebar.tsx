@@ -9,8 +9,6 @@ import { fetchConferences } from '@/lib/api-client';
 import { canCreateConference } from '@/lib/roles';
 import type { Conference } from '@/lib/conference-types';
 import { ConferenceSwitcher } from './conference-switcher';
-import { SidebarUserSummary } from './user-menu';
-
 function SidebarLink({
   href,
   label,
@@ -62,10 +60,10 @@ export function DashboardSidebar() {
           Navigation
         </p>
         <SidebarLink
-          href="/dashboard"
+          href="/me/dashboard"
           label="Home"
           icon={Home}
-          active={pathname === '/dashboard'}
+          active={pathname === '/me/dashboard' || pathname === '/dashboard'}
         />
         {showCreate ? (
           <SidebarLink
@@ -87,7 +85,6 @@ export function DashboardSidebar() {
       ) : null}
 
       <div className="mt-auto space-y-3 border-t border-slate-200 p-4">
-        <SidebarUserSummary />
         <Link
           href="mailto:support@openconferences.local"
           className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"

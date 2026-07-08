@@ -417,6 +417,15 @@ describe('Paper submission integration', () => {
     expect(res.body.data.length).toBeGreaterThan(0);
   });
 
+  it('treats mine=false as all papers for privileged readers', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/papers?mine=false`)
+      .set('Cookie', organizerCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBeGreaterThan(0);
+  });
+
   describe('Phase 7 — camera-ready', () => {
     let acceptedPaperId = '';
     let unnotifiedPaperId = '';

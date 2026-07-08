@@ -7,7 +7,8 @@ const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'OpenConferences',
-  description: 'Multi-conference management platform',
+  description:
+    'Academic conference management — submissions, peer review, decisions, and registration in one platform.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

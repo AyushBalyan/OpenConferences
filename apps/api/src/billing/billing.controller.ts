@@ -123,11 +123,12 @@ export class BillingController {
   @RequireReviewCoordination()
   @RequireMembership()
   listRegistrations(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
-    return tsRestHandler(billingContract.listRegistrations, async ({ params }) => {
+    return tsRestHandler(billingContract.listRegistrations, async ({ params, query }) => {
       const result = await this.registrations.listRegistrations(
         user.id,
         params.conferenceId,
         roles,
+        query,
       );
       return { status: 200 as const, body: result };
     });
@@ -137,11 +138,12 @@ export class BillingController {
   @RequireReviewCoordination()
   @RequireMembership()
   listStudentVerifications(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
-    return tsRestHandler(billingContract.listStudentVerifications, async ({ params }) => {
+    return tsRestHandler(billingContract.listStudentVerifications, async ({ params, query }) => {
       const result = await this.studentVerification.listPending(
         user.id,
         params.conferenceId,
         roles,
+        query,
       );
       return { status: 200 as const, body: result };
     });

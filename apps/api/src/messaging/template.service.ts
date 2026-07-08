@@ -6,6 +6,11 @@ import type {
   NotificationTemplateDto,
   UpdateNotificationTemplateInput,
 } from '@openconferences/schemas';
+import {
+  paginateItems,
+  resolveLimit,
+  type CursorPaginationOptions,
+} from '../common/pagination/cursor';
 import { validateTemplateVariables } from './template-renderer';
 
 function mapTemplate(row: NotificationTemplate): NotificationTemplateDto {
@@ -27,7 +32,10 @@ function mapTemplate(row: NotificationTemplate): NotificationTemplateDto {
 
 @Injectable()
 export class TemplateService {
-  async listForOrganization(organizationId: string): Promise<NotificationTemplateDto[]> {
+  async listForOrganization(
+    organizationId: string,
+    options: CursorPaginationOptions = {},
+  ): Promise<{ data: NotificationTemplateDto[]; nextCursor: string | null }> {
     const [orgTemplates, platformTemplates] = await withTenantContext(
       { bypass: true },
       async (tx) =>
@@ -56,7 +64,27 @@ export class TemplateService {
       }
     }
 
-    return [...byKey.values()].map(mapTemplate);
+    const merged = [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key));
+    const limit = resolveLimit(options.limit);
+
+    let startIndex = 0;
+    if (options.cursor) {
+      const cursorIndex = merged.findIndex((template) => template.id === options.cursor);
+      if (cursorIndex >= 0) {
+        startIndex = cursorIndex + 1;
+      }
+    }
+
+    const page = paginateItems(
+      merged.slice(startIndex, startIndex + limit + 1),
+      limit,
+      (row) => row.id,
+    );
+
+    return {
+      data: page.data.map(mapTemplate),
+      nextCursor: page.nextCursor,
+    };
   }
 
   async listAllVersions(organizationId: string, key: string): Promise<NotificationTemplateDto[]> {

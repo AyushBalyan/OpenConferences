@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cursorPaginationQuerySchema, queryBooleanSchema } from './pagination.js';
 
 export const paperStatusSchema = z.enum([
   'DRAFT',
@@ -122,6 +123,13 @@ export type PaperDto = z.infer<typeof paperSchema>;
 export const paperListSchema = z.object({
   data: z.array(paperSchema),
   nextCursor: z.string().uuid().nullable(),
+});
+
+export const paperListQuerySchema = cursorPaginationQuerySchema.extend({
+  mine: queryBooleanSchema,
+  status: paperStatusSchema.optional(),
+  trackId: z.string().uuid().optional(),
+  q: z.string().max(200).optional(),
 });
 
 export const initiateVersionSchema = z.object({

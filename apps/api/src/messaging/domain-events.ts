@@ -41,6 +41,7 @@ export type ReviewerInvitationPayload = {
   conferenceId: string;
   organizationId: string;
   conferenceName: string;
+  /** Magic link URL (legacy field name retained for template compatibility). */
   signupUrl: string;
   expiresAt: string;
   invitationId: string;

@@ -22,3 +22,15 @@ describe('schemas', () => {
     expect(result.success).toBe(true);
   });
 });
+
+describe('queryBooleanSchema', () => {
+  it('parses string false as false', async () => {
+    const { queryBooleanSchema } = await import('./pagination.js');
+    expect(queryBooleanSchema.parse('false')).toBe(false);
+    expect(queryBooleanSchema.parse('true')).toBe(true);
+    expect(queryBooleanSchema.parse('0')).toBe(false);
+    expect(queryBooleanSchema.parse('1')).toBe(true);
+    expect(queryBooleanSchema.parse(false)).toBe(false);
+    expect(queryBooleanSchema.parse(undefined)).toBeUndefined();
+  });
+});

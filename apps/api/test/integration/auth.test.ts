@@ -277,6 +277,14 @@ describe('Auth integration', () => {
       .expect(403);
   });
 
+  it('rejects public magic link sign-in requests', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/sign-in/magic-link')
+      .set('Origin', config.api.corsOrigins[0] ?? 'http://localhost:3000')
+      .send({ email: testEmail })
+      .expect(403);
+  });
+
   it('signs out and revokes session', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/auth/sign-out')

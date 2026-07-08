@@ -5,9 +5,23 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableFooter,
+  DataTableHead,
+  DataTableHeader,
+  DataTableRow,
+} from '@/components/dashboard/data-table';
+import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
 import { bulkDecide, makeDecision, notifyDecisions } from '@/lib/api-client';
+import { paperStatusLabel, paperStatusTone } from '@/lib/paper-status-styles';
 import { DECISION_OPTIONS, decisionOutcomeLabel, type DecisionOutcome } from '@/lib/review-types';
 import { useDecisionsWorkspace, type PaperRow } from './decisions-workspace';
+
+const selectClassName =
+  'flex h-9 w-full min-w-[8.5rem] rounded-md border border-slate-200 bg-white px-2 py-1 text-sm';
 
 export function DecisionsRoundBar() {
   const {
@@ -126,6 +140,10 @@ export function DecisionsPendingPanel() {
     }));
   }
 
+  function toggleAll(checked: boolean) {
+    setSelected(checked ? new Set(undecidedPapers.map((paper) => paper.id)) : new Set());
+  }
+
   async function handleSingleDecision(paper: PaperRow) {
     if (!roundId) return;
     const draft = pending[paper.id] ?? { outcome: 'ACCEPT' as DecisionOutcome, rationale: '' };
@@ -225,62 +243,102 @@ export function DecisionsPendingPanel() {
             </CardContent>
           </Card>
         ) : (
-          undecidedPapers.map((paper) => {
-            const draft = pending[paper.id] ?? {
-              outcome: 'ACCEPT' as DecisionOutcome,
-              rationale: '',
-            };
-            return (
-              <Card key={paper.id}>
-                <CardHeader className="flex flex-row items-start gap-4">
+          <DataTable
+            footer={
+              <DataTableFooter>
+                {undecidedPapers.length} paper{undecidedPapers.length === 1 ? '' : 's'} awaiting
+                decision
+                {selected.size > 0 ? ` · ${selected.size} selected` : ''}
+              </DataTableFooter>
+            }
+          >
+            <DataTableHeader>
+              <tr>
+                <DataTableHead className="w-10">
                   <input
                     type="checkbox"
-                    className="mt-1"
-                    checked={selected.has(paper.id)}
-                    onChange={() => togglePaper(paper.id)}
-                    aria-label={`Select ${paper.title}`}
+                    checked={undecidedPapers.length > 0 && selected.size === undecidedPapers.length}
+                    onChange={(event) => toggleAll(event.target.checked)}
+                    aria-label="Select all pending papers"
                   />
-                  <div className="flex-1 space-y-1">
-                    <CardTitle className="text-base">{paper.title}</CardTitle>
-                    <CardDescription>Status: {paper.status}</CardDescription>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor={`outcome-${paper.id}`}>Outcome</Label>
+                </DataTableHead>
+                <DataTableHead>Title</DataTableHead>
+                <DataTableHead>Status</DataTableHead>
+                <DataTableHead>Outcome</DataTableHead>
+                <DataTableHead>Rationale</DataTableHead>
+                <DataTableHead className="text-right">Actions</DataTableHead>
+              </tr>
+            </DataTableHeader>
+            <DataTableBody>
+              {undecidedPapers.map((paper) => {
+                const draft = pending[paper.id] ?? {
+                  outcome: 'ACCEPT' as DecisionOutcome,
+                  rationale: '',
+                };
+
+                return (
+                  <DataTableRow key={paper.id}>
+                    <DataTableCell>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(paper.id)}
+                        onChange={() => togglePaper(paper.id)}
+                        aria-label={`Select ${paper.title}`}
+                      />
+                    </DataTableCell>
+                    <DataTableCell>
+                      <p className="font-medium text-slate-900">{paper.title}</p>
+                    </DataTableCell>
+                    <DataTableCell>
+                      <WorkflowBadge
+                        label={paperStatusLabel(paper.status)}
+                        tone={paperStatusTone(paper.status)}
+                      />
+                    </DataTableCell>
+                    <DataTableCell>
                       <select
                         id={`outcome-${paper.id}`}
-                        className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                        className={selectClassName}
                         value={draft.outcome}
-                        onChange={(e) =>
-                          updatePending(paper.id, { outcome: e.target.value as DecisionOutcome })
+                        onChange={(event) =>
+                          updatePending(paper.id, {
+                            outcome: event.target.value as DecisionOutcome,
+                          })
                         }
                       >
-                        {DECISION_OPTIONS.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
+                        {DECISION_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
                           </option>
                         ))}
                       </select>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor={`rationale-${paper.id}`}>Rationale (optional)</Label>
-                    <Textarea
-                      id={`rationale-${paper.id}`}
-                      value={draft.rationale}
-                      onChange={(e) => updatePending(paper.id, { rationale: e.target.value })}
-                      placeholder="Optional message to authors…"
-                    />
-                  </div>
-                  <Button onClick={() => void handleSingleDecision(paper)} disabled={busy}>
-                    Record decision
-                  </Button>
-                </CardContent>
-              </Card>
-            );
-          })
+                    </DataTableCell>
+                    <DataTableCell className="min-w-[14rem]">
+                      <Textarea
+                        id={`rationale-${paper.id}`}
+                        className="min-h-[2.25rem] resize-y text-sm"
+                        rows={2}
+                        value={draft.rationale}
+                        onChange={(event) =>
+                          updatePending(paper.id, { rationale: event.target.value })
+                        }
+                        placeholder="Optional message to authors…"
+                      />
+                    </DataTableCell>
+                    <DataTableCell className="text-right">
+                      <Button
+                        size="sm"
+                        onClick={() => void handleSingleDecision(paper)}
+                        disabled={busy}
+                      >
+                        Record
+                      </Button>
+                    </DataTableCell>
+                  </DataTableRow>
+                );
+              })}
+            </DataTableBody>
+          </DataTable>
         )}
       </div>
     </div>
@@ -305,23 +363,59 @@ export function DecisionsRecordedPanel() {
   }
 
   return (
-    <div className="space-y-3">
-      {decisions.map((d) => (
-        <Card key={d.id}>
-          <CardHeader>
-            <CardTitle className="text-base">{d.paperTitle ?? d.paperId}</CardTitle>
-            <CardDescription>
-              {decisionOutcomeLabel(d.outcome)}
-              {d.notifiedAt ? ' · Authors notified' : ' · Not yet notified'}
-            </CardDescription>
-          </CardHeader>
-          {d.rationale ? (
-            <CardContent>
-              <p className="whitespace-pre-wrap text-sm text-slate-500">{d.rationale}</p>
-            </CardContent>
-          ) : null}
-        </Card>
-      ))}
-    </div>
+    <DataTable
+      footer={
+        <DataTableFooter>
+          {decisions.length} decision{decisions.length === 1 ? '' : 's'} recorded
+        </DataTableFooter>
+      }
+    >
+      <DataTableHeader>
+        <tr>
+          <DataTableHead>Paper</DataTableHead>
+          <DataTableHead>Outcome</DataTableHead>
+          <DataTableHead>Notification</DataTableHead>
+          <DataTableHead>Rationale</DataTableHead>
+        </tr>
+      </DataTableHeader>
+      <DataTableBody>
+        {decisions.map((decision) => (
+          <DataTableRow key={decision.id}>
+            <DataTableCell>
+              <p className="font-medium text-slate-900">
+                {decision.paperTitle ?? decision.paperId}
+              </p>
+            </DataTableCell>
+            <DataTableCell>
+              <WorkflowBadge
+                label={decisionOutcomeLabel(decision.outcome)}
+                tone={
+                  decision.outcome === 'ACCEPT'
+                    ? 'success'
+                    : decision.outcome === 'REJECT'
+                      ? 'danger'
+                      : 'pending'
+                }
+              />
+            </DataTableCell>
+            <DataTableCell>
+              <WorkflowBadge
+                label={decision.notifiedAt ? 'Authors notified' : 'Not notified'}
+                tone={decision.notifiedAt ? 'success' : 'neutral'}
+              />
+            </DataTableCell>
+            <DataTableCell>
+              {decision.rationale ? (
+                <p className="line-clamp-2 whitespace-pre-wrap text-sm text-slate-500">
+                  {decision.rationale}
+                </p>
+              ) : (
+                <span className="text-sm text-slate-400">—</span>
+              )}
+            </DataTableCell>
+          </DataTableRow>
+        ))}
+      </DataTableBody>
+    </DataTable>
   );
 }

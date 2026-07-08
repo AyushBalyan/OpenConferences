@@ -10,6 +10,12 @@ import type { GrantRoleInput, RevokeRoleInput } from '@openconferences/schemas';
 import { AuditService } from '../audit/audit.service';
 import { ConferenceService } from './conference.service';
 import { canGrantRole, maxRoleRank } from './role-hierarchy';
+import {
+  paginateItems,
+  prismaCursorArgs,
+  resolveLimit,
+  type CursorPaginationOptions,
+} from '../common/pagination/cursor';
 
 export type MemberDto = {
   userId: string;
@@ -31,8 +37,10 @@ export class RoleGrantService {
     userId: string,
     conferenceId: string,
     userRoles: RoleKind[],
-  ): Promise<MemberDto[]> {
+    options: CursorPaginationOptions = {},
+  ): Promise<{ data: MemberDto[]; nextCursor: string | null }> {
     const conference = await this.conferenceService.loadConference(userId, conferenceId, userRoles);
+    const limit = resolveLimit(options.limit);
 
     const memberships = await withTenantContext(
       {
@@ -53,17 +61,22 @@ export class RoleGrantService {
             user: { select: { id: true, email: true, name: true } },
           },
           orderBy: { createdAt: 'asc' },
+          ...prismaCursorArgs(options, limit),
         }),
     );
 
-    return memberships.map((membership) => ({
-      userId: membership.userId,
-      email: membership.user.email,
-      name: membership.user.name,
-      scope: membership.scope,
-      roles: membership.roles.map((grant) => grant.role),
-      membershipId: membership.id,
-    }));
+    const page = paginateItems(memberships, limit, (membership) => membership.id);
+    return {
+      data: page.data.map((membership) => ({
+        userId: membership.userId,
+        email: membership.user.email,
+        name: membership.user.name,
+        scope: membership.scope,
+        roles: membership.roles.map((grant) => grant.role),
+        membershipId: membership.id,
+      })),
+      nextCursor: page.nextCursor,
+    };
   }
 
   async grantRole(
@@ -71,7 +84,7 @@ export class RoleGrantService {
     conferenceId: string,
     input: GrantRoleInput,
     grantorRoles: RoleKind[],
-  ): Promise<MemberDto[]> {
+  ): Promise<{ data: MemberDto[]; nextCursor: string | null }> {
     if (maxRoleRank(grantorRoles) < maxRoleRank(['ORGANIZER'])) {
       throw new ForbiddenException('Insufficient permissions to grant roles');
     }
@@ -146,7 +159,7 @@ export class RoleGrantService {
     conferenceId: string,
     input: RevokeRoleInput,
     grantorRoles: RoleKind[],
-  ): Promise<MemberDto[]> {
+  ): Promise<{ data: MemberDto[]; nextCursor: string | null }> {
     if (maxRoleRank(grantorRoles) < maxRoleRank(['ORGANIZER'])) {
       throw new ForbiddenException('Insufficient permissions to revoke roles');
     }

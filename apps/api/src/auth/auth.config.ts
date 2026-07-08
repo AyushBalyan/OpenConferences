@@ -1,12 +1,22 @@
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
-import { twoFactor } from 'better-auth/plugins';
+import { magicLink, twoFactor } from 'better-auth/plugins';
 import type Redis from 'ioredis';
 import { getConfig } from '@openconferences/config/env';
 import { prisma, generateId } from '@openconferences/db';
 import type { AuditService } from '../audit/audit.service';
 import { NotificationPublisher } from '../messaging/notification.publisher';
+import { formatEmailDate } from '../messaging/format-email-date';
 import type { AuthEmailVerifyPayload, AuthPasswordResetPayload } from '../messaging/domain-events';
+
+export type ReviewerInvitationMagicLinkMetadata = {
+  reviewerInvitationId: string;
+  invitationToken: string;
+  conferenceId: string;
+  organizationId: string;
+  conferenceName: string;
+  expiresAt: string;
+};
 
 export type AuthDependencies = {
   redis: Redis;
@@ -14,9 +24,31 @@ export type AuthDependencies = {
   audit: AuditService;
 };
 
-function buildWebAuthPageUrl(webUrl: string, path: string, token: string): string {
+function isReviewerInvitationMetadata(
+  metadata: Record<string, unknown> | undefined,
+): metadata is ReviewerInvitationMagicLinkMetadata {
+  return (
+    metadata != null &&
+    typeof metadata.reviewerInvitationId === 'string' &&
+    typeof metadata.invitationToken === 'string' &&
+    typeof metadata.conferenceId === 'string' &&
+    typeof metadata.organizationId === 'string' &&
+    typeof metadata.conferenceName === 'string' &&
+    typeof metadata.expiresAt === 'string'
+  );
+}
+
+function buildWebAuthPageUrl(
+  webUrl: string,
+  path: string,
+  token: string,
+  extraParams?: Record<string, string>,
+): string {
   const pageUrl = new URL(path, webUrl);
   pageUrl.searchParams.set('token', token);
+  for (const [key, value] of Object.entries(extraParams ?? {})) {
+    pageUrl.searchParams.set(key, value);
+  }
   return pageUrl.toString();
 }
 
@@ -41,6 +73,31 @@ function extractResetTokenFromAuthUrl(url: string): string {
 
   throw new Error('Reset email URL is missing token');
 }
+
+export type AuthInstance = {
+  api: ReturnType<typeof betterAuth>['api'] & {
+    signInMagicLink: (options: {
+      body: {
+        email: string;
+        name?: string;
+        callbackURL?: string;
+        errorCallbackURL?: string;
+        metadata?: ReviewerInvitationMagicLinkMetadata;
+      };
+      headers: Headers;
+    }) => Promise<{ status: boolean }>;
+    updateUser: (options: {
+      body: { name?: string; image?: string | null };
+      headers: Headers;
+    }) => Promise<{ status: boolean }>;
+    setPassword: (options: {
+      body: { newPassword: string };
+      headers: Headers;
+    }) => Promise<{ status: boolean }>;
+  };
+  handler: ReturnType<typeof betterAuth>['handler'];
+  options: ReturnType<typeof betterAuth>['options'];
+};
 
 export function createAuthInstance(deps: AuthDependencies): AuthInstance {
   const config = getConfig();
@@ -89,6 +146,10 @@ export function createAuthInstance(deps: AuthDependencies): AuthInstance {
         '/send-verification-email': {
           window: 60,
           max: 3,
+        },
+        '/magic-link/verify': {
+          window: 60,
+          max: 10,
         },
       },
     },
@@ -157,6 +218,37 @@ export function createAuthInstance(deps: AuthDependencies): AuthInstance {
       storeInDatabase: true,
     },
     plugins: [
+      magicLink({
+        expiresIn: 86400,
+        storeToken: 'hashed',
+        sendMagicLink: async ({ email, token, metadata }) => {
+          if (!isReviewerInvitationMetadata(metadata)) {
+            return;
+          }
+
+          const signupUrl = buildWebAuthPageUrl(config.webUrl, '/join/reviewer', token, {
+            invitationToken: metadata.invitationToken,
+          });
+
+          await deps.notifications.publishReviewerInvitation({
+            to: email,
+            conferenceId: metadata.conferenceId,
+            organizationId: metadata.organizationId,
+            conferenceName: metadata.conferenceName,
+            signupUrl,
+            expiresAt: formatEmailDate(new Date(metadata.expiresAt)),
+            invitationId: metadata.reviewerInvitationId,
+            idempotencyKey: `reviewer-invite-magic-${metadata.reviewerInvitationId}:${Date.now()}`,
+          });
+
+          await deps.audit.log({
+            action: 'auth.magic_link_sent',
+            entity: 'ReviewerInvitation',
+            entityId: metadata.reviewerInvitationId,
+            diff: { email },
+          });
+        },
+      }),
       twoFactor({
         issuer: 'OpenConferences',
       }),
@@ -200,5 +292,3 @@ export function createAuthInstance(deps: AuthDependencies): AuthInstance {
     },
   }) as unknown as AuthInstance;
 }
-
-export type AuthInstance = ReturnType<typeof betterAuth>;

@@ -21,7 +21,6 @@ import { usePathname } from 'next/navigation';
 import { navGroupsForRoles, roleLabels } from '@/lib/roles';
 import { ConferenceSwitcher } from './conference-switcher';
 import { SidebarNavItem } from './sidebar-nav-item';
-import { SidebarUserSummary } from './user-menu';
 import { StatusBadge } from './status-badge';
 import { useConferenceWorkspace } from './conference-workspace';
 
@@ -107,7 +106,6 @@ export function ConferenceSidebar() {
       </nav>
 
       <div className="mt-auto space-y-3 border-t border-slate-200 p-4">
-        <SidebarUserSummary />
         <Link
           href="mailto:support@openconferences.local"
           className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
