@@ -78,7 +78,7 @@ RUN pnpm --filter @openconferences/config build \
 # --ignore-scripts: --prod omits prisma CLI; db postinstall would fail with "prisma: not found".
 # Do not re-run generate against the deploy tree (Prisma tries `pnpm add prisma` there and fails).
 # Copy the client already generated in the builder into the deployed @prisma/client slot.
-RUN pnpm --dir apps/api deploy --prod --ignore-scripts /app/out/api \
+RUN pnpm --filter @openconferences/api deploy --prod --ignore-scripts /app/out/api \
  && SRC="$(find /app/node_modules/.pnpm -type d -path '*/node_modules/.prisma/client' | head -n1)" \
  && test -n "$SRC" && test -f "$SRC/index.js" \
  && DEST_PARENT="$(find /app/out/api/node_modules/.pnpm -type d -path '*/@prisma+client@*/node_modules/@prisma/client' | head -n1)/.." \

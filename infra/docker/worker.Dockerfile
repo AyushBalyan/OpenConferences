@@ -56,7 +56,7 @@ RUN pnpm --filter @openconferences/config build \
  && pnpm --filter @openconferences/db build \
  && pnpm --filter @openconferences/worker build
 
-RUN pnpm --dir apps/worker deploy --prod --ignore-scripts /app/out/worker \
+RUN pnpm --filter @openconferences/worker deploy --prod --ignore-scripts /app/out/worker \
  && SRC="$(find /app/node_modules/.pnpm -type d -path '*/node_modules/.prisma/client' | head -n1)" \
  && test -n "$SRC" && test -f "$SRC/index.js" \
  && DEST_PARENT="$(find /app/out/worker/node_modules/.pnpm -type d -path '*/@prisma+client@*/node_modules/@prisma/client' | head -n1)/.." \
