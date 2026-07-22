@@ -1,12 +1,13 @@
 # syntax=docker/dockerfile:1
 #
-# Same optimization strategy as api.Dockerfile (BuildKit cache, low-RAM builds,
-# pnpm deploy --prod). Worker is tsc-only (lighter than Nest) but still benefits.
+# Same strategy as api.Dockerfile: prod deploy without lifecycle scripts,
+# then explicit prisma generate into the deployed tree.
 
-ARG NODE_VERSION=20
+ARG NODE_VERSION=22
 ARG PNPM_VERSION=9.15.0
 
 FROM node:${NODE_VERSION}-alpine AS base
+ARG PNPM_VERSION=9.15.0
 
 ENV PNPM_HOME="/pnpm" \
     PATH="/pnpm:$PATH" \
@@ -55,7 +56,11 @@ RUN pnpm --filter @openconferences/config build \
  && pnpm --filter @openconferences/db build \
  && pnpm --filter @openconferences/worker build
 
-RUN pnpm --filter @openconferences/worker --prod deploy /prod/worker
+RUN pnpm --filter @openconferences/worker --prod deploy --ignore-scripts /prod/worker \
+ && mkdir -p /prod/worker/prisma \
+ && cp /app/packages/db/prisma/schema.prisma /prod/worker/prisma/schema.prisma \
+ && /app/node_modules/.bin/prisma generate --schema=/prod/worker/prisma/schema.prisma \
+ && rm -rf /prod/worker/prisma
 
 FROM node:${NODE_VERSION}-alpine AS runner
 

@@ -1,32 +1,32 @@
 # syntax=docker/dockerfile:1
 #
-# Optimized for Coolify on ~2 GiB EC2 hosts.
-# - BuildKit cache mounts for the pnpm store (avoids re-download; less disk churn)
-# - NODE_OPTIONS caps V8 heap during compile so the OOM killer is less likely
-# - Sequential package builds (lower peak RAM than turbo parallel)
-# - pnpm deploy --prod → final image has production deps only
-# - No full-monorepo COPY . . (smaller context, better layer cache)
+# Optimized for GHCR builds (GitHub Actions) + Coolify image pulls.
+# - BuildKit cache mounts for the pnpm store
+# - NODE_OPTIONS caps V8 heap during compile
+# - Sequential package builds (lower peak RAM)
+# - pnpm deploy --prod --ignore-scripts, then explicit prisma generate
+#   (prod deploy omits the prisma CLI; postinstall would fail otherwise)
 
-ARG NODE_VERSION=20
+ARG NODE_VERSION=22
 ARG PNPM_VERSION=9.15.0
 
 # -----------------------------------------------------------------------------
-# Base: toolchain only (shared cache across stages)
+# Base: toolchain only
 # -----------------------------------------------------------------------------
 FROM node:${NODE_VERSION}-alpine AS base
+ARG PNPM_VERSION=9.15.0
 
 ENV PNPM_HOME="/pnpm" \
     PATH="/pnpm:$PATH" \
     CI=1 \
     HUSKY=0 \
-    # Cap compile heap on small builders; leave RAM for OS + dockerd + tsc/swc
     NODE_OPTIONS="--max-old-space-size=768"
 
 RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
 WORKDIR /app
 
 # -----------------------------------------------------------------------------
-# fetch: download tarballs into a BuildKit-cached store (lockfile-only layer)
+# fetch: lockfile-only layer → BuildKit-cached store
 # -----------------------------------------------------------------------------
 FROM base AS fetch
 COPY pnpm-lock.yaml ./
@@ -35,10 +35,9 @@ RUN --mount=type=cache,id=openconferences-pnpm,target=/pnpm/store \
  && pnpm fetch
 
 # -----------------------------------------------------------------------------
-# deps: install workspace graph for API (devDeps included for nest/tsc build)
+# deps: install workspace graph for API (includes build-time devDeps)
 # -----------------------------------------------------------------------------
 FROM base AS deps
-# Docker-only settings — do not commit inject-workspace-packages for local DX
 RUN printf '%s\n' \
       'store-dir=/pnpm/store' \
       'inject-workspace-packages=true' \
@@ -54,12 +53,11 @@ COPY packages/db/package.json ./packages/db/
 COPY packages/db/prisma ./packages/db/prisma/
 COPY packages/schemas/package.json ./packages/schemas/
 
-# prefer-offline uses the fetch/cache mount when warm; falls back to network if cold
 RUN --mount=type=cache,id=openconferences-pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter @openconferences/api...
 
 # -----------------------------------------------------------------------------
-# builder: copy only sources needed for API, build, then prune via deploy
+# builder: compile, deploy prod tree, generate Prisma into that tree
 # -----------------------------------------------------------------------------
 FROM deps AS builder
 
@@ -69,21 +67,24 @@ COPY packages/contracts ./packages/contracts
 COPY packages/db ./packages/db
 COPY apps/api ./apps/api
 
-# Ensure Prisma client matches the schema copied above (postinstall may have run earlier)
 RUN pnpm --filter @openconferences/db exec prisma generate
 
-# Sequential builds keep peak RSS lower than `turbo run build` on 2 GiB hosts
 RUN pnpm --filter @openconferences/config build \
  && pnpm --filter @openconferences/schemas build \
  && pnpm --filter @openconferences/contracts build \
  && pnpm --filter @openconferences/db build \
  && pnpm --filter @openconferences/api build
 
-# Portable prod tree: workspace packages injected + only production dependencies
-RUN pnpm --filter @openconferences/api --prod deploy /prod/api
+# --ignore-scripts: --prod omits prisma CLI; db postinstall would fail with "prisma: not found"
+# Then generate the client into the deployed node_modules using the builder's prisma binary.
+RUN pnpm --filter @openconferences/api --prod deploy --ignore-scripts /prod/api \
+ && mkdir -p /prod/api/prisma \
+ && cp /app/packages/db/prisma/schema.prisma /prod/api/prisma/schema.prisma \
+ && /app/node_modules/.bin/prisma generate --schema=/prod/api/prisma/schema.prisma \
+ && rm -rf /prod/api/prisma
 
 # -----------------------------------------------------------------------------
-# runner: minimal runtime (no pnpm, no toolchain, no sources, no devDeps)
+# runner: minimal runtime
 # -----------------------------------------------------------------------------
 FROM node:${NODE_VERSION}-alpine AS runner
 
@@ -92,7 +93,6 @@ RUN addgroup --system --gid 1001 nodejs \
 
 WORKDIR /app
 
-# Do not inherit build-time NODE_OPTIONS — runtime can use default heap
 ENV NODE_ENV=production \
     API_HOST=0.0.0.0 \
     API_PORT=3001
