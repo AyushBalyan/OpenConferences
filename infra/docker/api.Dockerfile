@@ -76,16 +76,31 @@ RUN pnpm --filter @openconferences/config build \
  && pnpm --filter @openconferences/api build
 
 # --ignore-scripts: --prod omits prisma CLI; db postinstall would fail with "prisma: not found".
-# Do not re-run generate against the deploy tree (Prisma tries `pnpm add prisma` there and fails).
-# Copy the client already generated in the builder into the deployed @prisma/client slot.
+# pnpm deploy often leaves workspace pkgs as symlinks into /app/packages/* — those break in the
+# runner image. Replace them with real copies of the built package.json + dist.
+# Also copy the already-generated Prisma client next to @prisma/client.
 RUN pnpm --filter @openconferences/api deploy --prod --ignore-scripts /app/out/api \
+ && mkdir -p /app/out/api/node_modules/@openconferences \
+ && for pkg in config contracts db schemas; do \
+      rm -rf "/app/out/api/node_modules/@openconferences/${pkg}" \
+      && mkdir -p "/app/out/api/node_modules/@openconferences/${pkg}" \
+      && cp -a "/app/packages/${pkg}/package.json" "/app/out/api/node_modules/@openconferences/${pkg}/" \
+      && cp -a "/app/packages/${pkg}/dist" "/app/out/api/node_modules/@openconferences/${pkg}/dist" \
+      && test -f "/app/out/api/node_modules/@openconferences/${pkg}/dist/index.js" \
+         -o -f "/app/out/api/node_modules/@openconferences/${pkg}/dist/env/index.js"; \
+    done \
  && SRC="$(find /app/node_modules/.pnpm -type d -path '*/node_modules/.prisma/client' | head -n1)" \
  && test -n "$SRC" && test -f "$SRC/index.js" \
  && DEST_PARENT="$(find /app/out/api/node_modules/.pnpm -type d -path '*/@prisma+client@*/node_modules/@prisma/client' | head -n1)/.." \
  && test -d "$DEST_PARENT" \
  && rm -rf "$DEST_PARENT/.prisma" \
  && mkdir -p "$DEST_PARENT/.prisma" \
- && cp -a "$SRC" "$DEST_PARENT/.prisma/client"
+ && cp -a "$SRC" "$DEST_PARENT/.prisma/client" \
+ && cd /app/out/api \
+ && node -e "console.log(require.resolve('@openconferences/config/env'))" \
+ && node -e "console.log(require.resolve('@openconferences/db'))" \
+ && node -e "console.log(require.resolve('@openconferences/schemas'))" \
+ && node -e "console.log(require.resolve('@openconferences/contracts'))"
 
 # -----------------------------------------------------------------------------
 # runner: minimal runtime

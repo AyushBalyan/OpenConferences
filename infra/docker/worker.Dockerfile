@@ -57,13 +57,26 @@ RUN pnpm --filter @openconferences/config build \
  && pnpm --filter @openconferences/worker build
 
 RUN pnpm --filter @openconferences/worker deploy --prod --ignore-scripts /app/out/worker \
+ && mkdir -p /app/out/worker/node_modules/@openconferences \
+ && for pkg in config db schemas; do \
+      rm -rf "/app/out/worker/node_modules/@openconferences/${pkg}" \
+      && mkdir -p "/app/out/worker/node_modules/@openconferences/${pkg}" \
+      && cp -a "/app/packages/${pkg}/package.json" "/app/out/worker/node_modules/@openconferences/${pkg}/" \
+      && cp -a "/app/packages/${pkg}/dist" "/app/out/worker/node_modules/@openconferences/${pkg}/dist" \
+      && test -f "/app/out/worker/node_modules/@openconferences/${pkg}/dist/index.js" \
+         -o -f "/app/out/worker/node_modules/@openconferences/${pkg}/dist/env/index.js"; \
+    done \
  && SRC="$(find /app/node_modules/.pnpm -type d -path '*/node_modules/.prisma/client' | head -n1)" \
  && test -n "$SRC" && test -f "$SRC/index.js" \
  && DEST_PARENT="$(find /app/out/worker/node_modules/.pnpm -type d -path '*/@prisma+client@*/node_modules/@prisma/client' | head -n1)/.." \
  && test -d "$DEST_PARENT" \
  && rm -rf "$DEST_PARENT/.prisma" \
  && mkdir -p "$DEST_PARENT/.prisma" \
- && cp -a "$SRC" "$DEST_PARENT/.prisma/client"
+ && cp -a "$SRC" "$DEST_PARENT/.prisma/client" \
+ && cd /app/out/worker \
+ && node -e "console.log(require.resolve('@openconferences/config/env'))" \
+ && node -e "console.log(require.resolve('@openconferences/db'))" \
+ && node -e "console.log(require.resolve('@openconferences/schemas'))"
 
 FROM node:${NODE_VERSION}-alpine AS runner
 
