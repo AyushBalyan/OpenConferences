@@ -3,6 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "files": [
+    "dist",
+    "tsconfig.base.json"
+  ],
   "exports": {
     "./env": {
       "types": "./dist/env/index.d.ts",

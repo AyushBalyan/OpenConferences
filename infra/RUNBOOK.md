@@ -53,6 +53,26 @@ Do **not** deploy `web.Dockerfile` on Coolify — web is on Vercel (`app.fresi.o
    - Liveness: `/api/v1/healthz`
    - Readiness: `/api/v1/readyz`
 
+### Coolify / low-RAM build notes (2 GiB EC2)
+
+Images under `infra/docker/*` are tuned for small builders (BuildKit pnpm cache, `NODE_OPTIONS=--max-old-space-size=768`, sequential compiles, `pnpm deploy --prod`).
+
+Still recommended on the host:
+
+1. **Add swap** (builds spike above steady-state RAM):
+
+```bash
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+2. **Do not deploy API and worker at the same time** on a 2 GiB box — queue one after the other.
+3. Prefer Coolify **Build on server** with BuildKit enabled (default on recent Coolify).
+4. Dockerfile paths must stay as above; build context = **repository root**.
+
 ## Secrets (injected via Coolify / Vercel, never in git)
 
 | Variable              | Source / value                          |

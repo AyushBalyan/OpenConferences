@@ -1,17 +1,49 @@
+# Dependencies & build outputs (never send to daemon — install inside the image)
 **/node_modules
-**/.next
 **/dist
+**/.next
+**/.turbo
+**/coverage
+**/tsconfig.tsbuildinfo
+
+# VCS / IDE / CI (not needed in image build context)
 .git
 .github
 .cursor
-**/.turbo
-**/coverage
-**/*.md
+.vscode
+.idea
+**/.DS_Store
+
+# Secrets — Coolify injects env at runtime
 .env
 .env.*
 !.env.example
+
+# Frontend is deployed on Vercel — exclude from API/worker image context
 apps/web
-infra/RUNBOOK.md
+
+# Tests & e2e (not required to compile production artifacts)
+**/test
+**/tests
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+**/vitest*.ts
 **/playwright-report
 **/test-results
+playwright.config.*
+
+# Docs & misc noise
+**/*.md
+docs
+apps/web/docs
+infra/RUNBOOK.md
+**/.prettier*
+**/eslint.config.*
+**/lint-staged*
 agent-transcripts
+
+# Local infra (Compose is for laptop only)
+docker-compose*.yml
+infra/postgres
