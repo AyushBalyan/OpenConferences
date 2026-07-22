@@ -56,11 +56,12 @@ RUN pnpm --filter @openconferences/config build \
  && pnpm --filter @openconferences/db build \
  && pnpm --filter @openconferences/worker build
 
-RUN pnpm --filter @openconferences/worker --prod deploy --ignore-scripts /prod/worker \
- && mkdir -p /prod/worker/prisma \
- && cp /app/packages/db/prisma/schema.prisma /prod/worker/prisma/schema.prisma \
- && /app/node_modules/.bin/prisma generate --schema=/prod/worker/prisma/schema.prisma \
- && rm -rf /prod/worker/prisma
+RUN pnpm --filter @openconferences/worker deploy --prod --ignore-scripts /app/out/worker \
+ && mkdir -p /app/out/worker/prisma \
+ && cp /app/packages/db/prisma/schema.prisma /app/out/worker/prisma/schema.prisma \
+ && DATABASE_URL="postgresql://prisma:prisma@127.0.0.1:5432/prisma" \
+    pnpm --filter @openconferences/db exec prisma generate --schema=/app/out/worker/prisma/schema.prisma \
+ && rm -rf /app/out/worker/prisma
 
 FROM node:${NODE_VERSION}-alpine AS runner
 
@@ -71,7 +72,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-COPY --from=builder --chown=worker:worker /prod/worker ./
+COPY --from=builder --chown=worker:worker /app/out/worker ./
 
 USER worker
 

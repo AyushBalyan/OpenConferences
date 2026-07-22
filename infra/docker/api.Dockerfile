@@ -75,13 +75,15 @@ RUN pnpm --filter @openconferences/config build \
  && pnpm --filter @openconferences/db build \
  && pnpm --filter @openconferences/api build
 
-# --ignore-scripts: --prod omits prisma CLI; db postinstall would fail with "prisma: not found"
-# Then generate the client into the deployed node_modules using the builder's prisma binary.
-RUN pnpm --filter @openconferences/api --prod deploy --ignore-scripts /prod/api \
- && mkdir -p /prod/api/prisma \
- && cp /app/packages/db/prisma/schema.prisma /prod/api/prisma/schema.prisma \
- && /app/node_modules/.bin/prisma generate --schema=/prod/api/prisma/schema.prisma \
- && rm -rf /prod/api/prisma
+# --ignore-scripts: --prod omits prisma CLI; db postinstall would fail with "prisma: not found".
+# Deploy under /app (not /prod): filtered deploy + absolute /prod paths can mis-link bins.
+# prisma is a packages/db devDependency — call it via that package, not root node_modules.
+RUN pnpm --filter @openconferences/api deploy --prod --ignore-scripts /app/out/api \
+ && mkdir -p /app/out/api/prisma \
+ && cp /app/packages/db/prisma/schema.prisma /app/out/api/prisma/schema.prisma \
+ && DATABASE_URL="postgresql://prisma:prisma@127.0.0.1:5432/prisma" \
+    pnpm --filter @openconferences/db exec prisma generate --schema=/app/out/api/prisma/schema.prisma \
+ && rm -rf /app/out/api/prisma
 
 # -----------------------------------------------------------------------------
 # runner: minimal runtime
@@ -97,7 +99,7 @@ ENV NODE_ENV=production \
     API_HOST=0.0.0.0 \
     API_PORT=3001
 
-COPY --from=builder --chown=nestjs:nodejs /prod/api ./
+COPY --from=builder --chown=nestjs:nodejs /app/out/api ./
 
 USER nestjs
 EXPOSE 3001
