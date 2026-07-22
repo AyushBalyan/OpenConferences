@@ -6,6 +6,36 @@ import { config as loadEnv } from 'dotenv';
 loadEnv({ path: path.resolve(__dirname, '../../.env') });
 process.env.NODE_ENV = 'test';
 
+/**
+ * Ensure required AppConfig keys exist for tests.
+ * - Local: usually filled by ../../.env
+ * - CI: job env should be passed through Turbo (globalPassThroughEnv); these
+ *   defaults match .github/workflows/ci.yml if a key is still missing.
+ */
+const testEnvDefaults: Record<string, string> = {
+  DATABASE_URL: 'postgresql://openconferences:openconferences@localhost:5432/openconferences_test',
+  REDIS_URL: 'redis://localhost:6379',
+  S3_ENDPOINT: 'http://localhost:9000',
+  S3_ACCESS_KEY: 'minioadmin',
+  S3_SECRET_KEY: 'minioadmin',
+  S3_BUCKET: 'openconferences',
+  S3_REGION: 'us-east-1',
+  S3_FORCE_PATH_STYLE: 'true',
+  API_PORT: '3001',
+  CORS_ORIGINS: 'http://localhost:3000',
+  WEB_URL: 'http://localhost:3000',
+  NEXT_PUBLIC_API_URL: 'http://localhost:3001/api/v1',
+  BETTER_AUTH_SECRET: 'test-secret-at-least-32-characters-long-for-ci',
+  BETTER_AUTH_URL: 'http://localhost:3001',
+  MAIL_FROM: 'noreply@example.com',
+};
+
+for (const [key, value] of Object.entries(testEnvDefaults)) {
+  if (!process.env[key]) {
+    process.env[key] = value;
+  }
+}
+
 export default defineConfig({
   // Do not load Nest's CommonJS .swcrc — Vitest must stay ESM.
   plugins: [
