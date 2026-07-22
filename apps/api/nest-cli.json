@@ -5,6 +5,9 @@
   "compilerOptions": {
     "builder": "swc",
     "typeCheck": false,
-    "deleteOutDir": true
+    "deleteOutDir": true,
+    "options": {
+      "swcrcPath": ".swcrc.nest.json"
+    }
   }
 }

@@ -7,7 +7,26 @@ loadEnv({ path: path.resolve(__dirname, '../../.env') });
 process.env.NODE_ENV = 'test';
 
 export default defineConfig({
-  plugins: [swc.vite()],
+  // Do not load Nest's CommonJS .swcrc — Vitest must stay ESM.
+  plugins: [
+    swc.vite({
+      configFile: false,
+      module: { type: 'es6' },
+      jsc: {
+        target: 'es2022',
+        parser: {
+          syntax: 'typescript',
+          decorators: true,
+          dynamicImport: true,
+        },
+        transform: {
+          legacyDecorator: true,
+          decoratorMetadata: true,
+        },
+        keepClassNames: true,
+      },
+    }),
+  ],
   test: {
     globals: true,
     environment: 'node',
