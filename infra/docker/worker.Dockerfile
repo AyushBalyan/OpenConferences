@@ -56,16 +56,19 @@ RUN pnpm --filter @openconferences/config build \
  && pnpm --filter @openconferences/db build \
  && pnpm --filter @openconferences/worker build
 
-RUN pnpm --filter @openconferences/worker deploy --prod --ignore-scripts /app/out/worker \
- && mkdir -p /app/out/worker/prisma \
- && cp /app/packages/db/prisma/schema.prisma /app/out/worker/prisma/schema.prisma \
- && DATABASE_URL="postgresql://prisma:prisma@127.0.0.1:5432/prisma" \
-    pnpm --filter @openconferences/db exec prisma generate --schema=/app/out/worker/prisma/schema.prisma \
- && rm -rf /app/out/worker/prisma
+RUN pnpm --dir apps/worker deploy --prod --ignore-scripts /app/out/worker \
+ && SRC="$(find /app/node_modules/.pnpm -type d -path '*/node_modules/.prisma/client' | head -n1)" \
+ && test -n "$SRC" && test -f "$SRC/index.js" \
+ && DEST_PARENT="$(find /app/out/worker/node_modules/.pnpm -type d -path '*/@prisma+client@*/node_modules/@prisma/client' | head -n1)/.." \
+ && test -d "$DEST_PARENT" \
+ && rm -rf "$DEST_PARENT/.prisma" \
+ && mkdir -p "$DEST_PARENT/.prisma" \
+ && cp -a "$SRC" "$DEST_PARENT/.prisma/client"
 
 FROM node:${NODE_VERSION}-alpine AS runner
 
-RUN addgroup --system --gid 1001 nodejs \
+RUN apk add --no-cache openssl \
+ && addgroup --system --gid 1001 nodejs \
  && adduser --system --uid 1001 worker
 
 WORKDIR /app

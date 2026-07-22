@@ -76,21 +76,24 @@ RUN pnpm --filter @openconferences/config build \
  && pnpm --filter @openconferences/api build
 
 # --ignore-scripts: --prod omits prisma CLI; db postinstall would fail with "prisma: not found".
-# Deploy under /app (not /prod): filtered deploy + absolute /prod paths can mis-link bins.
-# prisma is a packages/db devDependency — call it via that package, not root node_modules.
-RUN pnpm --filter @openconferences/api deploy --prod --ignore-scripts /app/out/api \
- && mkdir -p /app/out/api/prisma \
- && cp /app/packages/db/prisma/schema.prisma /app/out/api/prisma/schema.prisma \
- && DATABASE_URL="postgresql://prisma:prisma@127.0.0.1:5432/prisma" \
-    pnpm --filter @openconferences/db exec prisma generate --schema=/app/out/api/prisma/schema.prisma \
- && rm -rf /app/out/api/prisma
+# Do not re-run generate against the deploy tree (Prisma tries `pnpm add prisma` there and fails).
+# Copy the client already generated in the builder into the deployed @prisma/client slot.
+RUN pnpm --dir apps/api deploy --prod --ignore-scripts /app/out/api \
+ && SRC="$(find /app/node_modules/.pnpm -type d -path '*/node_modules/.prisma/client' | head -n1)" \
+ && test -n "$SRC" && test -f "$SRC/index.js" \
+ && DEST_PARENT="$(find /app/out/api/node_modules/.pnpm -type d -path '*/@prisma+client@*/node_modules/@prisma/client' | head -n1)/.." \
+ && test -d "$DEST_PARENT" \
+ && rm -rf "$DEST_PARENT/.prisma" \
+ && mkdir -p "$DEST_PARENT/.prisma" \
+ && cp -a "$SRC" "$DEST_PARENT/.prisma/client"
 
 # -----------------------------------------------------------------------------
 # runner: minimal runtime
 # -----------------------------------------------------------------------------
 FROM node:${NODE_VERSION}-alpine AS runner
 
-RUN addgroup --system --gid 1001 nodejs \
+RUN apk add --no-cache openssl \
+ && addgroup --system --gid 1001 nodejs \
  && adduser --system --uid 1001 nestjs
 
 WORKDIR /app
