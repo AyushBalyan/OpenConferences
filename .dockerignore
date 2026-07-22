@@ -1,0 +1,17 @@
+**/node_modules
+**/.next
+**/dist
+.git
+.github
+.cursor
+**/.turbo
+**/coverage
+**/*.md
+.env
+.env.*
+!.env.example
+apps/web
+infra/RUNBOOK.md
+**/playwright-report
+**/test-results
+agent-transcripts

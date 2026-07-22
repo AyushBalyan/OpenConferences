@@ -8,6 +8,9 @@ FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/worker/package.json ./apps/worker/
 COPY packages/config/package.json ./packages/config/
+COPY packages/db/package.json ./packages/db/
+COPY packages/db/prisma ./packages/db/prisma/
+COPY packages/schemas/package.json ./packages/schemas/
 RUN pnpm install --frozen-lockfile --filter @openconferences/worker...
 
 FROM base AS builder
@@ -16,6 +19,8 @@ COPY --from=deps /app/apps/worker/node_modules ./apps/worker/node_modules
 COPY --from=deps /app/packages ./packages
 COPY . .
 RUN pnpm --filter @openconferences/config build \
+ && pnpm --filter @openconferences/schemas build \
+ && pnpm --filter @openconferences/db build \
  && pnpm --filter @openconferences/worker build
 
 FROM node:20-alpine AS runner

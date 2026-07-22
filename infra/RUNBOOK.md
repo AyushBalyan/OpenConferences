@@ -33,10 +33,20 @@ This runbook documents external provisioning steps for staging/production. **The
 
 ## Coolify project setup (API + worker)
 
+There is **no** root `Dockerfile` in this repo. Coolify must be pointed at the files under `infra/docker/`. If you leave the default `Dockerfile`, the build fails with:
+
+`failed to read dockerfile: open Dockerfile: no such file or directory`
+
 1. Create a Coolify project: `openconferences-staging` (or `…-production`)
-2. Add **two** services from Docker images / Dockerfiles:
-   - `openconferences-api` — port 3001, health check `GET /api/v1/healthz`
-   - `openconferences-worker` — no public port
+2. Add **two** applications (Build Pack = **Dockerfile**), both with **Base Directory** empty or `/` (repo root) and **Docker Build Context** = repo root:
+
+| Service                  | Dockerfile location (Coolify field) | Port | Public domain   |
+| ------------------------ | ----------------------------------- | ---- | --------------- |
+| `openconferences-api`    | `/infra/docker/api.Dockerfile`      | 3001 | `api.fresi.org` |
+| `openconferences-worker` | `/infra/docker/worker.Dockerfile`   | —    | none            |
+
+Do **not** deploy `web.Dockerfile` on Coolify — web is on Vercel (`app.fresi.org`).
+
 3. Map public hostname `api.fresi.org` → api service (HTTPS).
 4. Configure environment variables from `.env.example` (never commit secrets)
 5. Wire health/readiness probes:

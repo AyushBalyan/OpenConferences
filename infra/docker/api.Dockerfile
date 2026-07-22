@@ -10,6 +10,8 @@ COPY apps/api/package.json ./apps/api/
 COPY packages/config/package.json ./packages/config/
 COPY packages/contracts/package.json ./packages/contracts/
 COPY packages/db/package.json ./packages/db/
+# Prisma generate runs on packages/db postinstall — schema must exist before install
+COPY packages/db/prisma ./packages/db/prisma/
 COPY packages/schemas/package.json ./packages/schemas/
 RUN pnpm install --frozen-lockfile --filter @openconferences/api...
 
