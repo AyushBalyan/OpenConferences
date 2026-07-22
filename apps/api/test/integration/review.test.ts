@@ -574,9 +574,13 @@ describe('Reviewer management & assignment integration', () => {
   });
 
   it('accepts pending invitations for signed-in user email when none remain', async () => {
+    // Use a fresh user with no invitations — do not depend on prior accept/magic-link tests.
+    const emptyEmail = `no-pending-${Date.now()}@example.com`;
+    const user = await createUserWithSession(app, emptyEmail, 'No Pending Invitee');
+
     const res = await request(app.getHttpServer())
       .post('/api/v1/reviewer-invitations/accept-pending')
-      .set('Cookie', inviteeCookie)
+      .set('Cookie', user.cookie)
       .send();
 
     expect(res.status).toBe(200);
