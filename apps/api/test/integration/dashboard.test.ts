@@ -105,6 +105,7 @@ describe('Dashboard, pagination & analytics integration', () => {
             organizationId: orgId,
             slug: 'dash-conf-a',
             name: 'Dashboard Conf A',
+            authorJoinToken: generateId(),
             status: 'REVIEWING',
           },
           {
@@ -112,6 +113,7 @@ describe('Dashboard, pagination & analytics integration', () => {
             organizationId: orgId,
             slug: 'dash-conf-b',
             name: 'Dashboard Conf B',
+            authorJoinToken: generateId(),
             status: 'DRAFT',
           },
         ],

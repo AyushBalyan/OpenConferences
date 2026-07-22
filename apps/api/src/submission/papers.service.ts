@@ -94,6 +94,9 @@ export class PapersService {
                 isCorresponding: true,
                 fullName: user.name,
                 email: user.email,
+                ...(input.correspondingAffiliation
+                  ? { affiliation: input.correspondingAffiliation }
+                  : {}),
               },
             },
           },

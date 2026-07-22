@@ -1,19 +1,21 @@
 'use client';
 
-import { PageHeader } from '@/components/dashboard/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
   DataTable,
   DataTableBody,
   DataTableCell,
+  DataTableEmpty,
   DataTableFooter,
   DataTableHead,
   DataTableHeader,
   DataTableRow,
+  DataTableSkeleton,
+  DataTableToolbar,
 } from '@/components/dashboard/data-table';
+import { SectionPageLayout } from '@/components/dashboard/section-page-layout';
 import { fetchNotificationLogs, resendNotification } from '@/lib/api-client';
 import type { NotificationLogEntry } from '@/lib/conference-types';
 import Link from 'next/link';
@@ -31,15 +33,12 @@ const statusVariant: Record<
 };
 
 export default function ConferenceNotificationsPage() {
-  return <NotificationsContent />;
-}
-
-function NotificationsContent() {
   const params = useParams<{ id: string }>();
   const conferenceId = params.id;
   const [logs, setLogs] = useState<NotificationLogEntry[]>([]);
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [resendingId, setResendingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -50,7 +49,10 @@ function NotificationsContent() {
   }, [conferenceId, search]);
 
   useEffect(() => {
-    load().catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'));
+    setLoading(true);
+    load()
+      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
+      .finally(() => setLoading(false));
   }, [load]);
 
   async function handleResend(logId: string) {
@@ -67,33 +69,31 @@ function NotificationsContent() {
   }
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Email log"
-        description="Delivery status for transactional emails sent from this conference."
-        actions={
-          <Button variant="outline" asChild>
-            <Link href={`/dashboard/conferences/${conferenceId}/notifications/templates`}>
-              Manage templates
-            </Link>
-          </Button>
-        }
-      />
+    <SectionPageLayout
+      title="Email log"
+      description="Delivery status for transactional emails sent from this conference."
+      error={error}
+      actions={
+        <Button variant="outline" asChild>
+          <Link href={`/dashboard/conferences/${conferenceId}/notifications/templates`}>
+            Manage templates
+          </Link>
+        </Button>
+      }
+    >
+      <DataTableToolbar>
+        <Input
+          className="max-w-md"
+          placeholder="Search by recipient or subject…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </DataTableToolbar>
 
-      <Input
-        placeholder="Search by recipient or subject…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
-
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
-
-      {logs.length === 0 && !error ? (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-slate-500">
-            No emails logged yet.
-          </CardContent>
-        </Card>
+      {loading ? (
+        <DataTableSkeleton rows={6} />
+      ) : logs.length === 0 ? (
+        <DataTableEmpty title="No emails logged yet" />
       ) : (
         <DataTable
           footer={
@@ -148,6 +148,6 @@ function NotificationsContent() {
           </DataTableBody>
         </DataTable>
       )}
-    </div>
+    </SectionPageLayout>
   );
 }

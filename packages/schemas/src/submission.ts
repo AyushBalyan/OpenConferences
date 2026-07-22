@@ -25,6 +25,7 @@ export const createPaperSchema = z.object({
   title: z.string().min(1).max(500),
   abstract: z.string().min(1).max(10000),
   keywords: z.array(z.string().min(1).max(100)).max(20).default([]),
+  correspondingAffiliation: z.string().max(500).optional(),
 });
 
 export type CreatePaperInput = z.infer<typeof createPaperSchema>;

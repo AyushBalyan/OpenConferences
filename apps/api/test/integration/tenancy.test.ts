@@ -114,6 +114,7 @@ describe('Tenancy & RBAC integration', () => {
             organizationId: orgAId,
             slug: 'conf-a',
             name: 'Conference A',
+            authorJoinToken: generateId(),
             status: 'DRAFT',
           },
           {
@@ -121,6 +122,7 @@ describe('Tenancy & RBAC integration', () => {
             organizationId: orgBId,
             slug: 'conf-b',
             name: 'Conference B',
+            authorJoinToken: generateId(),
             status: 'DRAFT',
           },
         ],

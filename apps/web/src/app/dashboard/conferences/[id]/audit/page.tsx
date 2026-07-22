@@ -1,78 +1,59 @@
 'use client';
 
-import { PageHeader } from '@/components/dashboard/page-header';
-import { Card, CardContent } from '@/components/ui/card';
+import { useCallback, useEffect } from 'react';
+import { useParams } from 'next/navigation';
 import {
   DataTable,
   DataTableBody,
   DataTableCell,
+  DataTableEmpty,
   DataTableFooter,
   DataTableHead,
   DataTableHeader,
+  DataTablePagination,
   DataTableRow,
+  DataTableSkeleton,
 } from '@/components/dashboard/data-table';
-import { CursorLoadMore } from '@/components/dashboard/cursor-load-more';
+import { SectionPageLayout } from '@/components/dashboard/section-page-layout';
 import { fetchAuditLogs } from '@/lib/api-client';
 import type { AuditEntry } from '@/lib/conference-types';
-import { useParams } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCursorList } from '@/hooks/dashboard/use-cursor-list';
 
 export default function ConferenceAuditPage() {
-  return <AuditContent />;
-}
-
-function AuditContent() {
   const params = useParams<{ id: string }>();
   const conferenceId = params.id;
-  const [logs, setLogs] = useState<AuditEntry[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
 
-  const load = useCallback(
-    async (cursor?: string, append = false) => {
+  const fetchPage = useCallback(
+    async (cursor?: string) => {
       const result = await fetchAuditLogs(conferenceId, cursor ? { cursor } : { limit: 50 });
-      setLogs((prev) => (append ? [...prev, ...result.data] : result.data));
-      setNextCursor(result.nextCursor);
-      setError(null);
+      return { data: result.data, nextCursor: result.nextCursor };
     },
     [conferenceId],
   );
 
-  useEffect(() => {
-    load().catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'));
-  }, [load]);
+  const { items, nextCursor, loading, loadingMore, error, loadMore, refresh } =
+    useCursorList<AuditEntry>({ fetchPage });
 
-  async function handleLoadMore() {
-    if (!nextCursor) return;
-    setLoadingMore(true);
-    try {
-      await load(nextCursor, true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load more');
-    } finally {
-      setLoadingMore(false);
-    }
-  }
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
   return (
-    <div className="space-y-6">
-      <PageHeader title="Audit log" description="Recent actions recorded for this conference." />
-
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
-
-      {logs.length === 0 && !error ? (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-slate-500">
-            No audit entries yet.
-          </CardContent>
-        </Card>
+    <SectionPageLayout
+      title="Audit log"
+      description="Recent actions recorded for this conference."
+      error={error}
+    >
+      {loading ? (
+        <DataTableSkeleton rows={6} />
+      ) : items.length === 0 ? (
+        <DataTableEmpty title="No audit entries yet" />
       ) : (
         <>
           <DataTable
             footer={
               <DataTableFooter>
-                Showing {logs.length} entr{logs.length === 1 ? 'y' : 'ies'}
+                Showing {items.length} entr{items.length === 1 ? 'y' : 'ies'}
               </DataTableFooter>
             }
           >
@@ -85,7 +66,7 @@ function AuditContent() {
               </tr>
             </DataTableHeader>
             <DataTableBody>
-              {logs.map((log) => (
+              {items.map((log) => (
                 <DataTableRow key={log.id}>
                   <DataTableCell>
                     <p className="font-medium text-slate-900">{log.action.replace(/_/g, ' ')}</p>
@@ -101,13 +82,13 @@ function AuditContent() {
               ))}
             </DataTableBody>
           </DataTable>
-          <CursorLoadMore
+          <DataTablePagination
             nextCursor={nextCursor}
-            onLoadMore={handleLoadMore}
+            onLoadMore={loadMore}
             loading={loadingMore}
           />
         </>
       )}
-    </div>
+    </SectionPageLayout>
   );
 }

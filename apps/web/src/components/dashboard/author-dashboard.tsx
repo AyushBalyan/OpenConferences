@@ -122,7 +122,7 @@ export function AuthorDashboard({ conferenceId, conference }: AuthorDashboardPro
                 </tr>
               </DataTableHeader>
               <DataTableBody>
-                {papers.slice(0, 8).map((paper) => (
+                {papers.slice(0, 3).map((paper) => (
                   <DataTableRow key={paper.id}>
                     <DataTableCell>
                       <div>

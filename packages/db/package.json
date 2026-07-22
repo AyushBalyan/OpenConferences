@@ -20,6 +20,7 @@
     "migrate:reset": "dotenv -e ../../.env -- prisma migrate reset --force",
     "generate": "dotenv -e ../../.env -- prisma generate",
     "seed": "dotenv -e ../../.env -- tsx prisma/seed.ts",
+    "studio": "dotenv -e ../../.env -- prisma studio",
     "postinstall": "dotenv -e ../../.env -- prisma generate"
   },
   "dependencies": {

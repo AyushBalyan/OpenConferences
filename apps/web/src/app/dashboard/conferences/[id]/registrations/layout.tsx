@@ -1,31 +1,19 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { PageHeader } from '@/components/dashboard/page-header';
-import { SectionSubnav } from '@/components/dashboard/section-subnav';
-import { sectionSubnavTabs } from '@/lib/conference-nav';
-
-const REGISTRATIONS_NAV = {
-  label: 'Registrations',
-  href: (conferenceId: string) => `/dashboard/conferences/${conferenceId}/registrations`,
-  children: [
-    { label: 'All registrations', segment: 'all' },
-    { label: 'Student verifications', segment: 'verifications' },
-  ],
-} as const;
+import { RegistrationsWorkspaceProvider } from '@/components/dashboard/registrations/registrations-workspace';
+import { SectionLayoutFrame } from '@/components/dashboard/section-layout-frame';
+import { SECTION_PAGE_META } from '@/lib/conference-nav';
 
 export default function RegistrationsLayout({ children }: { children: React.ReactNode }) {
   const params = useParams<{ id: string }>();
-  const tabs = sectionSubnavTabs(REGISTRATIONS_NAV, params.id);
+  const meta = SECTION_PAGE_META.registrations;
 
   return (
-    <>
-      <PageHeader
-        title="Registrations"
-        description="Payment status and student verification queue."
-      />
-      <SectionSubnav tabs={tabs} ariaLabel="Registration sections" />
-      {children}
-    </>
+    <RegistrationsWorkspaceProvider conferenceId={params.id}>
+      <SectionLayoutFrame title={meta.title} description={meta.description}>
+        {children}
+      </SectionLayoutFrame>
+    </RegistrationsWorkspaceProvider>
   );
 }

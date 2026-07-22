@@ -10,24 +10,31 @@ import { AuthShell, AuthLink } from '@/components/auth/auth-shell';
 import { TurnstileField } from '@/components/auth/turnstile-field';
 import { isTurnstileEnabled, turnstileFetchOptions, withTurnstileBody } from '@/lib/turnstile';
 import { resolveReviewerInviteToken } from '@/lib/reviewer-invite-pending';
+import { resolveAuthorJoinToken, storeAuthorAffiliation } from '@/lib/author-join-pending';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { TurnstileInstance } from '@marsidev/react-turnstile';
 
-function reviewerInviteQuery(reviewerInvite: string | null) {
-  return reviewerInvite ? `?reviewerInvite=${encodeURIComponent(reviewerInvite)}` : '';
+function authRedirectQuery(reviewerInvite: string | null, authorJoin: string | null) {
+  const params = new URLSearchParams();
+  if (reviewerInvite) params.set('reviewerInvite', reviewerInvite);
+  if (authorJoin) params.set('authorJoin', authorJoin);
+  const query = params.toString();
+  return query ? `?${query}` : '';
 }
 
 function SignUpContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const reviewerInvite = resolveReviewerInviteToken(searchParams.get('reviewerInvite'));
+  const authorJoin = resolveAuthorJoinToken(searchParams.get('authorJoin'));
   const invitedEmail = searchParams.get('email');
   const turnstileRef = useRef<TurnstileInstance | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [affiliation, setAffiliation] = useState('');
   const {
     register,
     handleSubmit,
@@ -46,6 +53,10 @@ function SignUpContent() {
     if (isTurnstileEnabled && !turnstileToken) {
       setError('Please complete the verification check.');
       return;
+    }
+
+    if (authorJoin) {
+      storeAuthorAffiliation(affiliation);
     }
 
     const result = await authClient.signUp.email(
@@ -76,18 +87,23 @@ function SignUpContent() {
     if (reviewerInvite) {
       verifyParams.set('reviewerInvite', reviewerInvite);
     }
+    if (authorJoin) {
+      verifyParams.set('authorJoin', authorJoin);
+    }
     router.push(`/verify-email?${verifyParams.toString()}`);
   });
 
-  const signInHref = `/sign-in${reviewerInviteQuery(reviewerInvite)}`;
+  const signInHref = `/sign-in${authRedirectQuery(reviewerInvite, authorJoin)}`;
 
   return (
     <AuthShell
       title="Create your account"
       description={
-        reviewerInvite
-          ? 'Sign up with the invited email address to join as a reviewer.'
-          : 'One global identity for every conference you join.'
+        authorJoin
+          ? 'Create an account to submit your paper to this conference.'
+          : reviewerInvite
+            ? 'Sign up with the invited email address to join as a reviewer.'
+            : 'One global identity for every conference you join.'
       }
       footer={
         <>
@@ -95,22 +111,42 @@ function SignUpContent() {
         </>
       }
     >
-      {reviewerInvite ? (
+      {authorJoin ? (
+        <p className="rounded-md border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+          You opened a conference submit link. Use your email to create an account, then verify it
+          before submitting.
+        </p>
+      ) : reviewerInvite ? (
         <p className="rounded-md border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
           You were invited to review. Use the same email address that received the invitation.
         </p>
       ) : null}
       <form className="space-y-4" onSubmit={onSubmit}>
         <div className="space-y-2">
-          <Label htmlFor="name">Full name</Label>
+          <Label htmlFor="name">{authorJoin ? 'Corresponding author name' : 'Full name'}</Label>
           <Input id="name" autoComplete="name" {...register('name')} />
           {errors.name ? <p className="text-sm text-destructive">{errors.name.message}</p> : null}
         </div>
         <div className="space-y-2">
-          <Label htmlFor="email">Email</Label>
+          <Label htmlFor="email">{authorJoin ? 'Corresponding author email' : 'Email'}</Label>
           <Input id="email" type="email" autoComplete="email" {...register('email')} />
           {errors.email ? <p className="text-sm text-destructive">{errors.email.message}</p> : null}
         </div>
+        {authorJoin ? (
+          <div className="space-y-2">
+            <Label htmlFor="affiliation">Affiliation</Label>
+            <Input
+              id="affiliation"
+              value={affiliation}
+              onChange={(e) => setAffiliation(e.target.value)}
+              placeholder="University or organization"
+              autoComplete="organization"
+            />
+            <p className="text-xs text-muted-foreground">
+              Used as your corresponding-author affiliation on submissions.
+            </p>
+          </div>
+        ) : null}
         <div className="space-y-2">
           <Label htmlFor="password">Password</Label>
           <Input

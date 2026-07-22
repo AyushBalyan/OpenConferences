@@ -46,17 +46,6 @@ export function KpiCard({
   );
 }
 
-export function KpiCardSkeleton() {
-  return (
-    <Card>
-      <CardContent className="space-y-2 p-5">
-        <Skeleton className="h-4 w-24" />
-        <Skeleton className="h-8 w-16" />
-      </CardContent>
-    </Card>
-  );
-}
-
 export function KpiGrid({
   children,
   className,

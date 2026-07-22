@@ -1,5 +1,4 @@
 import { FileText, Inbox } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 type EmptyStateProps = {
@@ -39,8 +38,4 @@ export function EmptyState({
       {action ? <div className="mt-5">{action}</div> : null}
     </div>
   );
-}
-
-export function EmptyStateButton(props: React.ComponentProps<typeof Button>) {
-  return <Button {...props} />;
 }

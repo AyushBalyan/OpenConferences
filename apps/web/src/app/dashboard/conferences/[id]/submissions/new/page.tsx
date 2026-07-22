@@ -14,6 +14,7 @@ import {
   updatePaper,
   uploadPaperPdf,
 } from '@/lib/api-client';
+import { getStoredAuthorAffiliation } from '@/lib/author-join-pending';
 import type { PaperDto } from '@/lib/submission-types';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
@@ -85,6 +86,7 @@ function SubmissionWizard() {
           title,
           abstract,
           keywords: keywordList,
+          correspondingAffiliation: getStoredAuthorAffiliation() ?? undefined,
         });
         setPaper(created);
       }

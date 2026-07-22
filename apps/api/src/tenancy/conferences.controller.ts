@@ -169,4 +169,23 @@ export class ConferencesController {
       return { status: 200 as const, body: result };
     });
   }
+
+  @TsRestHandler(conferencesContract.getAuthorJoinLink)
+  @RequireRole('ORGANIZER', 'ORG_ADMIN', 'PLATFORM_ADMIN')
+  getAuthorJoinLink(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(conferencesContract.getAuthorJoinLink, async ({ params }) => {
+      const link = await this.conferences.getAuthorJoinLink(user.id, params.id, roles);
+      return { status: 200 as const, body: link };
+    });
+  }
+
+  @TsRestHandler(conferencesContract.rotateAuthorJoinLink)
+  @RequireRole('ORGANIZER', 'ORG_ADMIN', 'PLATFORM_ADMIN')
+  @RequireMfa()
+  rotateAuthorJoinLink(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(conferencesContract.rotateAuthorJoinLink, async ({ params }) => {
+      const link = await this.conferences.rotateAuthorJoinLink(user.id, params.id, roles);
+      return { status: 200 as const, body: link };
+    });
+  }
 }

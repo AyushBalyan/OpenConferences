@@ -209,6 +209,21 @@ export const organizationListSchema = z.object({
   nextCursor: z.string().uuid().nullable(),
 });
 
+export const authorJoinTokenSchema = z.object({
+  token: z.string().uuid(),
+});
+
+export const joinAsAuthorResponseSchema = z.object({
+  conferenceId: z.string().uuid(),
+  conferenceName: z.string(),
+  alreadyMember: z.boolean(),
+});
+
+export const authorJoinLinkSchema = z.object({
+  token: z.string().uuid(),
+  urlPath: z.string(),
+});
+
 export type RoleKind = z.infer<typeof roleKindSchema>;
 export type MembershipScope = z.infer<typeof membershipScopeSchema>;
 export type ConferenceStatus = z.infer<typeof conferenceStatusSchema>;
@@ -221,3 +236,5 @@ export type UpdateConferenceSettingsInput = z.infer<typeof updateConferenceSetti
 export type CreateTrackInput = z.infer<typeof createTrackSchema>;
 export type GrantRoleInput = z.infer<typeof grantRoleSchema>;
 export type RevokeRoleInput = z.infer<typeof revokeRoleSchema>;
+export type JoinAsAuthorResponse = z.infer<typeof joinAsAuthorResponseSchema>;
+export type AuthorJoinLinkDto = z.infer<typeof authorJoinLinkSchema>;

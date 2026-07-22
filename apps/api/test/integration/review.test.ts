@@ -176,6 +176,7 @@ describe('Reviewer management & assignment integration', () => {
             organizationId: orgId,
             slug: 'rev-conf-double',
             name: 'Review Conf Double',
+            authorJoinToken: generateId(),
             status: 'REVIEWING',
             blindingMode: 'DOUBLE',
             biddingOpensAt: biddingOpen,
@@ -186,6 +187,7 @@ describe('Reviewer management & assignment integration', () => {
             organizationId: orgId,
             slug: 'rev-conf-single',
             name: 'Review Conf Single',
+            authorJoinToken: generateId(),
             status: 'REVIEWING',
             blindingMode: 'SINGLE',
             biddingOpensAt: biddingOpen,
@@ -196,6 +198,7 @@ describe('Reviewer management & assignment integration', () => {
             organizationId: orgId,
             slug: 'rev-conf-b',
             name: 'Review Conf B',
+            authorJoinToken: generateId(),
             status: 'REVIEWING',
             blindingMode: 'DOUBLE',
             biddingOpensAt: biddingOpen,
@@ -509,6 +512,30 @@ describe('Reviewer management & assignment integration', () => {
     expect(lastTestNotification?.html).not.toContain('magic-link');
   });
 
+  it('revokes a pending reviewer invitation', async () => {
+    const revokeEmail = `revoke-${Date.now()}@example.com`;
+
+    const createRes = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/reviewer-invitations`)
+      .set('Cookie', chairCookie)
+      .send({ email: revokeEmail });
+
+    expect(createRes.status).toBe(201);
+    const invitationId = createRes.body.id as string;
+
+    const revokeRes = await request(app.getHttpServer())
+      .delete(`/api/v1/conferences/${confId}/reviewer-invitations/${invitationId}`)
+      .set('Cookie', chairCookie)
+      .send();
+
+    expect(revokeRes.status).toBe(204);
+
+    const invitation = await withTenantContext({ bypass: true }, async (tx) =>
+      tx.reviewerInvitation.findFirst({ where: { id: invitationId } }),
+    );
+    expect(invitation).toBeNull();
+  });
+
   it('completes reviewer onboarding via magic link and accepts invitation', async () => {
     expect(lastTestNotification?.html).toBeTruthy();
     const joinUrl = extractReviewerJoinUrlFromEmail(lastTestNotification!.html);
@@ -614,6 +641,33 @@ describe('Reviewer management & assignment integration', () => {
     expect(res.body.detail).toContain('no longer pending');
   });
 
+  it('cannot revoke an accepted reviewer invitation', async () => {
+    const acceptedEmail = `accepted-revoke-${Date.now()}@example.com`;
+
+    const createRes = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/reviewer-invitations`)
+      .set('Cookie', chairCookie)
+      .send({ email: acceptedEmail });
+
+    expect(createRes.status).toBe(201);
+    const invitationId = createRes.body.id as string;
+
+    await withTenantContext({ bypass: true }, async (tx) => {
+      await tx.reviewerInvitation.update({
+        where: { id: invitationId },
+        data: { status: 'ACCEPTED' },
+      });
+    });
+
+    const res = await request(app.getHttpServer())
+      .delete(`/api/v1/conferences/${confId}/reviewer-invitations/${invitationId}`)
+      .set('Cookie', chairCookie)
+      .send();
+
+    expect(res.status).toBe(409);
+    expect(res.body.detail).toContain('pending');
+  });
+
   it('hides author identities in DOUBLE blinding paper pool', async () => {
     const res = await request(app.getHttpServer())
       .get(`/api/v1/conferences/${confId}/review/paper-pool`)
@@ -703,6 +757,94 @@ describe('Reviewer management & assignment integration', () => {
     assignmentId = res.body.assignment.id;
     expect(lastTestNotification?.to).toBe(reviewerEmail);
     expect(lastTestNotification?.templateKey).toBe('assignment.notified');
+  });
+
+  it('allows assigned reviewer to download the current CLEAN paper version', async () => {
+    const fileAssetId = generateId();
+    const versionId = generateId();
+    const otherVersionId = generateId();
+    const otherFileAssetId = generateId();
+
+    await withTenantContext({ bypass: true }, async (tx) => {
+      await tx.fileAsset.create({
+        data: {
+          id: fileAssetId,
+          organizationId: orgId,
+          uploadedById: authorReviewerUserId,
+          bucket: 'test-bucket',
+          objectKey: `test/${fileAssetId}.pdf`,
+          sizeBytes: 1024n,
+          checksumSha256: 'a'.repeat(64),
+          mimeType: 'application/pdf',
+          originalFilename: 'assigned-paper.pdf',
+          scanStatus: 'CLEAN',
+        },
+      });
+      await tx.paperVersion.create({
+        data: {
+          id: versionId,
+          paperId,
+          fileAssetId,
+          uploadedById: authorReviewerUserId,
+          kind: 'SUBMISSION',
+          versionNumber: 1,
+        },
+      });
+      await tx.fileAsset.create({
+        data: {
+          id: otherFileAssetId,
+          organizationId: orgId,
+          uploadedById: authorReviewerUserId,
+          bucket: 'test-bucket',
+          objectKey: `test/${otherFileAssetId}.pdf`,
+          sizeBytes: 2048n,
+          checksumSha256: 'b'.repeat(64),
+          mimeType: 'application/pdf',
+          originalFilename: 'older.pdf',
+          scanStatus: 'CLEAN',
+        },
+      });
+      await tx.paperVersion.create({
+        data: {
+          id: otherVersionId,
+          paperId,
+          fileAssetId: otherFileAssetId,
+          uploadedById: authorReviewerUserId,
+          kind: 'SUBMISSION',
+          versionNumber: 2,
+          note: 'Not current',
+        },
+      });
+      await tx.paper.update({
+        where: { id: paperId },
+        data: { currentVersionId: versionId },
+      });
+    });
+
+    const ok = await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/papers/${paperId}/versions/${versionId}/download`)
+      .set('Cookie', reviewerCookie);
+
+    expect(ok.status).toBe(200);
+    expect(ok.body.downloadUrl).toBeTruthy();
+    expect(ok.body.expiresInSeconds).toBeGreaterThan(0);
+
+    const deniedOtherVersion = await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/papers/${paperId}/versions/${otherVersionId}/download`)
+      .set('Cookie', reviewerCookie);
+    expect(deniedOtherVersion.status).toBe(404);
+
+    const deniedOutsider = await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/papers/${paperId}/versions/${versionId}/download`)
+      .set('Cookie', outsiderCookie);
+    expect([403, 404]).toContain(deniedOutsider.status);
+
+    const reviewPayload = await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/assignments/${assignmentId}/review`)
+      .set('Cookie', reviewerCookie);
+    expect(reviewPayload.status).toBe(200);
+    expect(reviewPayload.body.currentVersionId).toBe(versionId);
+    expect(reviewPayload.body.paperTitle).toBeTruthy();
   });
 
   it('rejects assignment when reviewer bid CONFLICT', async () => {

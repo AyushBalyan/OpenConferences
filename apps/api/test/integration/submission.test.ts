@@ -110,6 +110,7 @@ describe('Paper submission integration', () => {
             organizationId: orgId,
             slug: 'sub-conf',
             name: 'Submission Conf',
+            authorJoinToken: generateId(),
             status: 'CFP_OPEN',
           },
           {
@@ -117,6 +118,7 @@ describe('Paper submission integration', () => {
             organizationId: orgId,
             slug: 'sub-conf-b',
             name: 'Submission Conf B',
+            authorJoinToken: generateId(),
             status: 'CFP_OPEN',
           },
         ],

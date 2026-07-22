@@ -308,11 +308,12 @@ model TwoFactor {
 }
 
 model Conference {
-  id             String           @id @db.Uuid
-  organizationId String           @db.Uuid
-  slug           String
-  name           String
-  status         ConferenceStatus @default(DRAFT)
+  id              String           @id @db.Uuid
+  organizationId  String           @db.Uuid
+  slug            String
+  name            String
+  authorJoinToken String           @unique @db.Uuid
+  status          ConferenceStatus @default(DRAFT)
   blindingMode   BlindingMode     @default(DOUBLE)
   cfpOpensAt     DateTime?
   cfpClosesAt    DateTime?

@@ -38,16 +38,53 @@ pnpm dev
 
 ### Scripts
 
-| Command           | Description                        |
-| ----------------- | ---------------------------------- |
-| `pnpm dev`        | Start web, api, worker in parallel |
-| `pnpm build`      | Build all packages and apps        |
-| `pnpm test`       | Run unit and integration tests     |
-| `pnpm test:e2e`   | Run Playwright smoke tests         |
-| `pnpm lint`       | Lint all packages                  |
-| `pnpm infra:up`   | Start Docker services              |
-| `pnpm db:migrate` | Run Prisma migrate dev             |
-| `pnpm db:seed`    | Verify DB connectivity             |
+All commands below are run from the repo root unless noted.
+
+#### App & quality
+
+| Command             | Description                                    |
+| ------------------- | ---------------------------------------------- |
+| `pnpm dev`          | Start web, api, and worker in parallel (Turbo) |
+| `pnpm build`        | Build all packages and apps                    |
+| `pnpm lint`         | Lint all packages                              |
+| `pnpm typecheck`    | Typecheck all packages                         |
+| `pnpm test`         | Run unit and integration tests                 |
+| `pnpm test:e2e`     | Run Playwright smoke tests                     |
+| `pnpm format`       | Format files with Prettier                     |
+| `pnpm format:check` | Check Prettier formatting without writing      |
+
+#### Infrastructure
+
+| Command           | Description                                    |
+| ----------------- | ---------------------------------------------- |
+| `pnpm infra:up`   | Start Docker services (Postgres, Redis, MinIO) |
+| `pnpm infra:down` | Stop Docker services                           |
+
+#### Database
+
+DB scripts load `DATABASE_URL` from the root `.env` via `packages/db`.
+
+| Command                  | Description                                                   |
+| ------------------------ | ------------------------------------------------------------- |
+| `pnpm db:migrate`        | Create/apply migrations in development (`prisma migrate dev`) |
+| `pnpm db:migrate:deploy` | Apply existing migrations (`prisma migrate deploy`)           |
+| `pnpm db:seed`           | Run the database seed script                                  |
+| `pnpm db:studio`         | Open Prisma Studio at http://localhost:5555                   |
+
+Package-level DB helpers (from `packages/db`, or via `pnpm --filter @openconferences/db <script>`):
+
+| Command         | Description                                |
+| --------------- | ------------------------------------------ |
+| `migrate:reset` | Reset the database and re-apply migrations |
+| `generate`      | Regenerate the Prisma client               |
+| `studio`        | Same as `pnpm db:studio`                   |
+
+#### Worker / mail
+
+| Command             | Description                           |
+| ------------------- | ------------------------------------- |
+| `pnpm mail:test`    | Send a test email via the worker      |
+| `pnpm easydmrctest` | Run the EasyDMARC-related worker test |
 
 ### Architecture
 
@@ -55,4 +92,4 @@ See [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) and [docs/IMPLEMENTATION_ROAD
 
 ### Deployment
 
-See [infra/RUNBOOK.md](infra/RUNBOOK.md) for Coolify/Cloudflare staging setup.
+See [infra/RUNBOOK.md](infra/RUNBOOK.md) for Vercel (`app.fresi.org`) + Coolify/EC2 (`api.fresi.org`) setup.

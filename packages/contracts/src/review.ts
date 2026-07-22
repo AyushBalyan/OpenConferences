@@ -178,6 +178,20 @@ export const reviewContract = c.router({
     },
     summary: 'Resend the reviewer invitation email',
   },
+  revokeInvitation: {
+    method: 'DELETE',
+    path: '/conferences/:conferenceId/reviewer-invitations/:invitationId',
+    pathParams: invitationParams,
+    body: c.noBody(),
+    responses: {
+      204: c.noBody(),
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+      409: problemEnvelopeSchema,
+    },
+    summary: 'Remove a pending reviewer invitation',
+  },
   acceptInvitation: {
     method: 'POST',
     path: '/reviewer-invitations/accept',

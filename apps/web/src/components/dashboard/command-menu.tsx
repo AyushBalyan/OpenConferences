@@ -5,16 +5,11 @@ import { useRouter } from 'next/navigation';
 import { FileText, LayoutDashboard, Search, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-type CommandItem = {
-  id: string;
-  label: string;
-  href: string;
-  group: string;
-  keywords?: string[];
-};
+import type { CommandNavItem } from '@/lib/conference-nav';
+import { buildCommandItemsFromNav } from '@/lib/conference-nav';
 
 type CommandMenuProps = {
-  items: CommandItem[];
+  items: CommandNavItem[];
 };
 
 export function CommandMenuTrigger({ onOpen }: { onOpen: () => void }) {
@@ -67,7 +62,7 @@ export function CommandMenu({ items }: CommandMenuProps) {
   }, [items, query]);
 
   const grouped = useMemo(() => {
-    const map = new Map<string, CommandItem[]>();
+    const map = new Map<string, CommandNavItem[]>();
     for (const item of filtered) {
       const list = map.get(item.group) ?? [];
       list.push(item);
@@ -154,98 +149,13 @@ function CommandIcon({ label }: { label: string }) {
   return <LayoutDashboard className="h-4 w-4 text-slate-400" />;
 }
 
+/** @deprecated Use buildCommandItemsFromNav from conference-nav */
 export function buildCommandItems(options: {
   conferenceId?: string;
   conferenceName?: string;
-  isAuthor?: boolean;
-  isReviewer?: boolean;
-  isOrganizer?: boolean;
-}): CommandItem[] {
-  const items: CommandItem[] = [
-    {
-      id: 'home',
-      label: 'All conferences',
-      href: '/dashboard',
-      group: 'Workspace',
-    },
-  ];
-
-  if (options.conferenceId) {
-    const base = `/dashboard/conferences/${options.conferenceId}`;
-    items.push({
-      id: 'overview',
-      label: `${options.conferenceName ?? 'Conference'} overview`,
-      href: base,
-      group: 'Conference',
-      keywords: [options.conferenceName ?? ''],
-    });
-
-    if (options.isAuthor) {
-      items.push(
-        {
-          id: 'my-submissions',
-          label: 'My submissions',
-          href: `${base}/submissions`,
-          group: 'Author',
-        },
-        {
-          id: 'new-submission',
-          label: 'New submission',
-          href: `${base}/submissions/new`,
-          group: 'Author',
-        },
-      );
-    }
-
-    if (options.isReviewer) {
-      items.push(
-        {
-          id: 'my-reviews',
-          label: 'My reviews',
-          href: `${base}/reviews/my-assignments`,
-          group: 'Reviewer',
-        },
-        {
-          id: 'bidding',
-          label: 'Bidding',
-          href: `${base}/reviews/bidding`,
-          group: 'Reviewer',
-        },
-      );
-    }
-
-    if (options.isOrganizer) {
-      items.push(
-        {
-          id: 'all-submissions',
-          label: 'All submissions',
-          href: `${base}/submissions`,
-          group: 'Organize',
-        },
-        {
-          id: 'assignments',
-          label: 'Review assignments',
-          href: `${base}/reviews/assignments/current`,
-          group: 'Organize',
-        },
-        {
-          id: 'settings',
-          label: 'Conference settings',
-          href: `${base}/settings`,
-          group: 'Organize',
-        },
-      );
-    }
-  }
-
-  items.push({
-    id: 'create',
-    label: 'Create conference',
-    href: '/dashboard/conferences/new',
-    group: 'Workspace',
-  });
-
-  return items;
+  roles?: string[];
+}): CommandNavItem[] {
+  return buildCommandItemsFromNav(options);
 }
 
-export type { CommandItem };
+export type { CommandNavItem as CommandItem };

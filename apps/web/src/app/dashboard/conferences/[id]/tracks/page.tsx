@@ -1,6 +1,5 @@
 'use client';
 
-import { PageHeader } from '@/components/dashboard/page-header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -9,27 +8,27 @@ import {
   DataTable,
   DataTableBody,
   DataTableCell,
+  DataTableEmpty,
   DataTableFooter,
   DataTableHead,
   DataTableHeader,
   DataTableRow,
+  DataTableSkeleton,
 } from '@/components/dashboard/data-table';
+import { SectionPageLayout } from '@/components/dashboard/section-page-layout';
 import { createTrack, fetchTracks } from '@/lib/api-client';
 import type { Track } from '@/lib/conference-types';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 export default function ConferenceTracksPage() {
-  return <TracksContent />;
-}
-
-function TracksContent() {
   const params = useParams<{ id: string }>();
   const conferenceId = params.id;
   const [tracks, setTracks] = useState<Track[]>([]);
   const [slug, setSlug] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     const trackList = await fetchTracks(conferenceId);
@@ -37,7 +36,10 @@ function TracksContent() {
   }, [conferenceId]);
 
   useEffect(() => {
-    load().catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'));
+    setLoading(true);
+    load()
+      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
+      .finally(() => setLoading(false));
   }, [load]);
 
   async function onCreate(event: React.FormEvent) {
@@ -54,9 +56,11 @@ function TracksContent() {
   }
 
   return (
-    <div className="space-y-6">
-      <PageHeader title="Tracks" description="Manage submission tracks for this conference." />
-
+    <SectionPageLayout
+      title="Tracks"
+      description="Manage submission tracks for this conference."
+      error={error}
+    >
       <Card>
         <CardHeader>
           <CardTitle>Add track</CardTitle>
@@ -72,17 +76,21 @@ function TracksContent() {
               <Label htmlFor="name">Name</Label>
               <Input id="name" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
-            <Button type="submit" className="sm:col-span-3 w-fit">
+            <Button type="submit" className="w-fit sm:col-span-3">
               Create track
             </Button>
           </form>
-          {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
         </CardContent>
       </Card>
 
-      <div className="space-y-3">
-        {tracks.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No tracks yet.</p>
+      <div className="mt-6 space-y-3">
+        {loading ? (
+          <DataTableSkeleton rows={4} />
+        ) : tracks.length === 0 ? (
+          <DataTableEmpty
+            title="No tracks yet"
+            description="Create a track to organize submissions."
+          />
         ) : (
           <DataTable
             footer={
@@ -116,6 +124,6 @@ function TracksContent() {
           </DataTable>
         )}
       </div>
-    </div>
+    </SectionPageLayout>
   );
 }

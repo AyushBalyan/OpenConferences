@@ -74,7 +74,7 @@ export class ReviewsService {
             round: { status: { not: 'CLOSED' } },
           },
           include: {
-            paper: { select: { title: true } },
+            paper: { select: { title: true, currentVersionId: true } },
             round: { select: { roundNumber: true, status: true } },
             review: true,
           },
@@ -89,6 +89,7 @@ export class ReviewsService {
       data: page.data.map((a) => ({
         ...mapReviewerAssignment(a),
         paperTitle: a.paper.title,
+        currentVersionId: a.paper.currentVersionId,
         roundNumber: a.round.roundNumber,
         roundStatus: a.round.status,
         review: a.review ? mapReview(a.review) : null,
@@ -103,18 +104,23 @@ export class ReviewsService {
     assignmentId: string,
     roles: RoleKind[],
   ): Promise<ReviewDto> {
-    const { assignment, review } = await this.loadAssignmentForReviewer(
+    const { assignment, review, paper } = await this.loadAssignmentForReviewer(
       userId,
       conferenceId,
       assignmentId,
       roles,
     );
 
+    const paperMeta = {
+      paperTitle: paper.title,
+      currentVersionId: paper.currentVersionId,
+    };
+
     if (review) {
-      return mapReview(review);
+      return { ...mapReview(review), ...paperMeta };
     }
 
-    return this.buildDraftReview(assignment);
+    return { ...this.buildDraftReview(assignment), ...paperMeta };
   }
 
   async saveReview(
@@ -125,7 +131,7 @@ export class ReviewsService {
     roles: RoleKind[],
   ): Promise<ReviewDto> {
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-    const { assignment, review } = await this.loadAssignmentForReviewer(
+    const { assignment, review, paper } = await this.loadAssignmentForReviewer(
       userId,
       conferenceId,
       assignmentId,
@@ -194,7 +200,11 @@ export class ReviewsService {
       },
     );
 
-    return mapReview(saved);
+    return {
+      ...mapReview(saved),
+      paperTitle: paper.title,
+      currentVersionId: paper.currentVersionId,
+    };
   }
 
   async submitReview(
@@ -205,7 +215,7 @@ export class ReviewsService {
     roles: RoleKind[],
   ): Promise<{ review: ReviewDto; message: string }> {
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-    const { assignment, review } = await this.loadAssignmentForReviewer(
+    const { assignment, review, paper } = await this.loadAssignmentForReviewer(
       userId,
       conferenceId,
       assignmentId,
@@ -274,7 +284,11 @@ export class ReviewsService {
     });
 
     return {
-      review: mapReview(submitted),
+      review: {
+        ...mapReview(submitted),
+        paperTitle: paper.title,
+        currentVersionId: paper.currentVersionId,
+      },
       message: 'Review submitted successfully',
     };
   }
@@ -465,7 +479,10 @@ export class ReviewsService {
     const assignment = await withTenantContext({ userId, conferenceId }, async (tx) =>
       tx.reviewerAssignment.findFirst({
         where: { id: assignmentId },
-        include: { review: true },
+        include: {
+          review: true,
+          paper: { select: { title: true, currentVersionId: true } },
+        },
       }),
     );
 
@@ -479,7 +496,11 @@ export class ReviewsService {
       throw new NotFoundException('Assignment not found');
     }
 
-    return { assignment, review: assignment.review };
+    return {
+      assignment,
+      review: assignment.review,
+      paper: assignment.paper,
+    };
   }
 
   private buildDraftReview(assignment: {

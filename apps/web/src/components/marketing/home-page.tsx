@@ -3,44 +3,8 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, ClipboardCheck, FileText, LayoutDashboard, Users } from 'lucide-react';
+import { ArrowRight, Check, ClipboardCheck, FilePenLine, Settings2 } from 'lucide-react';
 import { useSession } from '@/lib/auth-client';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-
-const ROLES = [
-  {
-    title: 'Author',
-    description:
-      'Submit papers, track review progress, and complete registration for accepted work.',
-    href: '/sign-in',
-    cta: 'Sign in to submit',
-    icon: FileText,
-  },
-  {
-    title: 'Reviewer',
-    description:
-      'Accept invitations, declare conflicts of interest, and submit reviews on assigned papers.',
-    href: '/sign-in',
-    cta: 'Sign in as reviewer',
-    icon: ClipboardCheck,
-  },
-  {
-    title: 'Organizer',
-    description:
-      'Manage submissions, assignments, decisions, and registration for your conference.',
-    href: '/sign-in',
-    cta: 'Open dashboard',
-    icon: LayoutDashboard,
-  },
-] as const;
-
-const STEPS = [
-  { label: 'Submit', detail: 'Authors upload papers and metadata' },
-  { label: 'Review', detail: 'Reviewers score and comment on submissions' },
-  { label: 'Decide', detail: 'Chairs record accept, reject, or revision outcomes' },
-  { label: 'Register', detail: 'Accepted authors complete conference registration' },
-] as const;
 
 export function HomePage() {
   const router = useRouter();
@@ -54,7 +18,7 @@ export function HomePage() {
 
   if (isPending) {
     return (
-      <div className="flex min-h-[calc(100dvh-3.5rem)] items-center justify-center text-sm text-muted-foreground">
+      <div className="oc-landing flex min-h-dvh items-center justify-center text-[var(--oc-on-surface-variant)]">
         Loading…
       </div>
     );
@@ -65,104 +29,299 @@ export function HomePage() {
   }
 
   return (
-    <main className="min-h-[calc(100dvh-3.5rem)]">
-      <section className="relative overflow-hidden border-b border-slate-200/80 bg-gradient-to-b from-white via-slate-50 to-slate-100/80">
-        <div
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(79,70,229,0.12),transparent)]"
-          aria-hidden
-        />
-        <div className="relative mx-auto max-w-5xl px-6 py-20 sm:py-28">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-indigo-600">
-            Academic conference platform
-          </p>
-          <h1 className="mt-4 max-w-3xl text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl sm:leading-[1.1]">
-            From submission to registration, in one place
+    <div className="oc-landing antialiased overflow-x-hidden">
+      <nav className="fixed top-0 z-50 w-full border-b border-[var(--oc-surface-variant)] bg-[var(--oc-surface)]">
+        <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-4 md:px-16">
+          <div className="oc-font-headline text-2xl font-bold text-[var(--oc-primary)] md:text-[32px] md:leading-10">
+            OpenConferences
+          </div>
+          <div className="hidden items-center gap-8 md:flex">
+            <a
+              className="oc-font-label text-xs font-medium tracking-wide text-[var(--oc-on-surface-variant)] transition-colors hover:text-[var(--oc-primary-dim)]"
+              href="#capabilities"
+            >
+              Features
+            </a>
+            <a
+              className="oc-font-label text-xs font-medium tracking-wide text-[var(--oc-on-surface-variant)] transition-colors hover:text-[var(--oc-primary-dim)]"
+              href="#roles"
+            >
+              Roles
+            </a>
+            <a
+              className="oc-font-label text-xs font-medium tracking-wide text-[var(--oc-on-surface-variant)] transition-colors hover:text-[var(--oc-primary-dim)]"
+              href="#cta"
+            >
+              Pricing
+            </a>
+          </div>
+          <div className="flex items-center gap-6">
+            <Link
+              href="/sign-in"
+              className="oc-font-label text-xs font-medium tracking-wide text-[var(--oc-on-surface-variant)] transition-colors hover:text-[var(--oc-primary-dim)]"
+            >
+              Sign in
+            </Link>
+            <Link
+              href="/sign-up"
+              className="oc-font-label rounded-sm bg-[var(--oc-primary)] px-4 py-2 text-xs font-medium tracking-wide text-white shadow-sm transition-colors hover:bg-[var(--oc-primary-dim)]"
+            >
+              Create account
+            </Link>
+          </div>
+        </div>
+      </nav>
+
+      <header className="relative flex min-h-[min(921px,100dvh)] flex-col justify-center bg-paper-grain hero-gradient px-4 pb-20 pt-40 md:px-16">
+        <div className="relative z-10 mx-auto max-w-4xl space-y-6 text-center">
+          <h1 className="oc-font-display mb-2 text-4xl font-bold leading-tight tracking-tight text-[var(--oc-primary)] sm:text-5xl md:text-[57px] md:leading-[64px]">
+            OpenConferences
           </h1>
-          <p className="mt-6 max-w-2xl text-lg leading-relaxed text-slate-600">
-            OpenConferences helps organizers run peer review, notify authors, collect camera-ready
-            files, and manage registrations — without juggling spreadsheets and inboxes.
+          <h2 className="oc-font-headline mb-6 text-2xl font-semibold text-[var(--oc-on-surface)] md:text-[32px] md:leading-10">
+            From submission to registration, in one place.
+          </h2>
+          <p className="mx-auto mb-10 max-w-2xl text-lg leading-relaxed text-[var(--oc-on-surface-variant)]">
+            Run peer review, notify authors, collect camera-ready files, and manage registrations —
+            without juggling spreadsheets and inboxes. A scholarly platform built for precision.
           </p>
-          <div className="mt-10 flex flex-wrap items-center gap-4">
-            <Button asChild size="default" className="h-11 px-6 text-base">
-              <Link href="/sign-up">
-                Create account
-                <ArrowRight className="ml-2 size-4" aria-hidden />
+          <div className="flex flex-col items-center justify-center gap-2 pt-6 sm:flex-row sm:gap-3">
+            <Link
+              href="/sign-up"
+              className="oc-font-label w-full rounded-sm bg-[var(--oc-primary)] px-8 py-3 text-center text-xs font-medium tracking-wide text-white shadow-sm transition-colors hover:bg-[var(--oc-primary-dim)] sm:w-auto"
+            >
+              Create account
+            </Link>
+            <Link
+              href="/sign-in"
+              className="oc-font-label w-full rounded-sm border border-[var(--oc-outline)] px-8 py-3 text-center text-xs font-medium tracking-wide text-[var(--oc-secondary)] transition-colors hover:bg-[var(--oc-surface-container)] hover:text-[var(--oc-on-surface)] sm:w-auto"
+            >
+              Sign in
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      <section
+        id="roles"
+        className="scroll-mt-24 border-y border-[var(--oc-surface-variant)] bg-[var(--oc-surface-container-lowest)] px-4 py-20 md:px-16"
+      >
+        <div className="mx-auto max-w-7xl">
+          <h3 className="oc-font-headline mb-16 text-center text-[28px] font-semibold leading-9 text-[var(--oc-on-surface)]">
+            I am an...
+          </h3>
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+            <div className="flex flex-col items-start rounded-sm border border-[var(--oc-surface-variant)] bg-[var(--oc-surface)] p-8 transition-shadow hover:shadow-sm">
+              <FilePenLine className="mb-6 size-10 text-[var(--oc-primary)]" aria-hidden />
+              <h4 className="oc-font-headline mb-4 text-xl font-semibold text-[var(--oc-on-surface)]">
+                Author
+              </h4>
+              <p className="mb-8 flex-grow text-base leading-6 text-[var(--oc-on-surface-variant)]">
+                Submit papers seamlessly, track review progress transparently, upload camera-ready
+                versions, and handle your conference registration.
+              </p>
+              <Link
+                href="/sign-in"
+                className="oc-font-label mt-auto inline-flex items-center gap-2 text-xs font-medium tracking-wide text-[var(--oc-primary)] transition-colors hover:text-[var(--oc-primary-dim)]"
+              >
+                Sign in to submit
+                <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-1" />
               </Link>
-            </Button>
-            <Button asChild variant="outline" size="default" className="h-11 px-6 text-base">
-              <Link href="/sign-in">Sign in</Link>
-            </Button>
+            </div>
+
+            <div className="flex flex-col items-start rounded-sm border border-[var(--oc-surface-variant)] bg-[var(--oc-surface)] p-8 transition-shadow hover:shadow-sm">
+              <ClipboardCheck className="mb-6 size-10 text-[var(--oc-primary)]" aria-hidden />
+              <h4 className="oc-font-headline mb-4 text-xl font-semibold text-[var(--oc-on-surface)]">
+                Reviewer
+              </h4>
+              <p className="mb-8 flex-grow text-base leading-6 text-[var(--oc-on-surface-variant)]">
+                Accept invitations securely, declare conflicts of interest upfront, access assigned
+                papers, and submit structured reviews.
+              </p>
+              <Link
+                href="/sign-in"
+                className="oc-font-label mt-auto inline-flex items-center gap-2 text-xs font-medium tracking-wide text-[var(--oc-primary)] transition-colors hover:text-[var(--oc-primary-dim)]"
+              >
+                Sign in as reviewer
+                <ArrowRight className="size-3.5" />
+              </Link>
+            </div>
+
+            <div className="flex flex-col items-start rounded-sm border border-[var(--oc-surface-variant)] bg-[var(--oc-surface)] p-8 transition-shadow hover:shadow-sm">
+              <Settings2 className="mb-6 size-10 text-[var(--oc-primary)]" aria-hidden />
+              <h4 className="oc-font-headline mb-4 text-xl font-semibold text-[var(--oc-on-surface)]">
+                Organizer
+              </h4>
+              <p className="mb-8 flex-grow text-base leading-6 text-[var(--oc-on-surface-variant)]">
+                Manage call for papers, assign reviewers, record decisions, notify participants, and
+                oversee the entire registration pipeline.
+              </p>
+              <Link
+                href="/sign-in"
+                className="oc-font-label mt-auto inline-flex items-center gap-2 text-xs font-medium tracking-wide text-[var(--oc-primary)] transition-colors hover:text-[var(--oc-primary-dim)]"
+              >
+                Open dashboard
+                <ArrowRight className="size-3.5" />
+              </Link>
+            </div>
           </div>
         </div>
       </section>
 
-      <section className="mx-auto max-w-5xl px-6 py-16 sm:py-20">
-        <div className="mb-10 flex items-end justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">I am an…</h2>
-            <p className="mt-2 text-muted-foreground">
-              Choose your role to get started. Reviewers with an email invitation can sign in with
-              the invited address.
+      <section id="lifecycle" className="scroll-mt-24 bg-[var(--oc-surface)] px-4 py-20 md:px-16">
+        <div className="mx-auto max-w-7xl">
+          <h3 className="oc-font-headline mb-20 text-center text-[28px] font-semibold leading-9 text-[var(--oc-on-surface)]">
+            The Conference Lifecycle
+          </h3>
+          <div className="relative">
+            <div className="absolute left-[10%] right-[10%] top-6 hidden h-px bg-[var(--oc-outline-variant)] md:block" />
+            <div className="relative z-10 grid grid-cols-1 gap-6 md:grid-cols-4">
+              {[
+                {
+                  n: '1',
+                  title: 'Submit',
+                  detail: 'Authors upload manuscripts and metadata through a clean interface.',
+                },
+                {
+                  n: '2',
+                  title: 'Review',
+                  detail: 'Program committee assigns papers. Reviewers evaluate and score.',
+                },
+                {
+                  n: '3',
+                  title: 'Decide',
+                  detail: 'Chairs finalize acceptance. Automated batch notifications are sent.',
+                },
+                {
+                  n: '4',
+                  title: 'Register',
+                  detail: 'Attendees secure their spots and manage travel requirements.',
+                },
+              ].map((step) => (
+                <div key={step.n} className="flex flex-col items-center text-center">
+                  <div className="oc-font-headline mb-6 flex size-12 items-center justify-center rounded-full border-2 border-[var(--oc-surface)] bg-[var(--oc-surface-container-high)] text-[var(--oc-primary)] shadow-sm">
+                    {step.n}
+                  </div>
+                  <h4 className="oc-font-headline mb-2 text-lg font-semibold text-[var(--oc-on-surface)]">
+                    {step.title}
+                  </h4>
+                  <p className="px-4 text-sm leading-6 text-[var(--oc-on-surface-variant)]">
+                    {step.detail}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="capabilities"
+        className="scroll-mt-24 border-y border-[var(--oc-surface-variant)] bg-[var(--oc-surface-container-lowest)] px-4 py-20 md:px-16"
+      >
+        <div className="mx-auto max-w-7xl">
+          <div className="grid grid-cols-1 gap-16 md:grid-cols-3">
+            <CapabilityColumn
+              title="Peer review & COI"
+              items={[
+                'Double-blind or single-blind configurations.',
+                'Automated conflict of interest detection.',
+                'Customizable review forms and scoring rubrics.',
+              ]}
+            />
+            <CapabilityColumn
+              title="Decisions & notifications"
+              items={[
+                'Bulk email capabilities with mail merge fields.',
+                'Audit trails for decision changes.',
+                'Camera-ready deadline enforcement.',
+              ]}
+            />
+            <CapabilityColumn
+              title="Registration & roles"
+              items={[
+                'Tiered pricing (early bird, student, regular).',
+                'Secure payment gateway integrations.',
+                'Granular access control for PC members.',
+              ]}
+            />
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="cta"
+        className="scroll-mt-24 bg-[var(--oc-surface-container)] px-4 py-20 text-center md:px-16"
+      >
+        <div className="mx-auto max-w-3xl space-y-8">
+          <h2 className="oc-font-headline text-[32px] font-semibold leading-10 text-[var(--oc-primary)]">
+            Ready to run your next conference?
+          </h2>
+          <p className="text-lg leading-7 text-[var(--oc-on-surface-variant)]">
+            Join thousands of academic organizers relying on OpenConferences for a seamless,
+            professional experience.
+          </p>
+          <Link
+            href="/sign-up"
+            className="oc-font-label mt-4 inline-block rounded-sm bg-[var(--oc-primary)] px-10 py-4 text-xs font-medium tracking-wide text-white shadow-sm transition-colors hover:bg-[var(--oc-primary-dim)]"
+          >
+            Create account
+          </Link>
+        </div>
+      </section>
+
+      <footer className="w-full bg-[var(--oc-surface-container-low)] px-4 py-20 md:px-16">
+        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-8 md:flex-row">
+          <div className="flex flex-col items-center gap-4 md:items-start">
+            <div className="oc-font-headline text-[28px] font-semibold text-[var(--oc-primary)]">
+              OpenConferences
+            </div>
+            <p className="text-center text-sm text-[var(--oc-secondary)] md:text-left">
+              Built for academic conference organizers and participants.
+            </p>
+            <p className="text-center text-sm text-[var(--oc-secondary)] md:text-left">
+              © 2026 OpenConferences.
             </p>
           </div>
-          <Users className="hidden size-8 text-indigo-200 sm:block" aria-hidden />
-        </div>
-
-        <div className="grid gap-6 sm:grid-cols-3">
-          {ROLES.map((role) => (
-            <Card
-              key={role.title}
-              className="border-slate-200/80 shadow-sm transition-shadow hover:shadow-md"
+          <div className="oc-font-label flex flex-col items-center gap-6 text-xs font-medium tracking-wide md:flex-row md:gap-8">
+            <a
+              className="text-[var(--oc-on-surface-variant)] opacity-80 transition-colors hover:text-[var(--oc-primary)] hover:opacity-100"
+              href="#"
             >
-              <CardHeader className="pb-3">
-                <div className="mb-3 flex size-10 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-                  <role.icon className="size-5" aria-hidden />
-                </div>
-                <CardTitle className="text-lg">{role.title}</CardTitle>
-                <CardDescription className="leading-relaxed">{role.description}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Link
-                  href={role.href}
-                  className="inline-flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-700"
-                >
-                  {role.cta}
-                  <ArrowRight className="ml-1 size-3.5" aria-hidden />
-                </Link>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </section>
-
-      <section className="border-t border-slate-200/80 bg-white">
-        <div className="mx-auto max-w-5xl px-6 py-16 sm:py-20">
-          <h2 className="text-center text-2xl font-semibold tracking-tight text-slate-900">
-            How it works
-          </h2>
-          <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">
-            A single workflow for every conference you run.
-          </p>
-          <ol className="mt-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-            {STEPS.map((step, index) => (
-              <li key={step.label} className="relative text-center sm:text-left">
-                <span className="inline-flex size-9 items-center justify-center rounded-full bg-indigo-600 text-sm font-semibold text-white">
-                  {index + 1}
-                </span>
-                <h3 className="mt-4 font-semibold text-slate-900">{step.label}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{step.detail}</p>
-              </li>
-            ))}
-          </ol>
-        </div>
-      </section>
-
-      <footer className="border-t border-slate-200/80 bg-slate-50">
-        <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-4 px-6 py-8 text-sm text-muted-foreground sm:flex-row">
-          <p>© {new Date().getFullYear()} OpenConferences</p>
-          <p>Built for academic conference organizers and participants.</p>
+              Privacy Policy
+            </a>
+            <a
+              className="text-[var(--oc-on-surface-variant)] opacity-80 transition-colors hover:text-[var(--oc-primary)] hover:opacity-100"
+              href="#"
+            >
+              Terms of Service
+            </a>
+            <a
+              className="text-[var(--oc-on-surface-variant)] opacity-80 transition-colors hover:text-[var(--oc-primary)] hover:opacity-100"
+              href="#"
+            >
+              Contact Support
+            </a>
+          </div>
         </div>
       </footer>
-    </main>
+    </div>
+  );
+}
+
+function CapabilityColumn({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div>
+      <h4 className="oc-font-headline mb-6 border-b border-[var(--oc-surface-variant)] pb-4 text-[28px] font-semibold leading-9 text-[var(--oc-on-surface)]">
+        {title}
+      </h4>
+      <ul className="space-y-4 text-base leading-6 text-[var(--oc-on-surface-variant)]">
+        {items.map((item) => (
+          <li key={item} className="flex items-start gap-3">
+            <Check className="mt-0.5 size-5 shrink-0 text-[var(--oc-primary)]" aria-hidden />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

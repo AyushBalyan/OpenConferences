@@ -18,6 +18,7 @@ const HIDDEN_PREFIXES = [
 
 export function ConditionalAppHeader() {
   const pathname = usePathname();
+  if (pathname === '/') return null;
   const hidden = HIDDEN_PREFIXES.some((prefix) => pathname.startsWith(prefix));
   if (hidden) return null;
   return <AppHeader />;

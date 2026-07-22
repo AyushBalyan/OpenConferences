@@ -23,6 +23,8 @@ import { roleLabels } from '@/lib/roles';
 import type { MeDashboard } from '@openconferences/schemas';
 import { useEffect, useState } from 'react';
 
+const PREVIEW_LIMIT = 3;
+
 export default function MeDashboardPage() {
   const [dashboard, setDashboard] = useState<MeDashboard | null>(null);
   const [loading, setLoading] = useState(true);
@@ -41,11 +43,17 @@ export default function MeDashboardPage() {
     dashboard.reviewerAssignments.length === 0 &&
     dashboard.organizerConferences.length === 0;
 
+  const papersPreview = dashboard?.authoredPapers.slice(0, PREVIEW_LIMIT) ?? [];
+  const assignmentsPreview = dashboard?.reviewerAssignments.slice(0, PREVIEW_LIMIT) ?? [];
+  const papersOverflow = (dashboard?.authoredPapers.length ?? 0) - papersPreview.length;
+  const assignmentsOverflow =
+    (dashboard?.reviewerAssignments.length ?? 0) - assignmentsPreview.length;
+
   return (
     <>
       <PageHeader
         title="Your dashboard"
-        description="Cross-conference view of submissions, reviews, and organizer workspaces."
+        description="Cross-conference summary with links to full workspaces."
       />
 
       {error ? <p className="mb-4 text-sm text-rose-600">{error}</p> : null}
@@ -74,27 +82,31 @@ export default function MeDashboardPage() {
 
       {!loading && dashboard && dashboard.authoredPapers.length > 0 ? (
         <section className="mb-10 space-y-4">
-          <SectionHeading title="My submissions" />
+          <SectionHeading
+            title="Recent submissions"
+            overflow={papersOverflow}
+            href={
+              papersPreview[0]
+                ? `/dashboard/conferences/${papersPreview[0].conferenceId}/submissions`
+                : undefined
+            }
+          />
           <DataTable>
             <DataTableHeader>
               <tr>
                 <DataTableHead>Title</DataTableHead>
                 <DataTableHead>Conference</DataTableHead>
-                <DataTableHead>Updated</DataTableHead>
                 <DataTableHead>Status</DataTableHead>
                 <DataTableHead className="text-right">Action</DataTableHead>
               </tr>
             </DataTableHeader>
             <DataTableBody>
-              {dashboard.authoredPapers.map((paper) => (
+              {papersPreview.map((paper) => (
                 <DataTableRow key={paper.id}>
                   <DataTableCell>
                     <p className="font-medium text-slate-900">{paper.title}</p>
                   </DataTableCell>
                   <DataTableCell>{paper.conferenceName}</DataTableCell>
-                  <DataTableCell className="font-mono text-xs">
-                    {new Date(paper.updatedAt).toLocaleDateString()}
-                  </DataTableCell>
                   <DataTableCell>
                     <WorkflowBadge
                       label={paperStatusLabel(paper.status)}
@@ -119,25 +131,31 @@ export default function MeDashboardPage() {
 
       {!loading && dashboard && dashboard.reviewerAssignments.length > 0 ? (
         <section className="mb-10 space-y-4">
-          <SectionHeading title="Review assignments" />
+          <SectionHeading
+            title="Pending reviews"
+            overflow={assignmentsOverflow}
+            href={
+              assignmentsPreview[0]
+                ? `/dashboard/conferences/${assignmentsPreview[0].conferenceId}/reviews/my-assignments`
+                : undefined
+            }
+          />
           <DataTable>
             <DataTableHeader>
               <tr>
                 <DataTableHead>Paper</DataTableHead>
                 <DataTableHead>Conference</DataTableHead>
-                <DataTableHead>Round</DataTableHead>
                 <DataTableHead>Due</DataTableHead>
                 <DataTableHead className="text-right">Action</DataTableHead>
               </tr>
             </DataTableHeader>
             <DataTableBody>
-              {dashboard.reviewerAssignments.map((assignment) => (
+              {assignmentsPreview.map((assignment) => (
                 <DataTableRow key={assignment.id}>
                   <DataTableCell>
                     <p className="font-medium text-slate-900">{assignment.paperTitle}</p>
                   </DataTableCell>
                   <DataTableCell>{assignment.conferenceName}</DataTableCell>
-                  <DataTableCell>Round {assignment.roundNumber}</DataTableCell>
                   <DataTableCell className="font-mono text-xs">
                     {assignment.dueAt ? new Date(assignment.dueAt).toLocaleDateString() : '—'}
                   </DataTableCell>
@@ -193,6 +211,30 @@ export default function MeDashboardPage() {
   );
 }
 
-function SectionHeading({ title }: { title: string }) {
-  return <h2 className="text-lg font-medium text-slate-900">{title}</h2>;
+function SectionHeading({
+  title,
+  overflow = 0,
+  href,
+}: {
+  title: string;
+  overflow?: number;
+  href?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div>
+        <h2 className="text-lg font-medium text-slate-900">{title}</h2>
+        {overflow > 0 ? (
+          <p className="text-sm text-slate-500">
+            Showing {PREVIEW_LIMIT} of {PREVIEW_LIMIT + overflow}
+          </p>
+        ) : null}
+      </div>
+      {href ? (
+        <Button asChild variant="ghost" size="sm">
+          <Link href={href}>View all</Link>
+        </Button>
+      ) : null}
+    </div>
+  );
 }

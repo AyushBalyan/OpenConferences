@@ -1,18 +1,23 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { mfaVerifySchema, type MfaVerifyInput } from '@openconferences/schemas';
-import { authClient } from '@/lib/auth-client';
+import { authClient, refreshSession } from '@/lib/auth-client';
 import { AuthShell } from '@/components/auth/auth-shell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { authorJoinPath, resolveAuthorJoinToken } from '@/lib/author-join-pending';
+import { resolveReviewerInviteToken } from '@/lib/reviewer-invite-pending';
 
-export default function MfaChallengePage() {
+function MfaChallengeContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const authorJoin = resolveAuthorJoinToken(searchParams.get('authorJoin'));
+  const reviewerInvite = resolveReviewerInviteToken(searchParams.get('reviewerInvite'));
   const [error, setError] = useState<string | null>(null);
   const {
     register,
@@ -34,8 +39,15 @@ export default function MfaChallengePage() {
       return;
     }
 
-    router.push('/dashboard');
-    router.refresh();
+    await refreshSession();
+
+    router.push(
+      authorJoin
+        ? authorJoinPath(authorJoin)
+        : reviewerInvite
+          ? `/reviewer-invite/accept?token=${encodeURIComponent(reviewerInvite)}&auto=1`
+          : '/me/dashboard',
+    );
   });
 
   return (
@@ -59,5 +71,13 @@ export default function MfaChallengePage() {
         </Button>
       </form>
     </AuthShell>
+  );
+}
+
+export default function MfaChallengePage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-sm">Loading…</div>}>
+      <MfaChallengeContent />
+    </Suspense>
   );
 }

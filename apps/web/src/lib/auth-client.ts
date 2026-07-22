@@ -22,6 +22,13 @@ export function useSession() {
   return authClient.useSession();
 }
 
+/** Wait until the session atom reflects the cookie (e.g. after sign-in). */
+export async function refreshSession() {
+  const result = await authClient.getSession();
+  authClient.$store.notify('$sessionSignal');
+  return result;
+}
+
 export async function signOut() {
   return authClient.signOut();
 }

@@ -105,6 +105,16 @@ export class ReviewController {
     });
   }
 
+  @TsRestHandler(reviewContract.revokeInvitation)
+  @RequireConferenceOrganizer()
+  @RequireMembership()
+  revokeInvitation(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(reviewContract.revokeInvitation, async ({ params }) => {
+      await this.invitations.revoke(user.id, params.conferenceId, params.invitationId, roles);
+      return { status: 204 as const, body: undefined };
+    });
+  }
+
   @TsRestHandler(reviewContract.listBids)
   @RequireReviewCoordination()
   @RequireMembership()

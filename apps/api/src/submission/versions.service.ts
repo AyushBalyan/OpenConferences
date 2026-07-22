@@ -91,7 +91,25 @@ export class VersionsService {
     versionId: string,
     roles: RoleKind[],
   ) {
-    const paper = await this.papers.loadPaper(userId, conferenceId, paperId, roles);
+    const conference = await this.conferences.loadConference(userId, conferenceId, roles);
+
+    const paper = await withTenantContext(
+      { userId, conferenceId, organizationId: conference.organizationId },
+      async (tx) =>
+        tx.paper.findFirst({
+          where: { id: paperId, conferenceId },
+          include: { authorships: { select: { userId: true } } },
+        }),
+    );
+
+    if (!paper) {
+      throw new NotFoundException('Paper not found');
+    }
+
+    const access = await this.resolveDownloadAccess(userId, conferenceId, paper, roles);
+    if (!access.allowed) {
+      throw new NotFoundException('Paper not found');
+    }
 
     const version = await withTenantContext(
       { userId, conferenceId, organizationId: paper.organizationId },
@@ -106,7 +124,57 @@ export class VersionsService {
       throw new NotFoundException('Version not found');
     }
 
+    // Assigned reviewers may only fetch the paper's current (assigned) artifact.
+    if (access.mode === 'assigned_reviewer' && paper.currentVersionId !== versionId) {
+      throw new NotFoundException('Version not found');
+    }
+
     return this.files.presignDownload(version.fileAssetId, userId, paper.organizationId);
+  }
+
+  private async resolveDownloadAccess(
+    userId: string,
+    conferenceId: string,
+    paper: {
+      id: string;
+      submittedById: string;
+      authorships: { userId: string | null }[];
+    },
+    roles: RoleKind[],
+  ): Promise<
+    { allowed: true; mode: 'privileged' | 'author' | 'assigned_reviewer' } | { allowed: false }
+  > {
+    if (isPrivilegedReader(roles)) {
+      return { allowed: true, mode: 'privileged' };
+    }
+
+    const isAuthor =
+      paper.submittedById === userId || paper.authorships.some((a) => a.userId === userId);
+    if (isAuthor) {
+      return { allowed: true, mode: 'author' };
+    }
+
+    if (!roles.includes('REVIEWER')) {
+      return { allowed: false };
+    }
+
+    const assignment = await withTenantContext({ userId, conferenceId }, async (tx) =>
+      tx.reviewerAssignment.findFirst({
+        where: {
+          conferenceId,
+          paperId: paper.id,
+          reviewerUserId: userId,
+          status: { in: ['ASSIGNED', 'ACCEPTED', 'COMPLETED'] },
+        },
+        select: { id: true },
+      }),
+    );
+
+    if (!assignment) {
+      return { allowed: false };
+    }
+
+    return { allowed: true, mode: 'assigned_reviewer' };
   }
 
   private async assertCanUploadVersion(

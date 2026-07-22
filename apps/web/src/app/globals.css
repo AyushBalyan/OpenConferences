@@ -22,6 +22,27 @@
     --input: 214.3 31.8% 91.4%;
     --ring: 243 75% 59%;
     --radius: 0.75rem;
+
+    --oc-primary: #016a6a;
+    --oc-primary-dim: #005d5d;
+    --oc-primary-container: #a0f0f0;
+    --oc-on-primary: #ffffff;
+    --oc-on-primary-container: #005c5c;
+    --oc-secondary: #506362;
+    --oc-secondary-dim: #445756;
+    --oc-secondary-container: #d2e7e5;
+    --oc-on-secondary: #e8fdfb;
+    --oc-on-surface: #2d3434;
+    --oc-on-surface-variant: #596061;
+    --oc-on-background: #2d3434;
+    --oc-outline: #757c7c;
+    --oc-outline-variant: #acb3b3;
+    --oc-surface: #f8faf9;
+    --oc-surface-variant: #dde4e4;
+    --oc-surface-container: #eaefef;
+    --oc-surface-container-low: #f1f4f4;
+    --oc-surface-container-high: #e4e9e9;
+    --oc-surface-container-lowest: #ffffff;
   }
 
   * {
@@ -30,5 +51,32 @@
 
   body {
     @apply bg-slate-50 text-foreground antialiased;
+  }
+}
+
+@layer components {
+  .oc-landing {
+    background-color: var(--oc-surface);
+    color: var(--oc-on-surface);
+    font-family: var(--font-manrope), Manrope, ui-sans-serif, system-ui, sans-serif;
+  }
+
+  .oc-landing .oc-font-display,
+  .oc-landing .oc-font-headline {
+    font-family: var(--font-literata), Literata, ui-serif, Georgia, serif;
+  }
+
+  .oc-landing .oc-font-label {
+    font-family: var(--font-ibm-plex-sans), 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  }
+
+  .oc-landing .bg-paper-grain {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
+  }
+
+  .oc-landing .hero-gradient {
+    background:
+      radial-gradient(circle at top right, rgba(160, 240, 240, 0.2) 0%, transparent 50%),
+      radial-gradient(circle at bottom left, rgba(209, 232, 252, 0.2) 0%, transparent 40%);
   }
 }

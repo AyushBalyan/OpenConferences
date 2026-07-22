@@ -7,6 +7,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
 import { resolveReviewerInviteToken } from '@/lib/reviewer-invite-pending';
+import { authorJoinPath, resolveAuthorJoinToken } from '@/lib/author-join-pending';
 import { resendVerificationSchema, type ResendVerificationInput } from '@openconferences/schemas';
 import { authClient } from '@/lib/auth-client';
 import { AuthShell, AuthLink } from '@/components/auth/auth-shell';
@@ -19,9 +20,12 @@ function VerifyEmailContent() {
   const token = searchParams.get('token');
   const sent = searchParams.get('sent');
   const reviewerInvite = resolveReviewerInviteToken(searchParams.get('reviewerInvite'));
-  const signInHref = reviewerInvite
-    ? `/sign-in?reviewerInvite=${encodeURIComponent(reviewerInvite)}`
-    : '/sign-in';
+  const authorJoin = resolveAuthorJoinToken(searchParams.get('authorJoin'));
+  const signInHref = authorJoin
+    ? authorJoinPath(authorJoin)
+    : reviewerInvite
+      ? `/sign-in?reviewerInvite=${encodeURIComponent(reviewerInvite)}`
+      : '/sign-in';
   const [status, setStatus] = useState<'idle' | 'verifying' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState<string | null>(
     sent ? 'We sent a verification link to your email.' : null,

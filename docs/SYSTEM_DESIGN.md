@@ -71,20 +71,23 @@ AI matching/summarization, sponsor management, QR check-in, mobile apps, proceed
 
 ### 2.1 Topology
 
-A single deployable **modular monolith** (NestJS) serves a REST API. A **Next.js** app renders the UI. **Managed PostgreSQL** (with PITR) is the system of record; **pg-boss** runs the job queue in a dedicated schema on that database. A small **Redis** handles session cache, app cache, and rate limiting. **Cloudflare** sits in front (WAF, edge rate limits, Turnstile, CDN). **Cloudflare R2** holds files. Razorpay and Zoho Zepto Mail are external providers. App/web/worker run in Docker via Coolify on a VPS; the database is off-box.
+A single deployable **modular monolith** (NestJS) serves a REST API. A **Next.js** app renders the UI. **Managed PostgreSQL** (with PITR) is the system of record; **pg-boss** runs the job queue in a dedicated schema on that database. A small **Redis** handles session cache, app cache, and rate limiting. **Cloudflare** sits in front of the API (WAF, edge rate limits, Turnstile, CDN). **Cloudflare R2** holds files. Razorpay and Zoho Zepto Mail are external providers. The frontend is hosted on **Vercel** (`app.fresi.org`); `api` and `worker` run in Docker via Coolify on **Amazon EC2** (`api.fresi.org`); the database is off-box.
 
 ```mermaid
 graph TD
   subgraph Client
-    B[Browser / Next.js App Router]
+    B[Browser]
   end
 
   subgraph Edge["Cloudflare"]
     CF[WAF · rate limit · Turnstile · CDN]
   end
 
-  subgraph App["VPS via Coolify (Docker)"]
+  subgraph Frontend["Vercel — app.fresi.org"]
     FE[Next.js<br/>SSR + Server Actions]
+  end
+
+  subgraph App["EC2 via Coolify — api.fresi.org"]
     API[NestJS Modular Monolith<br/>REST API]
     WK[Background Worker<br/>pg-boss consumers]
   end
@@ -100,8 +103,9 @@ graph TD
     ZM[Zoho Zepto Mail]
   end
 
+  B -->|HTTPS| FE
   B -->|HTTPS| CF
-  CF --> FE
+  CF --> API
   FE -->|REST + auth cookie| API
   API --> PG
   API --> RD
@@ -121,8 +125,8 @@ graph TD
 
 | Component                      | Responsibility                                                           | Notes                                                                                                                                 |
 | ------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **Next.js frontend**           | All UI; SSR for authenticated dashboards; talks only to the NestJS API   | TypeScript, Tailwind, shadcn/ui. No business logic beyond presentation/validation.                                                    |
-| **NestJS API**                 | All domain logic, authorization, transactions, provider orchestration    | The only writer to PostgreSQL. Single source of truth for rules.                                                                      |
+| **Next.js frontend**           | All UI; SSR for authenticated dashboards; talks only to the NestJS API   | Hosted on **Vercel** at `app.fresi.org`. TypeScript, Tailwind, shadcn/ui. No business logic beyond presentation/validation.           |
+| **NestJS API**                 | All domain logic, authorization, transactions, provider orchestration    | Hosted on **EC2/Coolify** at `api.fresi.org`. The only writer to PostgreSQL. Single source of truth for rules.                        |
 | **Background worker**          | Email, reminders, webhook reconciliation, AV scan jobs, exports          | Same codebase, `--worker` entrypoint. Consumes `pg-boss` jobs; graceful drain on SIGTERM.                                             |
 | **PostgreSQL (managed, PITR)** | System of record + job queue (`pg-boss` schema) + **Row-Level Security** | Off-box; point-in-time recovery. RLS keyed on `organizationId`/`conferenceId` as defense-in-depth.                                    |
 | **Redis**                      | Session cache, app cache, **rate limiting**                              | Small instance (Upstash or container). Not the job queue — pg-boss owns async work.                                                   |
@@ -1175,11 +1179,11 @@ Conference traffic is **bursty and predictable**: spikes at submission deadlines
 
 ### 13.2 Capacity estimates
 
-| Scale   | Conferences | Papers/yr | Peak concurrent users | Recommended infra                                                                       | Monthly cost (order of magnitude) |
-| ------- | ----------- | --------- | --------------------- | --------------------------------------------------------------------------------------- | --------------------------------- |
-| Starter | 5           | ~1,000    | ~200                  | App VPS + **managed Postgres (PITR)** + Redis + Cloudflare + R2                         | **~$45–70** (§20)                 |
-| Growth  | 20          | ~5,000    | ~500                  | Larger app VPS, Postgres + read replica, Redis, Cloudflare Pro optional                 | **~$120–200**                     |
-| Scale   | 100         | ~25,000   | 500+ bursts           | Autoscaled app containers, dedicated Postgres + replica, Redis, Cloudflare Pro/Business | **~$400–700**                     |
+| Scale   | Conferences | Papers/yr | Peak concurrent users | Recommended infra                                                                    | Monthly cost (order of magnitude) |
+| ------- | ----------- | --------- | --------------------- | ------------------------------------------------------------------------------------ | --------------------------------- |
+| Starter | 5           | ~1,000    | ~200                  | Vercel web + API EC2 + **managed Postgres (PITR)** + Redis + Cloudflare + R2         | **~$60–110** (§20)                |
+| Growth  | 20          | ~5,000    | ~500                  | Vercel web + larger API EC2, Postgres + read replica, Redis, Cloudflare Pro optional | **~$150–250**                     |
+| Scale   | 100         | ~25,000   | 500+ bursts           | Vercel/Pro web + autoscaled API workers, dedicated Postgres + replica, Redis, CF Pro | **~$400–750**                     |
 
 A single well-tuned Postgres comfortably handles tens of millions of rows here (papers/reviews/payments are low-cardinality relative to typical SaaS). 1,000 submissions and 500 concurrent users is a _small_ OLTP workload.
 
@@ -1199,7 +1203,7 @@ A single well-tuned Postgres comfortably handles tens of millions of rows here (
 ### 13.4 Why a modular monolith is sufficient (initially)
 
 - **No distributed-systems tax:** one transaction boundary means strong consistency for the invariants that matter (COI, one-decision-per-round, idempotent payments) without sagas or eventual-consistency bugs.
-- **Cheap to operate:** one deployable on a VPS via Coolify; one managed database (off-box, PITR) to back up and reason about.
+- **Cheap to operate:** Next.js on Vercel; API/worker on one EC2 via Coolify; one managed database (off-box, PITR) to back up and reason about.
 - **Fast developer experience:** local-equivalent prod, single repo, end-to-end refactors in one PR.
 - **Scales by good design, not topology:** queue for async, presigned URLs for bytes, replicas for reads, horizontal worker scaling for fan-out. Each scaling lever is pulled independently _without_ splitting the domain.
 - **Extraction-ready if ever needed:** because modules talk via service interfaces and emit events, the rare module that genuinely needs independent scaling (e.g., a future AI matching service) can be lifted out behind its existing interface — a localized change, not a rewrite.
@@ -1283,16 +1287,16 @@ This is simultaneously the **best internal-platform model** _and_ the **SaaS-rea
 
 ## Design Philosophy — summary of choices
 
-| Principle                  | How this design honors it                                                                                                                                                                                                                                                        |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Simplicity                 | One deployable, one managed database (off-box), one identity model; complexity added only when a real scaling lever demands it                                                                                                                                                   |
-| Clean architecture         | UI → API → domain services → repositories; the frontend never touches the DB                                                                                                                                                                                                     |
-| DDD-inspired boundaries    | Six bounded contexts ↔ NestJS modules communicating via service interfaces + domain events                                                                                                                                                                                       |
-| Maintainability            | Roles-as-rows, append-only money/audit, templates-as-data, provider adapters — invariants enforced by the schema, not scattered checks                                                                                                                                           |
-| Low operational cost       | VPS + Coolify + Docker; presigned direct-to-R2 (zero egress); pg-boss queue for jobs. **Note (v2):** the hardened, money-safe baseline reinstates a small Redis (cache/session/rate-limit) and managed Postgres with PITR — see §18/§20 for the revised ~$45–70/mo starting cost |
-| Developer experience       | Single repo/monolith, end-to-end refactors in one PR, prod-like local                                                                                                                                                                                                            |
-| Scalability through design | Queue for async, replicas for reads, horizontal workers, CDN for bytes — no premature microservices or Kubernetes                                                                                                                                                                |
-| Future-proofing            | `organizationId` everywhere + global identity + scoped roles + provider abstractions make H1→H2→H3 additive, not a rewrite                                                                                                                                                       |
+| Principle                  | How this design honors it                                                                                                                                                                                                                                                                          |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Simplicity                 | One deployable, one managed database (off-box), one identity model; complexity added only when a real scaling lever demands it                                                                                                                                                                     |
+| Clean architecture         | UI → API → domain services → repositories; the frontend never touches the DB                                                                                                                                                                                                                       |
+| DDD-inspired boundaries    | Six bounded contexts ↔ NestJS modules communicating via service interfaces + domain events                                                                                                                                                                                                         |
+| Maintainability            | Roles-as-rows, append-only money/audit, templates-as-data, provider adapters — invariants enforced by the schema, not scattered checks                                                                                                                                                             |
+| Low operational cost       | Vercel (web) + EC2/Coolify (api/worker); presigned direct-to-R2 (zero egress); pg-boss queue for jobs. **Note (v2):** the hardened, money-safe baseline reinstates a small Redis (cache/session/rate-limit) and managed Postgres with PITR — see §18/§20 for the revised ~$60–110/mo starting cost |
+| Developer experience       | Single repo/monolith, end-to-end refactors in one PR, prod-like local                                                                                                                                                                                                                              |
+| Scalability through design | Queue for async, replicas for reads, horizontal workers, CDN for bytes — no premature microservices or Kubernetes                                                                                                                                                                                  |
+| Future-proofing            | `organizationId` everywhere + global identity + scoped roles + provider abstractions make H1→H2→H3 additive, not a rewrite                                                                                                                                                                         |
 
 ### Recommended build order (foundation-first)
 
@@ -1324,7 +1328,7 @@ The committed stack. Type-safe end-to-end; hardened for a money-handling interna
 | Object storage          | **Cloudflare R2** (MinIO locally)               | S3-compatible, zero egress                                                                                                         |
 | Payments                | **Razorpay** (primary), **Stripe** (future)     | Behind a `PaymentProvider` interface                                                                                               |
 | Email                   | **Zoho Zepto Mail**                             | Behind a `Mailer` interface; bounce webhooks in H1                                                                                 |
-| Deployment              | **Docker + Coolify + VPS**                      | Hardened three-tier baseline (~$45–70/mo, §20); no Kubernetes                                                                      |
+| Deployment              | **Vercel (web) + Coolify/EC2 (api, worker)**    | `app.fresi.org` / `api.fresi.org`; hardened baseline (~$60–110/mo, §20); no Kubernetes                                             |
 
 ### 16.2 The glue layer (monorepo + end-to-end types)
 
@@ -1364,16 +1368,18 @@ openconferences/                # pnpm + turborepo root
 
 ### 17.1 The three-tier structure (hardened)
 
+**Production hostnames:** frontend `https://app.fresi.org` (Vercel); API `https://api.fresi.org` (EC2 behind Cloudflare).
+
 ```mermaid
 graph TD
-  subgraph Edge["Cloudflare"]
+  subgraph Edge["Cloudflare (API)"]
     CF[WAF · CDN · Turnstile]
   end
-  subgraph T1["Tier 1 — Frontend"]
-    WEB[Next.js]
+  subgraph T1["Tier 1 — Frontend (Vercel)"]
+    WEB[Next.js @ app.fresi.org]
   end
-  subgraph T2["Tier 2 — Backend (VPS / Coolify)"]
-    API[NestJS API]
+  subgraph T2["Tier 2 — Backend (EC2 / Coolify)"]
+    API[NestJS API @ api.fresi.org]
     WK[Worker · pg-boss · ClamAV]
   end
   subgraph T3["Tier 3 — Data (off-box)"]
@@ -1382,8 +1388,8 @@ graph TD
     R2[(Cloudflare R2)]
   end
 
-  CF --> WEB
   WEB --> API
+  CF --> API
   API --> DB
   API --> RD
   WK --> DB
@@ -1395,24 +1401,27 @@ Strict rule: **Tier 1 never talks to Tier 3** except presigned R2 byte transfer 
 
 ### 17.2 Where to host each tier
 
-| Tier             | Recommendation                                            | Notes                                                    |
-| ---------------- | --------------------------------------------------------- | -------------------------------------------------------- |
-| **Edge**         | **Cloudflare** (free plan)                                | WAF, rate limits, Turnstile, CDN — mandatory             |
-| **App + worker** | **Hetzner VPS** via **Coolify** (CPX31 ~$16/mo)           | `web`, `api`, `worker` (+ ClamAV sidecar) containers     |
-| **Database**     | **Managed Postgres with PITR** (Neon/Supabase ~$19–25/mo) | Off-box; never co-located with worker; restore rehearsed |
-| **Redis**        | Upstash or small container                                | Sessions, cache, rate limits                             |
-| **Files**        | **Cloudflare R2**                                         | Zero egress                                              |
-| **Email**        | **Zoho Zepto Mail**                                       | Transactional                                            |
+| Tier             | Recommendation                                            | Notes                                                      |
+| ---------------- | --------------------------------------------------------- | ---------------------------------------------------------- |
+| **Frontend**     | **Vercel** (`app.fresi.org`)                              | Next.js only; Hobby free until limits require Pro          |
+| **Edge (API)**   | **Cloudflare** (free plan) in front of `api.fresi.org`    | WAF, rate limits, Turnstile, CDN — mandatory for the API   |
+| **API + worker** | **Amazon EC2** via **Coolify** (t3.medium–t3.large)       | `api`, `worker` (+ optional ClamAV); web is **not** on EC2 |
+| **Database**     | **Managed Postgres with PITR** (Neon/Supabase ~$19–25/mo) | Off-box; never co-located with worker; restore rehearsed   |
+| **Redis**        | Upstash or small container on EC2                         | Sessions, cache, rate limits                               |
+| **Files**        | **Cloudflare R2**                                         | Zero egress                                                |
+| **Email**        | **Zoho Zepto Mail**                                       | Transactional                                              |
+
+**Auth / CORS (split hosts):** set `WEB_URL=https://app.fresi.org`, `CORS_ORIGINS=https://app.fresi.org`, `BETTER_AUTH_URL=https://api.fresi.org`, `NEXT_PUBLIC_API_URL=https://api.fresi.org/api/v1`. Session cookies must work cross-subdomain on `.fresi.org` (Secure, appropriate SameSite, cookie domain).
 
 **Not acceptable:** Postgres + queue + worker on one box with nightly-only backups (money-handling path).
 
 ### 17.3 Cost
 
-See **§20** for line-item and scale-based monthly costs. **Recommended minimum: ~$45–70/mo.**
+See **§20** for line-item and scale-based monthly costs. **Recommended minimum: ~$60–110/mo** (Vercel Hobby free for web).
 
-### 17.4 Why not Vercel + managed-everything
+### 17.4 Why not “everything on Vercel”
 
-That path is 5–20× more expensive at this scale (bandwidth, function pricing, cross-provider egress). A cheap VPS for compute + managed Postgres for data is the right cost/reliability balance for an internal platform that captures fees.
+Hosting **only** the Next.js frontend on Vercel is the committed model — it offloads SSR memory from EC2. Putting the **API, worker, and data plane** on Vercel/serverless is still discouraged: 5–20× more expensive at this scale (bandwidth, function pricing, cross-provider egress), and a poor fit for long-running workers, ClamAV, and money-safe Postgres access. Keep API/worker on EC2 + managed Postgres.
 
 ## 18. Architecture Revisions — ARB Remediation
 
@@ -1563,30 +1572,31 @@ The numbers below are the **current authoritative operating costs** for the hard
 
 ### 20.1 Cost by line item (hardened Starter, ≤5 conferences)
 
-| Component                                    | Choice                                  | Monthly         |
-| -------------------------------------------- | --------------------------------------- | --------------- |
-| App/web/worker VPS                           | Hetzner CPX31 (4 vCPU / 8 GB)           | ~$16            |
-| Managed Postgres **with PITR**               | Neon Launch / Supabase Pro              | ~$19–25         |
-| Redis (cache/session/rate-limit)             | Upstash pay-as-you-go or small instance | ~$0–10          |
-| Cloudflare (WAF, rate limit, Turnstile, CDN) | Free plan                               | $0              |
-| Object storage                               | Cloudflare R2 (10 GB free, zero egress) | ~$0–5           |
-| Email                                        | Zoho Zepto Mail (transactional)         | ~$0–3           |
-| Error monitoring                             | Sentry free / Team                      | ~$0–26          |
-| Uptime + alerting                            | BetterStack / UptimeRobot free          | $0              |
-| AV scanning                                  | ClamAV sidecar on the app VPS           | $0 (compute)    |
-| **Total**                                    |                                         | **≈ $45–70/mo** |
+| Component                                    | Choice                                         | Monthly          |
+| -------------------------------------------- | ---------------------------------------------- | ---------------- |
+| Frontend                                     | Vercel Hobby (`app.fresi.org`)                 | $0 (until Pro)   |
+| API + worker compute                         | Amazon EC2 t3.medium–t3.large via Coolify      | ~$20–65          |
+| Managed Postgres **with PITR**               | Neon Launch / Supabase Pro                     | ~$19–25          |
+| Redis (cache/session/rate-limit)             | Upstash free/pay-as-you-go or container on EC2 | ~$0–10           |
+| Cloudflare (WAF, rate limit, Turnstile, CDN) | Free plan in front of `api.fresi.org`          | $0               |
+| Object storage                               | Cloudflare R2 (10 GB free, zero egress)        | ~$0–5            |
+| Email                                        | Zoho Zepto Mail (transactional)                | ~$0–3            |
+| Error monitoring                             | Sentry free / Team                             | ~$0–26           |
+| Uptime + alerting                            | BetterStack / UptimeRobot free                 | $0               |
+| AV scanning                                  | Optional ClamAV sidecar on the API EC2         | $0 (compute)     |
+| **Total**                                    |                                                | **≈ $60–110/mo** |
 
-> The rock-bottom variant (self-host Postgres on a second small VPS with WAL-G→R2 instead of managed PITR, self-host Redis as a container, Sentry free) lands around **~$25–35/mo** — but you take on backup/PITR operational responsibility yourself. For a money-handling system the **$45–70/mo managed-PITR baseline is the recommended minimum.**
+> EC2 hosts **api + worker only** (web is on Vercel), so **t3.medium** is often enough for a small conference; use **t3.large** if you co-locate Redis/ClamAV or expect deadline spikes. The rock-bottom variant (self-host Postgres on a second small EC2 with WAL-G→R2, Redis container, Sentry free, Vercel Hobby) lands around **~$40–70/mo** — but you take on backup/PITR operational responsibility yourself. For a money-handling system the **$60–110/mo managed-PITR baseline is the recommended minimum.**
 
 ### 20.2 Cost as you scale
 
-| Scale            | Conferences | Typical setup                                                                                                                | Monthly       |
-| ---------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| Hardened Starter | ≤5          | 1 app VPS + managed PITR Postgres + Redis + Cloudflare free                                                                  | **~$45–70**   |
-| Growth           | ~20         | bigger app VPS (or 2), larger managed Postgres + read replica, Upstash Redis, maybe Cloudflare Pro ($20) + Sentry Team       | **~$120–200** |
-| Scale            | ~100        | autoscaled app containers (Coolify), dedicated/managed Postgres + replica, Redis, Cloudflare Pro/Business, paid Sentry + APM | **~$400–700** |
+| Scale            | Conferences | Typical setup                                                                                                                       | Monthly       |
+| ---------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| Hardened Starter | ≤5          | Vercel web + 1 API EC2 + managed PITR Postgres + Redis + Cloudflare free                                                            | **~$60–110**  |
+| Growth           | ~20         | Vercel web + bigger API EC2 (or 2), larger managed Postgres + read replica, Upstash Redis, maybe Cloudflare Pro ($20) + Sentry Team | **~$150–250** |
+| Scale            | ~100        | Vercel Pro web + autoscaled api/worker (Coolify), dedicated/managed Postgres + replica, Redis, Cloudflare Pro/Business, paid Sentry | **~$400–750** |
 
 ### 20.3 The bottom line
 
-- **Original un-hardened estimate:** ~$5–15/mo (single VPS + co-located Postgres).
-- **Current hardened baseline:** **~$45–70/mo** → **~$400–700/mo** at 100 conferences (§13.2 aligns).
+- **Original un-hardened estimate:** ~$5–15/mo (single box + co-located Postgres).
+- **Current hardened baseline:** **~$60–110/mo** → **~$400–750/mo** at 100 conferences (§13.2 aligns).

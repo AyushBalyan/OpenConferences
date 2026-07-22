@@ -101,13 +101,15 @@ export function ReviewerDashboard({ conferenceId, conferenceName }: ReviewerDash
 
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-medium text-slate-900">Action queue</h2>
+          <h2 className="text-lg font-medium text-slate-900">Next up</h2>
           <div className="flex gap-2">
             <Button asChild variant="outline" size="sm">
-              <Link href={`/dashboard/conferences/${conferenceId}/reviews/bidding`}>Bidding</Link>
+              <Link href={`/dashboard/conferences/${conferenceId}/reviews/my-assignments`}>
+                View all
+              </Link>
             </Button>
             <Button asChild variant="outline" size="sm">
-              <Link href={`/dashboard/conferences/${conferenceId}/reviews/coi`}>Declare COI</Link>
+              <Link href={`/dashboard/conferences/${conferenceId}/reviews/bidding`}>Bidding</Link>
             </Button>
           </div>
         </div>
@@ -153,7 +155,7 @@ export function ReviewerDashboard({ conferenceId, conferenceName }: ReviewerDash
               </tr>
             </DataTableHeader>
             <DataTableBody>
-              {pending.map((assignment) => {
+              {pending.slice(0, 3).map((assignment) => {
                 const submitted = Boolean(assignment.review?.submittedAt);
                 const hasDraft = Boolean(assignment.review && !submitted);
                 const statusLabel = submitted ? 'Submitted' : hasDraft ? 'Draft' : 'Not started';
@@ -189,44 +191,6 @@ export function ReviewerDashboard({ conferenceId, conferenceName }: ReviewerDash
           </DataTable>
         )}
       </div>
-
-      {!loading && assignments.some((item) => item.review?.submittedAt) ? (
-        <div className="mt-6 space-y-3">
-          <h2 className="text-lg font-medium text-slate-900">Completed reviews</h2>
-          <DataTable>
-            <DataTableHeader>
-              <tr>
-                <DataTableHead>Paper</DataTableHead>
-                <DataTableHead>Status</DataTableHead>
-                <DataTableHead className="text-right">Action</DataTableHead>
-              </tr>
-            </DataTableHeader>
-            <DataTableBody>
-              {assignments
-                .filter((item) => item.review?.submittedAt)
-                .map((item) => (
-                  <DataTableRow key={item.id}>
-                    <DataTableCell>
-                      <p className="font-medium text-slate-900">{item.paperTitle}</p>
-                    </DataTableCell>
-                    <DataTableCell>
-                      <WorkflowBadge label="Submitted" tone="success" />
-                    </DataTableCell>
-                    <DataTableCell className="text-right">
-                      <Button asChild size="sm" variant="ghost">
-                        <Link
-                          href={`/dashboard/conferences/${conferenceId}/reviews/assignments/${item.id}`}
-                        >
-                          View
-                        </Link>
-                      </Button>
-                    </DataTableCell>
-                  </DataTableRow>
-                ))}
-            </DataTableBody>
-          </DataTable>
-        </div>
-      ) : null}
     </>
   );
 }

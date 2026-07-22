@@ -96,6 +96,31 @@ export async function createConference(body: {
   throw new Error('Failed to create conference');
 }
 
+export async function joinAsAuthor(token: string) {
+  const result = await apiClient.conferences.joinAsAuthor({ body: { token } });
+  if (result.status === 200) return result.body;
+  if (result.status === 403) throw new Error(result.body.detail ?? 'Forbidden');
+  if (result.status === 404) throw new Error(result.body.detail ?? 'Invalid submit link');
+  if (result.status === 409) throw new Error(result.body.detail ?? 'Submissions are not open');
+  throw new Error('Failed to join as author');
+}
+
+export async function fetchAuthorJoinLink(conferenceId: string) {
+  const result = await apiClient.conferences.getAuthorJoinLink({ params: { id: conferenceId } });
+  if (result.status === 200) return result.body;
+  if (result.status === 403) throw new Error(result.body.detail ?? 'Forbidden');
+  if (result.status === 404) throw new Error('Conference not found');
+  throw new Error('Failed to load submit link');
+}
+
+export async function rotateAuthorJoinLink(conferenceId: string) {
+  const result = await apiClient.conferences.rotateAuthorJoinLink({ params: { id: conferenceId } });
+  if (result.status === 200) return result.body;
+  if (result.status === 403) throw new Error(result.body.detail ?? 'Forbidden');
+  if (result.status === 404) throw new Error('Conference not found');
+  throw new Error('Failed to rotate submit link');
+}
+
 export async function updateConferenceSettings(id: string, body: Record<string, unknown>) {
   const result = await apiClient.conferences.updateSettings({ params: { id }, body });
   if (result.status === 200) return result.body;
@@ -289,7 +314,13 @@ export async function fetchPaper(conferenceId: string, paperId: string) {
 
 export async function createPaper(
   conferenceId: string,
-  body: { trackId: string; title: string; abstract: string; keywords: string[] },
+  body: {
+    trackId: string;
+    title: string;
+    abstract: string;
+    keywords: string[];
+    correspondingAffiliation?: string;
+  },
 ) {
   const result = await apiClient.submission.createPaper({ params: { conferenceId }, body });
   if (result.status === 201) return result.body;
@@ -376,6 +407,20 @@ export async function submitPaper(conferenceId: string, paperId: string) {
   if (result.status === 200) return result.body;
   if (result.status === 409) throw new Error(result.body.detail ?? 'Cannot submit');
   throw new Error('Failed to submit paper');
+}
+
+export async function downloadPaperVersion(
+  conferenceId: string,
+  paperId: string,
+  versionId: string,
+) {
+  const result = await apiClient.submission.downloadVersion({
+    params: { conferenceId, paperId, versionId },
+  });
+  if (result.status === 200) return result.body;
+  if (result.status === 403) throw new Error(result.body.detail ?? 'Download not available');
+  if (result.status === 404) throw new Error('Paper version not found');
+  throw new Error('Failed to download paper');
 }
 
 export async function uploadPaperPdf(
@@ -493,6 +538,16 @@ export async function resendReviewerInvitation(conferenceId: string, invitationI
   if (result.status === 409) throw new Error(result.body.detail ?? 'Cannot resend invitation');
   if (result.status === 404) throw new Error('Invitation not found');
   throw new Error('Failed to resend invitation');
+}
+
+export async function revokeReviewerInvitation(conferenceId: string, invitationId: string) {
+  const result = await apiClient.review.revokeInvitation({
+    params: { conferenceId, invitationId },
+  });
+  if (result.status === 204) return;
+  if (result.status === 409) throw new Error(result.body.detail ?? 'Cannot remove invitation');
+  if (result.status === 404) throw new Error('Invitation not found');
+  throw new Error('Failed to remove invitation');
 }
 
 export async function acceptReviewerInvitation(token: string) {

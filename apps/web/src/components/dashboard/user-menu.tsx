@@ -3,10 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ChevronDown, LogOut, User } from 'lucide-react';
+import { LogOut, User } from 'lucide-react';
 import { signOut, useSession } from '@/lib/auth-client';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 
 function initialsFromEmail(email: string): string {
   const local = email.split('@')[0] ?? email;
@@ -78,27 +76,6 @@ export function UserMenu() {
           </button>
         </div>
       ) : null}
-    </div>
-  );
-}
-
-export function SidebarUserSummary({ className }: { className?: string }) {
-  const { data: session } = useSession();
-
-  if (!session) return null;
-
-  const email = session.user.email ?? 'Signed in';
-
-  return (
-    <div className={cn('rounded-lg border border-slate-200 bg-white p-3', className)}>
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Signed in as</p>
-      <p className="mt-1 truncate text-sm font-medium text-slate-900">{email}</p>
-      <Button asChild variant="ghost" size="sm" className="mt-2 h-8 w-full justify-start px-2">
-        <Link href="/dashboard">
-          <ChevronDown className="mr-1 h-4 w-4 rotate-[-90deg]" />
-          Switch conference
-        </Link>
-      </Button>
     </div>
   );
 }

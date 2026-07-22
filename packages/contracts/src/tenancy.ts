@@ -21,6 +21,9 @@ import {
   organizationListSchema,
   problemEnvelopeSchema,
   cursorPaginationQuerySchema,
+  authorJoinTokenSchema,
+  joinAsAuthorResponseSchema,
+  authorJoinLinkSchema,
 } from '@openconferences/schemas';
 import { z } from 'zod';
 
@@ -274,6 +277,44 @@ export const conferencesContract = c.router({
       404: problemEnvelopeSchema,
     },
     summary: 'List audit log entries for conference (stub)',
+  },
+  joinAsAuthor: {
+    method: 'POST',
+    path: '/conferences/join-as-author',
+    body: authorJoinTokenSchema,
+    responses: {
+      200: joinAsAuthorResponseSchema,
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+      409: problemEnvelopeSchema,
+    },
+    summary: 'Join a conference as author via public submit link token',
+  },
+  getAuthorJoinLink: {
+    method: 'GET',
+    path: '/conferences/:id/author-join-link',
+    pathParams: conferenceIdParams,
+    responses: {
+      200: authorJoinLinkSchema,
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+    },
+    summary: 'Get the public author submit link for a conference',
+  },
+  rotateAuthorJoinLink: {
+    method: 'POST',
+    path: '/conferences/:id/author-join-link/rotate',
+    pathParams: conferenceIdParams,
+    body: c.noBody(),
+    responses: {
+      200: authorJoinLinkSchema,
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+    },
+    summary: 'Rotate the public author submit link token',
   },
 });
 

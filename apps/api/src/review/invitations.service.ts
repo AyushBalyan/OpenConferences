@@ -204,6 +204,47 @@ export class InvitationsService {
     };
   }
 
+  async revoke(userId: string, conferenceId: string, invitationId: string, roles: RoleKind[]) {
+    if (!canManageConferenceReview(roles)) {
+      throw new ForbiddenException('Insufficient permissions to remove invitations');
+    }
+
+    const conference = await this.conferences.loadConference(userId, conferenceId, roles);
+
+    const invitation = await withTenantContext(
+      { userId, conferenceId, organizationId: conference.organizationId },
+      async (tx) =>
+        tx.reviewerInvitation.findFirst({
+          where: { id: invitationId, conferenceId },
+        }),
+    );
+
+    if (!invitation) {
+      throw new NotFoundException('Invitation not found');
+    }
+
+    if (invitation.status !== 'PENDING') {
+      throw new ConflictException('Only pending invitations can be removed');
+    }
+
+    await withTenantContext(
+      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      async (tx) => {
+        await tx.reviewerInvitation.delete({ where: { id: invitation.id } });
+      },
+    );
+
+    await this.audit.log({
+      actorUserId: userId,
+      organizationId: conference.organizationId,
+      conferenceId,
+      action: 'reviewer_invitation.revoked',
+      entity: 'ReviewerInvitation',
+      entityId: invitation.id,
+      diff: { email: invitation.email },
+    });
+  }
+
   async accept(userId: string, token: string) {
     const invitation = await this.resolveInvitationByToken(token);
     await this.resolveInvitationUser(userId, invitation.email);

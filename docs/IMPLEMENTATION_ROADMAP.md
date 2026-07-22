@@ -67,7 +67,7 @@ openconferences/
 - **API skeleton:** NestJS bootstrap; global `ValidationPipe` (Zod via ts-rest); global exception filter emitting the problem envelope; Pino logger module with request-id middleware; health/readiness endpoints (`/healthz`, `/readyz`).
 - **Web skeleton:** Next.js App Router; Tailwind + shadcn/ui; ts-rest typed client wired to API; root layout, error boundary, 404.
 - **Worker skeleton:** pg-boss bootstrap against Postgres; a no-op job to prove enqueue→consume works end to end.
-- **CI/CD:** GitHub Actions — install (cached) → lint → typecheck → unit/integration (against a throwaway Postgres service) → build. Deploy workflow (manual approval) to Coolify for `api`/`web`/`worker` images.
+- **CI/CD:** GitHub Actions — install (cached) → lint → typecheck → unit/integration (against a throwaway Postgres service) → build. Deploy: Vercel for `web`; Coolify on EC2 for `api`/`worker` images (manual approval for prod).
 - **Observability baseline:** Sentry SDK wired (no-op DSN locally); structured request logs; basic Prometheus/OTel hooks stubbed.
 
 ### Testing tasks
@@ -80,14 +80,14 @@ openconferences/
 
 ### Deployment tasks
 
-- Dockerfiles for `api`, `web`, `worker` (multi-stage, non-root user); Coolify project with three services + managed Postgres + Redis connection strings as secrets; staging environment reachable behind Cloudflare.
+- Dockerfiles for `api` and `worker` (multi-stage, non-root user); Coolify project with two services + managed Postgres + Redis connection strings as secrets; Vercel project for `web` at `app.fresi.org`; API at `api.fresi.org` behind Cloudflare.
 
 ### Definition of Done
 
 - `pnpm dev` brings up web+api+worker against Dockerized PG/Redis/MinIO.
 - A PR runs the full CI pipeline green.
 - `/healthz` and `/readyz` return 200; a no-op pg-boss job is enqueued and consumed; a log line carries a request id; a forced error returns the standard problem envelope.
-- Staging deploy of the skeleton succeeds via Coolify behind Cloudflare.
+- Staging deploy of the skeleton succeeds: web on Vercel (`app.fresi.org`), api/worker on Coolify behind Cloudflare (`api.fresi.org`).
 
 ### Estimated complexity
 
@@ -789,7 +789,7 @@ graph TD
 - [ ] Three-tier topology (§17): edge / app+worker / off-box data.
 - [ ] Managed Postgres with PITR; not co-located with worker.
 - [ ] Redis provisioned; MinIO→R2 parity verified.
-- [ ] Coolify deploys for web/api/worker; non-root containers.
+- [ ] Coolify deploys for api/worker; Vercel for web; non-root containers on EC2.
 - [ ] PgBouncer / Prisma pooling configured.
 
 ### Database
@@ -846,7 +846,7 @@ graph TD
 
 ### Secrets
 
-- [ ] No secrets in git; injected via Coolify/env.
+- [ ] No secrets in git; injected via Coolify/Vercel/env.
 - [ ] Rotation procedure documented; provider keys scoped.
 
 ### Compliance

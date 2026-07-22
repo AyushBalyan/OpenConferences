@@ -322,6 +322,9 @@ export const reviewSchema = z.object({
   roundId: z.string().uuid(),
   paperId: z.string().uuid(),
   reviewerUserId: z.string().uuid().optional(),
+  /** Present on assignment review payloads so reviewers can download the assigned PDF. */
+  paperTitle: z.string().optional(),
+  currentVersionId: z.string().uuid().nullable().optional(),
   scores: z.record(z.string(), z.number()),
   recommendation: recommendationSchema.nullable(),
   confidence: z.number().int().min(1).max(5).nullable(),
@@ -373,6 +376,7 @@ export type ReviewListDto = z.infer<typeof reviewListSchema>;
 
 export const myAssignmentItemSchema = reviewerAssignmentSchema.extend({
   paperTitle: z.string(),
+  currentVersionId: z.string().uuid().nullable().optional(),
   roundNumber: z.number().int(),
   roundStatus: roundStatusSchema,
   review: reviewSchema.nullable().optional(),

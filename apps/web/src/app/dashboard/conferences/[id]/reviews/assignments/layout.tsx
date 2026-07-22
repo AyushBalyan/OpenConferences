@@ -1,42 +1,45 @@
 'use client';
 
 import { useParams, usePathname } from 'next/navigation';
-import { PageHeader } from '@/components/dashboard/page-header';
-import { SectionSubnav } from '@/components/dashboard/section-subnav';
 import { AssignmentsWorkspaceProvider } from '@/components/dashboard/reviews/assignments/assignments-workspace';
 import {
   AssignmentsAlerts,
   AssignmentsRoundBar,
 } from '@/components/dashboard/reviews/assignments/assignments-shared';
-import { sectionSubnavTabs } from '@/lib/conference-nav';
+import { SectionLayoutFrame } from '@/components/dashboard/section-layout-frame';
+import { SECTION_PAGE_META } from '@/lib/conference-nav';
 
-const ASSIGNMENTS_NAV = {
-  label: 'Assignments',
-  href: (conferenceId: string) => `/dashboard/conferences/${conferenceId}/reviews/assignments`,
-  children: [
-    { label: 'Current assignments', segment: 'current' },
-    { label: 'Reviewer bids', segment: 'bids' },
-    { label: 'Invitations', segment: 'invites' },
-    { label: 'Manual assignment', segment: 'manual' },
-  ],
-} as const;
+const ORGANIZER_ASSIGNMENT_TABS = new Set(['current', 'bids', 'manual', 'invites']);
+
+function isReviewEditorPath(pathname: string): boolean {
+  const match = pathname.match(/\/reviews\/assignments\/([^/]+)\/?$/);
+  if (!match) return false;
+  return !ORGANIZER_ASSIGNMENT_TABS.has(match[1]!);
+}
 
 export default function AssignmentsLayout({ children }: { children: React.ReactNode }) {
   const params = useParams<{ id: string }>();
   const pathname = usePathname();
-  const tabs = sectionSubnavTabs(ASSIGNMENTS_NAV, params.id);
+  const meta = SECTION_PAGE_META.assignments;
+
+  // Review editor lives under /assignments/[assignmentId] for both roles.
+  // Do not mount the organizer workspace (members/bids fetch) on that route.
+  if (isReviewEditorPath(pathname)) {
+    return <>{children}</>;
+  }
+
   const showRoundBar = !pathname.endsWith('/invites');
 
   return (
     <AssignmentsWorkspaceProvider conferenceId={params.id}>
-      <PageHeader
-        title="Reviewer assignments"
-        description="Manage reviewer assignments, bids, and invitations."
-      />
-      <SectionSubnav tabs={tabs} ariaLabel="Assignment sections" />
-      <AssignmentsAlerts />
-      {showRoundBar ? <AssignmentsRoundBar /> : null}
-      {children}
+      <SectionLayoutFrame
+        title={meta.title}
+        description={meta.description}
+        alerts={<AssignmentsAlerts />}
+        toolbar={showRoundBar ? <AssignmentsRoundBar /> : null}
+      >
+        {children}
+      </SectionLayoutFrame>
     </AssignmentsWorkspaceProvider>
   );
 }

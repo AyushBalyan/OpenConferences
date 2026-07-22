@@ -2,7 +2,7 @@ export type RoleKind =
   'PLATFORM_ADMIN' | 'ORG_ADMIN' | 'ORGANIZER' | 'CHAIR' | 'REVIEWER' | 'AUTHOR';
 
 export type { NavGroupConfig as NavGroup, NavItemConfig as NavItem } from '@/lib/conference-nav';
-export { navGroupsForRoles } from '@/lib/conference-nav';
+export { navGroupsForRoles, navItemIcon } from '@/lib/conference-nav';
 
 const ORGANIZER_SURFACE_ROLES: RoleKind[] = ['CHAIR', 'ORGANIZER', 'ORG_ADMIN', 'PLATFORM_ADMIN'];
 const REVIEW_COORDINATION_ROLES: RoleKind[] = ['CHAIR', 'ORGANIZER', 'ORG_ADMIN', 'PLATFORM_ADMIN'];

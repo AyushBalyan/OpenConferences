@@ -15,18 +15,14 @@ import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { StatusBadge } from '@/components/dashboard/status-badge';
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
-import {
-  fetchAnalyticsOverview,
-  fetchAuditLogs,
-  fetchPapers,
-  transitionConferenceStatus,
-} from '@/lib/api-client';
-import type { AuditEntry, Conference } from '@/lib/conference-types';
+import { fetchAnalyticsOverview, fetchPapers, transitionConferenceStatus } from '@/lib/api-client';
+import type { Conference } from '@/lib/conference-types';
 import { paperStatusLabel, paperStatusTone } from '@/lib/paper-status-styles';
 import type { PaperDto } from '@/lib/submission-types';
 import { canCoordinateReview, canManageConference } from '@/lib/roles';
 import type { ConferenceAnalyticsOverview } from '@openconferences/schemas';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AuthorSubmitLinkCard } from '@/components/dashboard/author-submit-link-card';
 
 type OrganizerDashboardProps = {
   conferenceId: string;
@@ -43,7 +39,6 @@ export function OrganizerDashboard({
 }: OrganizerDashboardProps) {
   const [papers, setPapers] = useState<PaperDto[]>([]);
   const [analytics, setAnalytics] = useState<ConferenceAnalyticsOverview | null>(null);
-  const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -53,14 +48,11 @@ export function OrganizerDashboard({
     const tasks: Promise<void>[] = [];
 
     if (canCoordinateReview(roles) || canManageConference(roles)) {
-      tasks.push(fetchPapers(conferenceId, { limit: 20 }).then((result) => setPapers(result.data)));
+      tasks.push(fetchPapers(conferenceId, { limit: 5 }).then((result) => setPapers(result.data)));
     }
 
     if (canCoordinateReview(roles)) {
-      tasks.push(
-        fetchAnalyticsOverview(conferenceId).then(setAnalytics),
-        fetchAuditLogs(conferenceId, { limit: 5 }).then((result) => setAuditLogs(result.data)),
-      );
+      tasks.push(fetchAnalyticsOverview(conferenceId).then(setAnalytics));
     }
 
     await Promise.all(tasks);
@@ -73,7 +65,6 @@ export function OrganizerDashboard({
         setLoadError(err instanceof Error ? err.message : 'Failed to load dashboard');
         setPapers([]);
         setAnalytics(null);
-        setAuditLogs([]);
       })
       .finally(() => setLoading(false));
   }, [load]);
@@ -119,6 +110,14 @@ export function OrganizerDashboard({
       />
 
       {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
+      {actionError ? <p className="mb-4 text-sm text-rose-600">{actionError}</p> : null}
+
+      {canManageConference(roles) ? (
+        <AuthorSubmitLinkCard
+          conferenceId={conferenceId}
+          cfpOpen={conference.status === 'CFP_OPEN'}
+        />
+      ) : null}
 
       <KpiGrid className="mb-8">
         <KpiCard
@@ -174,7 +173,7 @@ export function OrganizerDashboard({
                   </tr>
                 </DataTableHeader>
                 <DataTableBody>
-                  {papers.slice(0, 6).map((paper) => (
+                  {papers.slice(0, 5).map((paper) => (
                     <DataTableRow key={paper.id}>
                       <DataTableCell>
                         <p className="font-medium text-slate-900">{paper.title}</p>
@@ -225,6 +224,9 @@ export function OrganizerDashboard({
                 <Button asChild size="sm" variant="outline">
                   <Link href={`/dashboard/conferences/${conferenceId}/analytics`}>Analytics</Link>
                 </Button>
+                <Button asChild size="sm" variant="outline">
+                  <Link href={`/dashboard/conferences/${conferenceId}/audit`}>Audit log</Link>
+                </Button>
               </CardContent>
             </Card>
           ) : null}
@@ -262,33 +264,6 @@ export function OrganizerDashboard({
               <DeadlineItem label="Conference slug" value={conference.slug} />
             </CardContent>
           </Card>
-
-          {canCoordinateReview(roles) ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Team activity</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                {auditLogs.length === 0 ? (
-                  <p className="text-slate-500">No recent audit events.</p>
-                ) : (
-                  auditLogs.slice(0, 5).map((entry) => (
-                    <div key={entry.id} className="border-b border-slate-100 pb-2 last:border-0">
-                      <p className="font-medium text-slate-900">
-                        {entry.action.replace(/_/g, ' ')}
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        {entry.entity} · {new Date(entry.createdAt).toLocaleString()}
-                      </p>
-                    </div>
-                  ))
-                )}
-                <Button asChild variant="ghost" size="sm" className="px-0">
-                  <Link href={`/dashboard/conferences/${conferenceId}/audit`}>View audit log</Link>
-                </Button>
-              </CardContent>
-            </Card>
-          ) : null}
 
           {canManageConference(roles) ? (
             <Card>

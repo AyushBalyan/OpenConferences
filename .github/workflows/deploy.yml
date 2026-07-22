@@ -41,6 +41,6 @@ jobs:
 
       - name: Deploy note
         run: |
-          echo "Images built. Deploy to Coolify manually per infra/RUNBOOK.md"
+          echo "Images built. Deploy api/worker to Coolify; web to Vercel (app.fresi.org) per infra/RUNBOOK.md"
           echo "Environment: ${{ inputs.environment }}"
           echo "Commit: ${{ github.sha }}"

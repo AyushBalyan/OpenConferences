@@ -56,6 +56,7 @@ async function main(): Promise<void> {
         organizationId: orgId,
         slug: 'demo-conf-2026',
         name: 'Demo Conference 2026',
+        authorJoinToken: generateId(),
         status: 'CFP_OPEN',
         blindingMode: 'DOUBLE',
         biddingOpensAt: new Date('2026-01-01T00:00:00Z'),

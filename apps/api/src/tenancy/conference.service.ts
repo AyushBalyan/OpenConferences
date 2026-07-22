@@ -188,6 +188,7 @@ export class ConferenceService {
               organizationId: input.organizationId,
               slug: input.slug,
               name: input.name,
+              authorJoinToken: generateId(),
               blindingMode: input.blindingMode ?? 'DOUBLE',
             },
           }),
@@ -607,5 +608,149 @@ export class ConferenceService {
       entity: 'track',
       entityId: trackId,
     });
+  }
+
+  async joinAsAuthor(userId: string, token: string) {
+    const user = await withTenantContext({ userId, bypass: true }, async (tx) =>
+      tx.user.findFirst({ where: { id: userId, deletedAt: null } }),
+    );
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (!user.emailVerified) {
+      throw new ForbiddenException('Email verification required before joining as author');
+    }
+
+    const conference = await withTenantContext({ bypass: true }, async (tx) =>
+      tx.conference.findFirst({
+        where: { authorJoinToken: token, deletedAt: null },
+      }),
+    );
+
+    if (!conference) {
+      throw new NotFoundException('Invalid or expired submit link');
+    }
+
+    if (conference.status !== 'CFP_OPEN') {
+      throw new ConflictException('Submissions are not open for this conference');
+    }
+
+    let alreadyMember = false;
+
+    await withTenantContext(
+      {
+        userId,
+        organizationId: conference.organizationId,
+        conferenceId: conference.id,
+        bypass: true,
+      },
+      async (tx) => {
+        let membership = await tx.membership.findFirst({
+          where: {
+            userId,
+            scope: 'CONFERENCE',
+            organizationId: conference.organizationId,
+            conferenceId: conference.id,
+          },
+          include: { roles: true },
+        });
+
+        if (!membership) {
+          membership = await tx.membership.create({
+            data: {
+              id: generateId(),
+              userId,
+              organizationId: conference.organizationId,
+              conferenceId: conference.id,
+              scope: 'CONFERENCE',
+            },
+            include: { roles: true },
+          });
+        } else {
+          alreadyMember = membership.roles.some((grant) => grant.role === 'AUTHOR');
+        }
+
+        const hasAuthor = membership.roles.some((grant) => grant.role === 'AUTHOR');
+        if (!hasAuthor) {
+          await tx.roleGrant.create({
+            data: {
+              id: generateId(),
+              membershipId: membership.id,
+              role: 'AUTHOR',
+            },
+          });
+        }
+      },
+    );
+
+    await this.audit.log({
+      actorUserId: userId,
+      organizationId: conference.organizationId,
+      conferenceId: conference.id,
+      action: 'author_join.accepted',
+      entity: 'conference',
+      entityId: conference.id,
+      diff: { alreadyMember },
+    });
+
+    return {
+      conferenceId: conference.id,
+      conferenceName: conference.name,
+      alreadyMember,
+    };
+  }
+
+  async getAuthorJoinLink(userId: string, conferenceId: string, userRoles: RoleKind[]) {
+    if (maxRoleRank(userRoles) < maxRoleRank(['ORGANIZER'])) {
+      throw new ForbiddenException('Insufficient permissions to view submit link');
+    }
+
+    const conference = await this.loadConference(userId, conferenceId, userRoles);
+
+    return {
+      token: conference.authorJoinToken,
+      urlPath: `/join/author?token=${conference.authorJoinToken}`,
+    };
+  }
+
+  async rotateAuthorJoinLink(userId: string, conferenceId: string, userRoles: RoleKind[]) {
+    if (maxRoleRank(userRoles) < maxRoleRank(['ORGANIZER'])) {
+      throw new ForbiddenException('Insufficient permissions to rotate submit link');
+    }
+
+    const conference = await this.loadConference(userId, conferenceId, userRoles);
+    const newToken = generateId();
+
+    await withTenantContext(
+      {
+        userId,
+        organizationId: conference.organizationId,
+        conferenceId,
+      },
+      async (tx) =>
+        tx.conference.update({
+          where: { id: conferenceId },
+          data: {
+            authorJoinToken: newToken,
+            version: { increment: 1 },
+          },
+        }),
+    );
+
+    await this.audit.log({
+      actorUserId: userId,
+      organizationId: conference.organizationId,
+      conferenceId,
+      action: 'author_join_link.rotated',
+      entity: 'conference',
+      entityId: conferenceId,
+    });
+
+    return {
+      token: newToken,
+      urlPath: `/join/author?token=${newToken}`,
+    };
   }
 }
