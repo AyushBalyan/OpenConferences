@@ -92,4 +92,7 @@ See [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) and [docs/IMPLEMENTATION_ROAD
 
 ### Deployment
 
-See [infra/RUNBOOK.md](infra/RUNBOOK.md) for Vercel (`app.fresi.org`) + Coolify/EC2 (`api.fresi.org`) setup.
+See [infra/RUNBOOK.md](infra/RUNBOOK.md) for deployment:
+
+- **Web** → Vercel (`app.fresi.org`)
+- **API / worker** → GitHub Actions builds images → GHCR → Coolify pulls on EC2 (`api.fresi.org`)

@@ -1,46 +1,132 @@
-name: Deploy
+# Build api + worker on GitHub-hosted runners and push to GHCR.
+# Coolify on the small EC2 box only pulls prebuilt images (no remote Docker build).
+#
+# Images:
+#   ghcr.io/<owner>/<repo>/api:<sha>|<branch>|latest
+#   ghcr.io/<owner>/<repo>/worker:<sha>|<branch>|latest
+#
+# Optional auto-redeploy: set repository secrets
+#   COOLIFY_WEBHOOK_API, COOLIFY_WEBHOOK_WORKER
+# to the Deploy Webhook URLs from each Coolify resource.
+
+name: Build and Push Images
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/api/**'
+      - 'apps/worker/**'
+      - 'packages/**'
+      - 'infra/docker/**'
+      - 'pnpm-lock.yaml'
+      - 'package.json'
+      - 'pnpm-workspace.yaml'
+      - '.dockerignore'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
     inputs:
-      environment:
-        description: 'Target environment'
-        required: true
-        default: staging
-        type: choice
-        options:
-          - staging
-          - production
+      trigger_coolify:
+        description: 'Call Coolify deploy webhooks after a successful push'
+        type: boolean
+        default: true
+
+concurrency:
+  group: ghcr-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
 
 jobs:
-  build-images:
+  build-and-push:
+    name: Build (${{ matrix.image }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: api
+            dockerfile: infra/docker/api.Dockerfile
+          - image: worker
+            dockerfile: infra/docker/worker.Dockerfile
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build packages and apps
-        run: pnpm build
-
-      - name: Build Docker images
+      - name: Set image name (lowercase for GHCR)
+        id: meta
         run: |
-          docker build -f infra/docker/api.Dockerfile -t openconferences-api:${{ github.sha }} .
-          docker build -f infra/docker/web.Dockerfile -t openconferences-web:${{ github.sha }} .
-          docker build -f infra/docker/worker.Dockerfile -t openconferences-worker:${{ github.sha }} .
+          OWNER_REPO="${{ github.repository }}"
+          OWNER_REPO_LC="$(echo "$OWNER_REPO" | tr '[:upper:]' '[:lower:]')"
+          IMAGE="${{ env.REGISTRY }}/${OWNER_REPO_LC}/${{ matrix.image }}"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "Building ${IMAGE}"
 
-      - name: Deploy note
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata (tags + labels)
+        id: docker_meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.meta.outputs.image }}
+          tags: |
+            type=sha,prefix=,format=long
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.docker_meta.outputs.tags }}
+          labels: ${{ steps.docker_meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          platforms: linux/amd64
+
+  trigger-coolify:
+    name: Trigger Coolify redeploy
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.trigger_coolify)
+    steps:
+      - name: Redeploy API (optional webhook)
+        env:
+          WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK_API }}
         run: |
-          echo "Images built. Deploy api/worker to Coolify; web to Vercel (app.fresi.org) per infra/RUNBOOK.md"
-          echo "Environment: ${{ inputs.environment }}"
-          echo "Commit: ${{ github.sha }}"
+          if [ -z "$WEBHOOK" ]; then
+            echo "COOLIFY_WEBHOOK_API not set — skip API redeploy (pull manually in Coolify)."
+            exit 0
+          fi
+          curl -fsS -X GET "$WEBHOOK"
+          echo "API webhook triggered."
+
+      - name: Redeploy worker (optional webhook)
+        env:
+          WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK_WORKER }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "COOLIFY_WEBHOOK_WORKER not set — skip worker redeploy (pull manually in Coolify)."
+            exit 0
+          fi
+          # Stagger slightly so a 2 GiB host is not pulling/restarting both at once
+          sleep 15
+          curl -fsS -X GET "$WEBHOOK"
+          echo "Worker webhook triggered."

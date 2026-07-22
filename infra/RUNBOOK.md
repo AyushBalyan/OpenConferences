@@ -1,122 +1,179 @@
-# Deployment Runbook (Phase 0)
+# Deployment Runbook
 
-This runbook documents external provisioning steps for staging/production. **These are not automated in Phase 0** — execute manually when ready to deploy.
+External provisioning for staging/production. **Images for api/worker are built in GitHub Actions and pulled by Coolify** — the EC2 host does not compile Docker images from Git.
 
 ## Target hostnames
 
-| Surface  | Host                 | Platform               |
-| -------- | -------------------- | ---------------------- |
-| Frontend | `app.fresi.org`      | Vercel (Next.js)       |
-| API      | `api.fresi.org`      | EC2 + Coolify (NestJS) |
-| Worker   | (no public hostname) | Same EC2 as API        |
+| Surface  | Host                 | Platform                      |
+| -------- | -------------------- | ----------------------------- |
+| Frontend | `app.fresi.org`      | Vercel (Next.js)              |
+| API      | `api.fresi.org`      | EC2 + Coolify (prebuilt GHCR) |
+| Worker   | (no public hostname) | Same EC2 (prebuilt GHCR)      |
+
+## Image registry (GHCR)
+
+Workflow: [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)
+
+| Service | Image                           | Tags                                     |
+| ------- | ------------------------------- | ---------------------------------------- |
+| API     | `ghcr.io/<owner>/<repo>/api`    | `<full-sha>`, `main`, `latest` (on main) |
+| Worker  | `ghcr.io/<owner>/<repo>/worker` | `<full-sha>`, `main`, `latest` (on main) |
+
+Example (replace with your GitHub owner/repo, **lowercase**):
+
+```text
+ghcr.io/ayushbalyan/openconferences/api:latest
+ghcr.io/ayushbalyan/openconferences/worker:latest
+```
+
+Owner/repo in the image path is always lowercase (GHCR requirement). The workflow lowercases `github.repository` automatically.
 
 ## Prerequisites
 
-- Vercel project for `apps/web` with custom domain `app.fresi.org`
-- Amazon EC2 instance with Coolify installed (api + worker only)
-- Managed PostgreSQL with PITR (Neon, Supabase, etc.)
-- Redis instance (Upstash or container on EC2)
-- Cloudflare account (WAF, CDN, Turnstile) in front of **`api.fresi.org`**
-- Cloudflare R2 bucket for production file storage
+- Vercel project for `apps/web` → `app.fresi.org`
+- Amazon EC2 + Coolify (runtime only for api/worker)
+- Managed PostgreSQL with PITR
+- Redis (Upstash or container on EC2)
+- Cloudflare in front of `api.fresi.org`
+- Cloudflare R2 for files
+- GitHub Actions enabled; GHCR packages for this repo
 
 ## Vercel (frontend)
 
-1. Import the monorepo; set root/app directory to `apps/web` (or use the repo’s documented Vercel project settings).
-2. Add domain `app.fresi.org` and complete DNS as Vercel instructs (or CNAME via Cloudflare DNS).
-3. Set frontend env (at minimum):
+1. Import the monorepo; configure for `apps/web`.
+2. Domain `app.fresi.org`.
+3. Env (minimum):
 
 | Variable              | Value                          |
 | --------------------- | ------------------------------ |
 | `NEXT_PUBLIC_API_URL` | `https://api.fresi.org/api/v1` |
 | `WEB_URL`             | `https://app.fresi.org`        |
-| Turnstile / Sentry    | as needed                      |
 
-## Coolify project setup (API + worker)
+## GitHub Actions → GHCR
 
-There is **no** root `Dockerfile` in this repo. Coolify must be pointed at the files under `infra/docker/`. If you leave the default `Dockerfile`, the build fails with:
+### What the workflow does
 
-`failed to read dockerfile: open Dockerfile: no such file or directory`
+1. On push to `main` (paths under api/worker/packages/docker) or `workflow_dispatch`.
+2. Builds `api` and `worker` in parallel on `ubuntu-latest` (not on your 2 GiB EC2).
+3. Pushes to GHCR with Buildx + GHA layer cache.
+4. Optionally GETs Coolify deploy webhooks (if secrets are set).
 
-1. Create a Coolify project: `openconferences-staging` (or `…-production`)
-2. Add **two** applications (Build Pack = **Dockerfile**), both with **Base Directory** empty or `/` (repo root) and **Docker Build Context** = repo root:
+### GitHub settings (manual)
 
-| Service                  | Dockerfile location (Coolify field) | Port | Public domain   |
-| ------------------------ | ----------------------------------- | ---- | --------------- |
-| `openconferences-api`    | `/infra/docker/api.Dockerfile`      | 3001 | `api.fresi.org` |
-| `openconferences-worker` | `/infra/docker/worker.Dockerfile`   | —    | none            |
+1. **Actions permissions**  
+   Repo → Settings → Actions → General → Workflow permissions → **Read and write permissions** (needed for `packages: write` via `GITHUB_TOKEN`), or keep restricted and rely on the workflow’s `permissions:` block (preferred; already set).
 
-Do **not** deploy `web.Dockerfile` on Coolify — web is on Vercel (`app.fresi.org`).
+2. **Package visibility**  
+   After the first successful run:  
+   GitHub → Packages → each of `api` / `worker` → Package settings →
+   - Link to the repository
+   - **Private** recommended for a solo prod app (or Public if you accept public pulls)
 
-3. Map public hostname `api.fresi.org` → api service (HTTPS).
-4. Configure environment variables from `.env.example` (never commit secrets)
-5. Wire health/readiness probes:
+3. **If packages are private — Coolify pull credentials**  
+   Create a classic PAT (or fine-grained token) with `read:packages` (and `repo` if the package is linked to a private repo, as required by GitHub).  
+   In Coolify: add a **Docker Registry** (or Private Registry) for `ghcr.io`:
+   - Username: your GitHub username
+   - Password: the PAT
+   - Registry: `ghcr.io`
+
+4. **Optional auto-redeploy secrets**  
+   Repo → Settings → Secrets and variables → Actions:
+
+   | Secret                   | Value                                    |
+   | ------------------------ | ---------------------------------------- |
+   | `COOLIFY_WEBHOOK_API`    | Coolify “Deploy Webhook” URL for API app |
+   | `COOLIFY_WEBHOOK_WORKER` | Coolify “Deploy Webhook” URL for worker  |
+
+   No other secrets are required for push; login uses `GITHUB_TOKEN`.
+
+## Coolify: deploy from GHCR (not from Git build)
+
+Create/replace the two applications as **Docker Image** resources (not Dockerfile/Git build).
+
+### API
+
+1. New Resource → **Docker Image** (name may vary slightly by Coolify version: “Docker Image”, “Prebuilt image”, etc.).
+2. Image: `ghcr.io/<owner>/<repo>/api:latest`  
+   (or pin `:main` / a specific sha for safer rollbacks).
+3. Registry credentials: the `ghcr.io` registry you added (if private).
+4. Ports: container **3001** → public domain `api.fresi.org`.
+5. Health checks:
    - Liveness: `/api/v1/healthz`
    - Readiness: `/api/v1/readyz`
+6. Env vars from the Secrets table below (never bake into the image).
+7. Copy the **Deploy Webhook** URL into GitHub secret `COOLIFY_WEBHOOK_API` if you want auto-redeploy.
 
-### Coolify / low-RAM build notes (2 GiB EC2)
+### Worker
 
-Images under `infra/docker/*` are tuned for small builders (BuildKit pnpm cache, `NODE_OPTIONS=--max-old-space-size=768`, sequential compiles, `pnpm deploy --prod`).
+1. Docker Image: `ghcr.io/<owner>/<repo>/worker:latest`
+2. Same GHCR credentials.
+3. **No** public port/domain.
+4. Same app env as API (DB/Redis/S3/auth as needed).
+5. Webhook → `COOLIFY_WEBHOOK_WORKER`.
 
-Still recommended on the host:
+### Important
 
-1. **Add swap** (builds spike above steady-state RAM):
+- Turn **off** Git-based Dockerfile builds for these services so Coolify never compiles on the EC2 box.
+- Redeploy = pull new tag + recreate container (cheap on RAM).
+- Stagger API vs worker restarts on 2 GiB hosts (the workflow sleeps 15s between webhooks).
 
-```bash
-sudo fallocate -l 2G /swapfile
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
-echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-```
+## Secrets (Coolify / Vercel — never in git or image layers)
 
-2. **Do not deploy API and worker at the same time** on a 2 GiB box — queue one after the other.
-3. Prefer Coolify **Build on server** with BuildKit enabled (default on recent Coolify).
-4. Dockerfile paths must stay as above; build context = **repository root**.
+| Variable                | Source / value                          |
+| ----------------------- | --------------------------------------- |
+| `DATABASE_URL`          | Managed Postgres connection string      |
+| `REDIS_URL`             | Upstash or Redis container              |
+| `S3_*`                  | Cloudflare R2 credentials               |
+| `SENTRY_DSN`            | Sentry project DSN                      |
+| `WEB_URL`               | `https://app.fresi.org`                 |
+| `CORS_ORIGINS`          | `https://app.fresi.org`                 |
+| `BETTER_AUTH_URL`       | `https://api.fresi.org`                 |
+| `BETTER_AUTH_SECRET`    | Strong random secret (≥32 chars)        |
+| `NEXT_PUBLIC_API_URL`   | `https://api.fresi.org/api/v1` (Vercel) |
+| `NODE_ENV`              | `production`                            |
+| `API_HOST` / `API_PORT` | `0.0.0.0` / `3001`                      |
 
-## Secrets (injected via Coolify / Vercel, never in git)
-
-| Variable              | Source / value                          |
-| --------------------- | --------------------------------------- |
-| `DATABASE_URL`        | Managed Postgres connection string      |
-| `REDIS_URL`           | Upstash or Redis container              |
-| `S3_*`                | Cloudflare R2 credentials               |
-| `SENTRY_DSN`          | Sentry project DSN                      |
-| `WEB_URL`             | `https://app.fresi.org`                 |
-| `CORS_ORIGINS`        | `https://app.fresi.org`                 |
-| `BETTER_AUTH_URL`     | `https://api.fresi.org`                 |
-| `BETTER_AUTH_SECRET`  | Strong random secret (≥32 chars)        |
-| `NEXT_PUBLIC_API_URL` | `https://api.fresi.org/api/v1` (Vercel) |
-
-Ensure session cookies work across `app.fresi.org` and `api.fresi.org` (Secure cookie, domain `.fresi.org` where applicable, SameSite appropriate for cross-subdomain auth).
+Session cookies must work across `app.fresi.org` and `api.fresi.org` (Secure, domain `.fresi.org` where applicable).
 
 ## Cloudflare (API)
 
-1. DNS: `api` A/AAAA (or CNAME) → Coolify EC2 host; enable proxy (orange cloud)
-2. SSL/TLS: **Full (strict)** once Coolify has a valid cert
-3. Add rate limiting rules on `/api/v1/auth/*` (Phase 1+)
-4. Optional: proxy `app.fresi.org` only if you intentionally put Cloudflare in front of Vercel; default is Vercel-managed HTTPS for the frontend
+1. DNS: `api` → EC2 Elastic IP, proxied (orange).
+2. SSL/TLS: **Full (strict)** once Coolify has a cert.
+3. Rate limit `/api/v1/auth/*` (Phase 1+).
 
-## Database migrations in deploy pipeline
+## Database migrations
 
-Before starting api/worker containers:
+Apply **before** new api/worker start using new schema:
 
 ```bash
 pnpm db:migrate:deploy
 ```
 
-Run this as a Coolify pre-deploy hook or CI step.
+Run from a trusted machine or a Coolify pre-deploy / one-off job with `DATABASE_URL`. Do **not** roll back migrations; fix forward.
 
 ## Rollback
 
-1. **API/worker:** redeploy previous image tag in Coolify
-2. **Web:** revert/redeploy previous Vercel deployment
-3. Do **not** roll back migrations — ship forward fixes instead
+1. In Coolify, set image tag to a previous digest/sha and redeploy.
+2. Or re-run Actions on an older commit (rebuild) and pull.
+3. Web: previous Vercel deployment.
+4. Never roll back Prisma migrations.
 
-## Verification checklist
+## Verification
 
-- [ ] `GET https://api.fresi.org/api/v1/healthz` returns 200
-- [ ] `GET https://api.fresi.org/api/v1/readyz` returns 200 (postgres + redis healthy)
-- [ ] `https://app.fresi.org` loads
-- [ ] Browser can sign in (cookie accepted across app ↔ api subdomains)
-- [ ] Worker logs show pg-boss job consumed
-- [ ] No secrets in repository or image layers
+- [ ] Actions run green; packages visible under GitHub → Packages
+- [ ] Coolify API/worker show image pull (not Dockerfile build logs)
+- [ ] `GET https://api.fresi.org/api/v1/healthz` → 200
+- [ ] `GET https://api.fresi.org/api/v1/readyz` → 200
+- [ ] `https://app.fresi.org` loads; sign-in works
+- [ ] Worker logs show pg-boss activity
+- [ ] No secrets in git or image layers
+
+## First-time migration checklist
+
+See the end of the agent response / PR description; summary:
+
+1. Push workflow to `main` and run **Build and Push Images**.
+2. Configure GHCR package visibility + Coolify registry auth.
+3. Recreate Coolify apps as Docker Image pulls.
+4. Wire optional webhooks.
+5. Verify healthz/readyz.
