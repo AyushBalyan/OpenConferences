@@ -43,6 +43,7 @@ RUN printf '%s\n' \
       'inject-workspace-packages=true' \
       'prefer-offline=true' \
       'auto-install-peers=true' \
+      'shamefully-hoist=true' \
       > .npmrc
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -97,10 +98,16 @@ RUN pnpm --filter @openconferences/api deploy --prod --ignore-scripts /app/out/a
  && mkdir -p "$DEST_PARENT/.prisma" \
  && cp -a "$SRC" "$DEST_PARENT/.prisma/client" \
  && cd /app/out/api \
- && node -e "console.log(require.resolve('@openconferences/config/env'))" \
- && node -e "console.log(require.resolve('@openconferences/db'))" \
- && node -e "console.log(require.resolve('@openconferences/schemas'))" \
- && node -e "console.log(require.resolve('@openconferences/contracts'))"
+ && hoist() { \
+      dep="$1"; \
+      src="$(find node_modules/.pnpm -type d -path "*/node_modules/${dep}" | head -n1)"; \
+      test -n "$src"; \
+      mkdir -p "$(dirname "node_modules/${dep}")"; \
+      ln -sfn "$src" "node_modules/${dep}"; \
+    } \
+ && for dep in dotenv zod uuid tslib; do hoist "$dep"; done \
+ && for dep in @prisma/client @ts-rest/core; do hoist "$dep"; done \
+ && node -e "require('@openconferences/config/env'); require('@openconferences/db'); require('@openconferences/schemas'); require('@openconferences/contracts'); console.log('workspace ok')"
 
 # -----------------------------------------------------------------------------
 # runner: minimal runtime
