@@ -67,13 +67,13 @@ RUN pnpm --filter @openconferences/worker deploy --prod --ignore-scripts /app/ou
       && test -f "/app/out/worker/node_modules/@openconferences/${pkg}/dist/index.js" \
          -o -f "/app/out/worker/node_modules/@openconferences/${pkg}/dist/env/index.js"; \
     done \
- && SRC="$(find /app/node_modules/.pnpm -type d -path '*/node_modules/.prisma/client' | head -n1)" \
- && test -n "$SRC" && test -f "$SRC/index.js" \
+ && PRISMA_CLIENT_SRC="$(find /app/node_modules/.pnpm -type d -path '*/node_modules/.prisma/client' | head -n1)" \
+ && test -n "$PRISMA_CLIENT_SRC" && test -f "$PRISMA_CLIENT_SRC/index.js" \
  && DEST_PARENT="$(find /app/out/worker/node_modules/.pnpm -type d -path '*/@prisma+client@*/node_modules/@prisma/client' | head -n1)/.." \
  && test -d "$DEST_PARENT" \
  && rm -rf "$DEST_PARENT/.prisma" \
  && mkdir -p "$DEST_PARENT/.prisma" \
- && cp -a "$SRC" "$DEST_PARENT/.prisma/client" \
+ && cp -a "$PRISMA_CLIENT_SRC" "$DEST_PARENT/.prisma/client" \
  && cd /app/out/worker \
  && for dep in dotenv zod uuid tslib @prisma/client; do \
       src="$(find node_modules/.pnpm -type d -path "*/node_modules/${dep}" | head -n1)" \
@@ -82,12 +82,19 @@ RUN pnpm --filter @openconferences/worker deploy --prod --ignore-scripts /app/ou
       && mkdir -p "$(dirname "node_modules/${dep}")" \
       && cp -a "$src" "node_modules/${dep}"; \
     done \
+ && mkdir -p node_modules/.prisma \
+ && rm -rf node_modules/.prisma/client \
+ && cp -a "$PRISMA_CLIENT_SRC" node_modules/.prisma/client \
  && mkdir -p node_modules/@openconferences/config/node_modules \
  && cp -a node_modules/dotenv node_modules/zod node_modules/@openconferences/config/node_modules/ \
+ && mkdir -p node_modules/@openconferences/db/node_modules/@prisma \
+ && mkdir -p node_modules/@openconferences/db/node_modules/.prisma \
+ && cp -a node_modules/@prisma/client node_modules/@openconferences/db/node_modules/@prisma/ \
+ && cp -a "$PRISMA_CLIENT_SRC" node_modules/@openconferences/db/node_modules/.prisma/client \
  && mkdir -p /tmp/runtime-check \
  && cp -a /app/out/worker/. /tmp/runtime-check/ \
  && cd /tmp/runtime-check \
- && node -e "require('@openconferences/config/env'); require('@openconferences/db'); require('@openconferences/schemas'); console.log('workspace ok')"
+ && node -e "const p=require('@prisma/client'); if(!p.Prisma) throw new Error('Prisma namespace missing'); require('@openconferences/config/env'); require('@openconferences/db'); require('@openconferences/schemas'); console.log('workspace ok')"
 
 FROM node:${NODE_VERSION}-alpine AS runner
 
