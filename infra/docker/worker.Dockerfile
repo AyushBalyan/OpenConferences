@@ -75,19 +75,15 @@ RUN pnpm --filter @openconferences/worker deploy --prod --ignore-scripts /app/ou
  && mkdir -p "$DEST_PARENT/.prisma" \
  && cp -a "$SRC" "$DEST_PARENT/.prisma/client" \
  && cd /app/out/worker \
- && hoist() { \
-      dep="$1"; \
-      src="$(find node_modules/.pnpm -type d -path "*/node_modules/${dep}" | head -n1)"; \
-      test -n "$src"; \
-      dest="node_modules/${dep}"; \
-      rm -rf "$dest"; \
-      mkdir -p "$(dirname "$dest")"; \
-      cp -a "$src" "$dest"; \
-    } \
- && for dep in dotenv zod uuid tslib @prisma/client; do hoist "$dep"; done \
+ && for dep in dotenv zod uuid tslib @prisma/client; do \
+      src="$(find node_modules/.pnpm -type d -path "*/node_modules/${dep}" | head -n1)" \
+      && test -n "$src" \
+      && rm -rf "node_modules/${dep}" \
+      && mkdir -p "$(dirname "node_modules/${dep}")" \
+      && cp -a "$src" "node_modules/${dep}"; \
+    done \
  && mkdir -p node_modules/@openconferences/config/node_modules \
- && cp -a node_modules/dotenv node_modules/zod \
-      node_modules/@openconferences/config/node_modules/ \
+ && cp -a node_modules/dotenv node_modules/zod node_modules/@openconferences/config/node_modules/ \
  && mkdir -p /tmp/runtime-check \
  && cp -a /app/out/worker/. /tmp/runtime-check/ \
  && cd /tmp/runtime-check \
