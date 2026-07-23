@@ -1,16 +1,15 @@
 #!/bin/sh
 # Finalize a `pnpm deploy` tree for a portable runtime image.
 #
-# pnpm may leave workspace packages as symlinks into the monorepo (e.g.
-# /app/packages/config). Those break once only the deploy directory is copied
-# into the runner. This script:
-#   1. Points @openconferences/* at the package copy inside the deploy tree
-#   2. Refreshes dist/ from the just-built workspace packages
-#   3. Copies the generated Prisma client next to @prisma/client
-#      (--ignore-scripts skips prisma generate during deploy)
+# With inject-workspace-packages, deploy often hardlinks workspace files to
+# /app/packages/* (same inode). Blind `cp` then fails with "are the same file".
+# We only copy when source/dest differ, and we rewrite top-level links so they
+# resolve inside the deploy root (relative → .pnpm), never to /app/packages.
+#
+# Also copies the generated Prisma client next to @prisma/client because
+# deploy --ignore-scripts skips prisma generate.
 #
 # Usage: finalize-deploy.sh <deploy-root> <pkg> [<pkg>...]
-# Example: finalize-deploy.sh /app/out/api config contracts db schemas
 set -eu
 
 DEPLOY_ROOT="${1:?deploy root required}"
@@ -30,6 +29,17 @@ relpath() {
   node -e "process.stdout.write(require('path').relative(process.argv[1], process.argv[2]))" "$1" "$2"
 }
 
+# Copy only when not already the same inode (pnpm inject hardlinks).
+sync_path() {
+  src="$1"
+  dest="$2"
+  if [ -e "$dest" ] && [ "$src" -ef "$dest" ]; then
+    return 0
+  fi
+  rm -rf "$dest"
+  cp -a "$src" "$dest"
+}
+
 for name in "$@"; do
   link="$DEPLOY_ROOT/node_modules/@openconferences/$name"
   built="/app/packages/$name"
@@ -45,9 +55,8 @@ for name in "$@"; do
   )"
 
   if [ -n "$pnpm_dir" ]; then
-    rm -rf "$pnpm_dir/dist"
-    cp -a "$built/dist" "$pnpm_dir/dist"
-    cp -a "$built/package.json" "$pnpm_dir/package.json"
+    sync_path "$built/dist" "$pnpm_dir/dist"
+    sync_path "$built/package.json" "$pnpm_dir/package.json"
 
     mkdir -p "$(dirname "$link")"
     rm -rf "$link"
@@ -56,9 +65,8 @@ for name in "$@"; do
     real="$(readlink -f "$link")"
     case "$real" in
       "$DEPLOY_ROOT"/*)
-        rm -rf "$real/dist"
-        cp -a "$built/dist" "$real/dist"
-        cp -a "$built/package.json" "$real/package.json"
+        sync_path "$built/dist" "$real/dist"
+        sync_path "$built/package.json" "$real/package.json"
         ;;
       *)
         echo "ERROR: @openconferences/$name points outside deploy root: $real" >&2
@@ -86,7 +94,6 @@ for name in "$@"; do
   fi
 done
 
-# Generated Prisma client (not in the npm pack; written by `prisma generate` in the builder)
 prisma_src="$(
   find /app/node_modules/.pnpm -type d -path '*/node_modules/.prisma/client' 2>/dev/null | head -n1 || true
 )"
@@ -101,15 +108,20 @@ prisma_pkg="$(
 )"
 if [ -n "$prisma_pkg" ]; then
   parent="$(dirname "$prisma_pkg")"
-  rm -rf "$parent/.prisma"
-  mkdir -p "$parent/.prisma"
-  cp -a "$prisma_src" "$parent/.prisma/client"
+  if [ ! -d "$parent/.prisma/client" ] || [ ! "$prisma_src" -ef "$parent/.prisma/client" ]; then
+    rm -rf "$parent/.prisma"
+    mkdir -p "$parent/.prisma"
+    cp -a "$prisma_src" "$parent/.prisma/client"
+  fi
 fi
 
 if [ -e "$DEPLOY_ROOT/node_modules/@prisma/client" ]; then
-  mkdir -p "$DEPLOY_ROOT/node_modules/.prisma"
-  rm -rf "$DEPLOY_ROOT/node_modules/.prisma/client"
-  cp -a "$prisma_src" "$DEPLOY_ROOT/node_modules/.prisma/client"
+  if [ ! -d "$DEPLOY_ROOT/node_modules/.prisma/client" ] || \
+     [ ! "$prisma_src" -ef "$DEPLOY_ROOT/node_modules/.prisma/client" ]; then
+    mkdir -p "$DEPLOY_ROOT/node_modules/.prisma"
+    rm -rf "$DEPLOY_ROOT/node_modules/.prisma/client"
+    cp -a "$prisma_src" "$DEPLOY_ROOT/node_modules/.prisma/client"
+  fi
 fi
 
 echo "finalize-deploy: ok ($DEPLOY_ROOT)"
