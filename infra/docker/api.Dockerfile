@@ -1,18 +1,20 @@
 # syntax=docker/dockerfile:1
 #
-# Optimized for GHCR builds (GitHub Actions) + Coolify image pulls.
-# - BuildKit cache mounts for the pnpm store
-# - NODE_OPTIONS caps V8 heap during compile
-# - Sequential package builds (lower peak RAM)
-# - pnpm deploy --prod --ignore-scripts, then explicit prisma generate
-#   (prod deploy omits the prisma CLI; postinstall would fail otherwise)
+# API image for GHCR → Coolify pulls (no compile on the small EC2 host).
+#
+# Strategy:
+#   1. inject-workspace-packages so pnpm deploy can ship workspace deps
+#   2. sync-injected-deps-after-scripts=build so dist is copied into injects
+#   3. pnpm deploy --prod --ignore-scripts (avoid prisma CLI in prod graph)
+#   4. finalize-deploy.sh keeps @openconferences/* inside the deploy tree and
+#      copies the generated Prisma client next to @prisma/client
+#
+# Do NOT flatten workspace packages or hoist their deps — that breaks pnpm's
+# dependency graph (dotenv / Prisma export bugs).
 
 ARG NODE_VERSION=22
 ARG PNPM_VERSION=9.15.0
 
-# -----------------------------------------------------------------------------
-# Base: toolchain only
-# -----------------------------------------------------------------------------
 FROM node:${NODE_VERSION}-alpine AS base
 ARG PNPM_VERSION=9.15.0
 
@@ -25,25 +27,19 @@ ENV PNPM_HOME="/pnpm" \
 RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
 WORKDIR /app
 
-# -----------------------------------------------------------------------------
-# fetch: lockfile-only layer → BuildKit-cached store
-# -----------------------------------------------------------------------------
 FROM base AS fetch
 COPY pnpm-lock.yaml ./
 RUN --mount=type=cache,id=openconferences-pnpm,target=/pnpm/store \
     pnpm config set store-dir /pnpm/store \
  && pnpm fetch
 
-# -----------------------------------------------------------------------------
-# deps: install workspace graph for API (includes build-time devDeps)
-# -----------------------------------------------------------------------------
 FROM base AS deps
 RUN printf '%s\n' \
       'store-dir=/pnpm/store' \
       'inject-workspace-packages=true' \
+      'sync-injected-deps-after-scripts[]=build' \
       'prefer-offline=true' \
       'auto-install-peers=true' \
-      'shamefully-hoist=true' \
       > .npmrc
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -57,9 +53,6 @@ COPY packages/schemas/package.json ./packages/schemas/
 RUN --mount=type=cache,id=openconferences-pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter @openconferences/api...
 
-# -----------------------------------------------------------------------------
-# builder: compile, deploy prod tree, generate Prisma into that tree
-# -----------------------------------------------------------------------------
 FROM deps AS builder
 
 COPY packages/config ./packages/config
@@ -67,61 +60,29 @@ COPY packages/schemas ./packages/schemas
 COPY packages/contracts ./packages/contracts
 COPY packages/db ./packages/db
 COPY apps/api ./apps/api
+COPY infra/docker/finalize-deploy.sh /usr/local/bin/finalize-deploy.sh
+RUN chmod +x /usr/local/bin/finalize-deploy.sh
 
 RUN pnpm --filter @openconferences/db exec prisma generate
 
+# Build in dependency order. sync-injected-deps-after-scripts refreshes injects.
 RUN pnpm --filter @openconferences/config build \
  && pnpm --filter @openconferences/schemas build \
  && pnpm --filter @openconferences/contracts build \
  && pnpm --filter @openconferences/db build \
  && pnpm --filter @openconferences/api build
 
-# --ignore-scripts: --prod omits prisma CLI; db postinstall would fail with "prisma: not found".
-# pnpm deploy often leaves workspace pkgs as symlinks into /app/packages/* — those break in the
-# runner image. Replace them with real copies of the built package.json + dist.
-# Also copy the already-generated Prisma client next to @prisma/client.
+# Re-link after COPY/build so injects definitely include dist/ before deploy.
+RUN --mount=type=cache,id=openconferences-pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile --offline --filter @openconferences/api...
+
 RUN pnpm --filter @openconferences/api deploy --prod --ignore-scripts /app/out/api \
- && mkdir -p /app/out/api/node_modules/@openconferences \
- && for pkg in config contracts db schemas; do \
-      rm -rf "/app/out/api/node_modules/@openconferences/${pkg}" \
-      && mkdir -p "/app/out/api/node_modules/@openconferences/${pkg}" \
-      && cp -a "/app/packages/${pkg}/package.json" "/app/out/api/node_modules/@openconferences/${pkg}/" \
-      && cp -a "/app/packages/${pkg}/dist" "/app/out/api/node_modules/@openconferences/${pkg}/dist" \
-      && test -f "/app/out/api/node_modules/@openconferences/${pkg}/dist/index.js" \
-         -o -f "/app/out/api/node_modules/@openconferences/${pkg}/dist/env/index.js"; \
-    done \
- && PRISMA_CLIENT_SRC="$(find /app/node_modules/.pnpm -type d -path '*/node_modules/.prisma/client' | head -n1)" \
- && test -n "$PRISMA_CLIENT_SRC" && test -f "$PRISMA_CLIENT_SRC/index.js" \
- && DEST_PARENT="$(find /app/out/api/node_modules/.pnpm -type d -path '*/@prisma+client@*/node_modules/@prisma/client' | head -n1)/.." \
- && test -d "$DEST_PARENT" \
- && rm -rf "$DEST_PARENT/.prisma" \
- && mkdir -p "$DEST_PARENT/.prisma" \
- && cp -a "$PRISMA_CLIENT_SRC" "$DEST_PARENT/.prisma/client" \
- && cd /app/out/api \
- && for dep in dotenv zod uuid tslib @prisma/client @ts-rest/core; do \
-      src="$(find node_modules/.pnpm -type d -path "*/node_modules/${dep}" | head -n1)" \
-      && test -n "$src" \
-      && rm -rf "node_modules/${dep}" \
-      && mkdir -p "$(dirname "node_modules/${dep}")" \
-      && cp -a "$src" "node_modules/${dep}"; \
-    done \
- && mkdir -p node_modules/.prisma \
- && rm -rf node_modules/.prisma/client \
- && cp -a "$PRISMA_CLIENT_SRC" node_modules/.prisma/client \
- && mkdir -p node_modules/@openconferences/config/node_modules \
- && cp -a node_modules/dotenv node_modules/zod node_modules/@openconferences/config/node_modules/ \
- && mkdir -p node_modules/@openconferences/db/node_modules/@prisma \
- && mkdir -p node_modules/@openconferences/db/node_modules/.prisma \
- && cp -a node_modules/@prisma/client node_modules/@openconferences/db/node_modules/@prisma/ \
- && cp -a "$PRISMA_CLIENT_SRC" node_modules/@openconferences/db/node_modules/.prisma/client \
+ && finalize-deploy.sh /app/out/api config contracts db schemas \
  && mkdir -p /tmp/runtime-check \
  && cp -a /app/out/api/. /tmp/runtime-check/ \
  && cd /tmp/runtime-check \
  && node -e "const p=require('@prisma/client'); if(!p.Prisma) throw new Error('Prisma namespace missing'); require('@openconferences/config/env'); require('@openconferences/db'); require('@openconferences/schemas'); require('@openconferences/contracts'); console.log('workspace ok')"
 
-# -----------------------------------------------------------------------------
-# runner: minimal runtime
-# -----------------------------------------------------------------------------
 FROM node:${NODE_VERSION}-alpine AS runner
 
 RUN apk add --no-cache openssl \

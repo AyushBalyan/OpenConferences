@@ -1,7 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Same strategy as api.Dockerfile: prod deploy without lifecycle scripts,
-# then explicit prisma generate into the deployed tree.
+# Same deploy strategy as api.Dockerfile (inject → build → sync → deploy → finalize).
 
 ARG NODE_VERSION=22
 ARG PNPM_VERSION=9.15.0
@@ -28,9 +27,9 @@ FROM base AS deps
 RUN printf '%s\n' \
       'store-dir=/pnpm/store' \
       'inject-workspace-packages=true' \
+      'sync-injected-deps-after-scripts[]=build' \
       'prefer-offline=true' \
       'auto-install-peers=true' \
-      'shamefully-hoist=true' \
       > .npmrc
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -49,6 +48,8 @@ COPY packages/config ./packages/config
 COPY packages/schemas ./packages/schemas
 COPY packages/db ./packages/db
 COPY apps/worker ./apps/worker
+COPY infra/docker/finalize-deploy.sh /usr/local/bin/finalize-deploy.sh
+RUN chmod +x /usr/local/bin/finalize-deploy.sh
 
 RUN pnpm --filter @openconferences/db exec prisma generate
 
@@ -57,40 +58,11 @@ RUN pnpm --filter @openconferences/config build \
  && pnpm --filter @openconferences/db build \
  && pnpm --filter @openconferences/worker build
 
+RUN --mount=type=cache,id=openconferences-pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile --offline --filter @openconferences/worker...
+
 RUN pnpm --filter @openconferences/worker deploy --prod --ignore-scripts /app/out/worker \
- && mkdir -p /app/out/worker/node_modules/@openconferences \
- && for pkg in config db schemas; do \
-      rm -rf "/app/out/worker/node_modules/@openconferences/${pkg}" \
-      && mkdir -p "/app/out/worker/node_modules/@openconferences/${pkg}" \
-      && cp -a "/app/packages/${pkg}/package.json" "/app/out/worker/node_modules/@openconferences/${pkg}/" \
-      && cp -a "/app/packages/${pkg}/dist" "/app/out/worker/node_modules/@openconferences/${pkg}/dist" \
-      && test -f "/app/out/worker/node_modules/@openconferences/${pkg}/dist/index.js" \
-         -o -f "/app/out/worker/node_modules/@openconferences/${pkg}/dist/env/index.js"; \
-    done \
- && PRISMA_CLIENT_SRC="$(find /app/node_modules/.pnpm -type d -path '*/node_modules/.prisma/client' | head -n1)" \
- && test -n "$PRISMA_CLIENT_SRC" && test -f "$PRISMA_CLIENT_SRC/index.js" \
- && DEST_PARENT="$(find /app/out/worker/node_modules/.pnpm -type d -path '*/@prisma+client@*/node_modules/@prisma/client' | head -n1)/.." \
- && test -d "$DEST_PARENT" \
- && rm -rf "$DEST_PARENT/.prisma" \
- && mkdir -p "$DEST_PARENT/.prisma" \
- && cp -a "$PRISMA_CLIENT_SRC" "$DEST_PARENT/.prisma/client" \
- && cd /app/out/worker \
- && for dep in dotenv zod uuid tslib @prisma/client; do \
-      src="$(find node_modules/.pnpm -type d -path "*/node_modules/${dep}" | head -n1)" \
-      && test -n "$src" \
-      && rm -rf "node_modules/${dep}" \
-      && mkdir -p "$(dirname "node_modules/${dep}")" \
-      && cp -a "$src" "node_modules/${dep}"; \
-    done \
- && mkdir -p node_modules/.prisma \
- && rm -rf node_modules/.prisma/client \
- && cp -a "$PRISMA_CLIENT_SRC" node_modules/.prisma/client \
- && mkdir -p node_modules/@openconferences/config/node_modules \
- && cp -a node_modules/dotenv node_modules/zod node_modules/@openconferences/config/node_modules/ \
- && mkdir -p node_modules/@openconferences/db/node_modules/@prisma \
- && mkdir -p node_modules/@openconferences/db/node_modules/.prisma \
- && cp -a node_modules/@prisma/client node_modules/@openconferences/db/node_modules/@prisma/ \
- && cp -a "$PRISMA_CLIENT_SRC" node_modules/@openconferences/db/node_modules/.prisma/client \
+ && finalize-deploy.sh /app/out/worker config db schemas \
  && mkdir -p /tmp/runtime-check \
  && cp -a /app/out/worker/. /tmp/runtime-check/ \
  && cd /tmp/runtime-check \
