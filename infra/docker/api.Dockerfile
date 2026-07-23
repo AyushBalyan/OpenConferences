@@ -81,7 +81,7 @@ RUN pnpm --filter @openconferences/api deploy --prod --ignore-scripts /app/out/a
  && mkdir -p /tmp/runtime-check \
  && cp -a /app/out/api/. /tmp/runtime-check/ \
  && cd /tmp/runtime-check \
- && node -e "const p=require('@prisma/client'); if(!p.Prisma) throw new Error('Prisma namespace missing'); require('@openconferences/config/env'); require('@openconferences/db'); require('@openconferences/schemas'); require('@openconferences/contracts'); console.log('workspace ok')"
+ && node -e "const db=require('@openconferences/db'); if(!db.Prisma) throw new Error('Prisma namespace missing'); require('@openconferences/config/env'); require('@openconferences/schemas'); require('@openconferences/contracts'); console.log('workspace ok')"
 
 FROM node:${NODE_VERSION}-alpine AS runner
 
