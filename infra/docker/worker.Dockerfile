@@ -79,10 +79,18 @@ RUN pnpm --filter @openconferences/worker deploy --prod --ignore-scripts /app/ou
       dep="$1"; \
       src="$(find node_modules/.pnpm -type d -path "*/node_modules/${dep}" | head -n1)"; \
       test -n "$src"; \
-      mkdir -p "$(dirname "node_modules/${dep}")"; \
-      ln -sfn "$src" "node_modules/${dep}"; \
+      dest="node_modules/${dep}"; \
+      rm -rf "$dest"; \
+      mkdir -p "$(dirname "$dest")"; \
+      cp -a "$src" "$dest"; \
     } \
  && for dep in dotenv zod uuid tslib @prisma/client; do hoist "$dep"; done \
+ && mkdir -p node_modules/@openconferences/config/node_modules \
+ && cp -a node_modules/dotenv node_modules/zod \
+      node_modules/@openconferences/config/node_modules/ \
+ && mkdir -p /tmp/runtime-check \
+ && cp -a /app/out/worker/. /tmp/runtime-check/ \
+ && cd /tmp/runtime-check \
  && node -e "require('@openconferences/config/env'); require('@openconferences/db'); require('@openconferences/schemas'); console.log('workspace ok')"
 
 FROM node:${NODE_VERSION}-alpine AS runner
