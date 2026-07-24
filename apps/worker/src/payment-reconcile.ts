@@ -4,7 +4,7 @@ import type { PaymentReconcileJobPayload } from '@openconferences/schemas';
 export async function processPaymentReconcileJob(
   payload: PaymentReconcileJobPayload,
 ): Promise<{ inspected: number }> {
-  const stalePayments = await withTenantContext({ bypass: true }, async (tx) =>
+  const stalePayments = await withTenantContext({}, async (tx) =>
     tx.payment.findMany({
       where: {
         status: 'CREATED',

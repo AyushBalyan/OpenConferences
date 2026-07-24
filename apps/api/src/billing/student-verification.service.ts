@@ -96,7 +96,7 @@ export class StudentVerificationService {
     });
 
     const verification = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.studentVerification.create({
           data: {
@@ -181,7 +181,7 @@ export class StudentVerificationService {
     const config = getConfig();
 
     const updatedRegistration = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
         const verification = await tx.studentVerification.findFirst({
           where: { id: verificationId },
@@ -301,7 +301,7 @@ export class StudentVerificationService {
       diff: { note: input.note },
     });
 
-    const context = await withTenantContext({ bypass: true }, async (tx) =>
+    const context = await withTenantContext({}, async (tx) =>
       tx.studentVerification.findFirst({
         where: { id: verificationId },
         include: {

@@ -115,7 +115,7 @@ export class RebuttalsService {
     }
 
     const rebuttal = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
         if (existing) {
           return tx.rebuttal.update({

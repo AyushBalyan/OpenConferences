@@ -29,7 +29,7 @@ export class AuthorshipsService {
 
     try {
       const authorship = await withTenantContext(
-        { userId, conferenceId, organizationId: paper.organizationId, bypass: true },
+        { userId, conferenceId, organizationId: paper.organizationId },
         async (tx) => {
           if (input.isCorresponding) {
             await tx.authorship.updateMany({
@@ -78,7 +78,7 @@ export class AuthorshipsService {
     }
 
     const reordered = await withTenantContext(
-      { userId, conferenceId, organizationId: paper.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: paper.organizationId },
       async (tx) => {
         // Offset technique (§18.10): move to temporary high orders first
         const offset = 1000;
@@ -126,7 +126,7 @@ export class AuthorshipsService {
     }
 
     await withTenantContext(
-      { userId, conferenceId, organizationId: paper.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: paper.organizationId },
       async (tx) => {
         await tx.authorship.delete({ where: { id: authorshipId } });
 

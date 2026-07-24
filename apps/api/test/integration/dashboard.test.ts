@@ -93,7 +93,7 @@ describe('Dashboard, pagination & analytics integration', () => {
     authorCookie = author.cookie;
     outsiderCookie = outsider.cookie;
 
-    await withTenantContext({ bypass: true }, async (tx) => {
+    await withTenantContext({}, async (tx) => {
       await tx.organization.create({
         data: { id: orgId, slug: `dash-org-${Date.now()}`, name: 'Dash Org' },
       });

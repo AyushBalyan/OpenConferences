@@ -6,7 +6,7 @@ export async function processDiscardSweepJob(
 ): Promise<{ discarded: number }> {
   const now = new Date();
 
-  const candidates = await withTenantContext({ bypass: true }, async (tx) =>
+  const candidates = await withTenantContext({}, async (tx) =>
     tx.registration.findMany({
       where: {
         status: { notIn: ['PAID', 'DISCARDED_NONPAYMENT', 'CANCELLED', 'REFUNDED'] },
@@ -18,7 +18,7 @@ export async function processDiscardSweepJob(
   let discarded = 0;
 
   for (const registration of candidates) {
-    const payments = await withTenantContext({ bypass: true }, async (tx) =>
+    const payments = await withTenantContext({}, async (tx) =>
       tx.payment.findMany({ where: { registrationId: registration.id } }),
     );
 
@@ -49,7 +49,7 @@ export async function processDiscardSweepJob(
       continue;
     }
 
-    await withTenantContext({ bypass: true }, async (tx) => {
+    await withTenantContext({}, async (tx) => {
       await tx.registration.update({
         where: { id: registration.id },
         data: { status: 'DISCARDED_NONPAYMENT', version: { increment: 1 } },

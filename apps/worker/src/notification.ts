@@ -16,7 +16,7 @@ export async function processNotificationJob(payload: NotificationJobPayload): P
       tags: payload.tags,
     });
 
-    await withTenantContext({ bypass: true }, async (tx) =>
+    await withTenantContext({}, async (tx) =>
       tx.notificationLog.update({
         where: { id: payload.logId },
         data: {
@@ -30,7 +30,7 @@ export async function processNotificationJob(payload: NotificationJobPayload): P
   } catch (err) {
     const message = formatMailError(err);
 
-    await withTenantContext({ bypass: true }, async (tx) =>
+    await withTenantContext({}, async (tx) =>
       tx.notificationLog.update({
         where: { id: payload.logId },
         data: {

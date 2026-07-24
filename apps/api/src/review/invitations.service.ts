@@ -95,7 +95,7 @@ export class InvitationsService {
       throw new ConflictException('A pending invitation already exists for this email');
     }
 
-    const existingUser = await withTenantContext({ bypass: true }, async (tx) =>
+    const existingUser = await withTenantContext({}, async (tx) =>
       tx.user.findFirst({ where: { email: normalizedEmail, deletedAt: null } }),
     );
 
@@ -103,7 +103,7 @@ export class InvitationsService {
     const expiresAt = new Date(Date.now() + INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000);
 
     const invitation = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.reviewerInvitation.create({
           data: {
@@ -134,7 +134,7 @@ export class InvitationsService {
       await this.sendInvitationEmail(invitation, conference);
     } catch {
       await withTenantContext(
-        { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+        { userId, conferenceId, organizationId: conference.organizationId },
         async (tx) => {
           await tx.reviewerInvitation.delete({ where: { id: invitation.id } });
         },
@@ -171,7 +171,7 @@ export class InvitationsService {
     const expiresAt = new Date(Date.now() + INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000);
 
     const updated = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.reviewerInvitation.update({
           where: { id: invitation.id },
@@ -228,7 +228,7 @@ export class InvitationsService {
     }
 
     await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
         await tx.reviewerInvitation.delete({ where: { id: invitation.id } });
       },
@@ -255,7 +255,7 @@ export class InvitationsService {
       }
 
       await this.materializeReviewerMembership(userId, invitation);
-      const current = await withTenantContext({ bypass: true }, async (tx) =>
+      const current = await withTenantContext({}, async (tx) =>
         tx.reviewerInvitation.findUniqueOrThrow({ where: { id: invitation.id } }),
       );
 
@@ -270,7 +270,7 @@ export class InvitationsService {
     }
 
     if (invitation.expiresAt < new Date()) {
-      await withTenantContext({ bypass: true }, async (tx) =>
+      await withTenantContext({}, async (tx) =>
         tx.reviewerInvitation.update({
           where: { id: invitation.id },
           data: { status: 'EXPIRED' },
@@ -284,7 +284,6 @@ export class InvitationsService {
         userId,
         conferenceId: invitation.conferenceId,
         organizationId: invitation.organizationId,
-        bypass: true,
       },
       async (tx) => {
         await this.materializeReviewerMembership(userId, invitation, tx);
@@ -299,7 +298,7 @@ export class InvitationsService {
       },
     );
 
-    const updated = await withTenantContext({ bypass: true }, async (tx) =>
+    const updated = await withTenantContext({}, async (tx) =>
       tx.reviewerInvitation.findUniqueOrThrow({ where: { id: invitation.id } }),
     );
 
@@ -319,7 +318,7 @@ export class InvitationsService {
   }
 
   async acceptPendingForUser(userId: string) {
-    const user = await withTenantContext({ userId, bypass: true }, async (tx) =>
+    const user = await withTenantContext({ userId }, async (tx) =>
       tx.user.findFirst({ where: { id: userId, deletedAt: null } }),
     );
 
@@ -328,7 +327,7 @@ export class InvitationsService {
     }
 
     const normalizedEmail = user.email.trim().toLowerCase();
-    const pending = await withTenantContext({ bypass: true }, async (tx) =>
+    const pending = await withTenantContext({}, async (tx) =>
       tx.reviewerInvitation.findMany({
         where: {
           email: normalizedEmail,
@@ -362,7 +361,7 @@ export class InvitationsService {
     }
 
     if (invitation.expiresAt < new Date()) {
-      await withTenantContext({ bypass: true }, async (tx) =>
+      await withTenantContext({}, async (tx) =>
         tx.reviewerInvitation.update({
           where: { id: invitation.id },
           data: { status: 'EXPIRED' },
@@ -372,7 +371,7 @@ export class InvitationsService {
     }
 
     if (userId) {
-      const user = await withTenantContext({ userId, bypass: true }, async (tx) =>
+      const user = await withTenantContext({ userId }, async (tx) =>
         tx.user.findFirst({ where: { id: userId } }),
       );
       if (user && user.email.toLowerCase() !== invitation.email.toLowerCase()) {
@@ -380,7 +379,7 @@ export class InvitationsService {
       }
     }
 
-    const updated = await withTenantContext({ bypass: true }, async (tx) =>
+    const updated = await withTenantContext({}, async (tx) =>
       tx.reviewerInvitation.update({
         where: { id: invitation.id },
         data: { status: 'DECLINED', invitedUserId: userId ?? invitation.invitedUserId },
@@ -403,7 +402,7 @@ export class InvitationsService {
   }
 
   private async resolveInvitationUser(userId: string, invitedEmail: string) {
-    const user = await withTenantContext({ userId, bypass: true }, async (tx) =>
+    const user = await withTenantContext({ userId }, async (tx) =>
       tx.user.findFirst({ where: { id: userId, deletedAt: null } }),
     );
 
@@ -471,7 +470,6 @@ export class InvitationsService {
         userId,
         conferenceId: invitation.conferenceId,
         organizationId: invitation.organizationId,
-        bypass: true,
       },
       apply,
     );
@@ -503,7 +501,7 @@ export class InvitationsService {
   }
 
   private async resolveInvitationByToken(token: string) {
-    const invitation = await withTenantContext({ bypass: true }, async (tx) =>
+    const invitation = await withTenantContext({}, async (tx) =>
       tx.reviewerInvitation.findFirst({ where: { token } }),
     );
 

@@ -101,7 +101,7 @@ describe('Author submit join link integration', () => {
       data: { twoFactorEnabled: true },
     });
 
-    await withTenantContext({ bypass: true }, async (tx) => {
+    await withTenantContext({}, async (tx) => {
       await tx.organization.create({
         data: { id: orgId, slug: `author-join-org-${Date.now()}`, name: 'Author Join Org' },
       });
@@ -164,7 +164,7 @@ describe('Author submit join link integration', () => {
     expect(response.body.conferenceId).toBe(conferenceId);
     expect(response.body.alreadyMember).toBe(false);
 
-    const membership = await withTenantContext({ bypass: true }, async (tx) =>
+    const membership = await withTenantContext({}, async (tx) =>
       tx.membership.findFirst({
         where: {
           userId: authorUserId,
@@ -177,7 +177,7 @@ describe('Author submit join link integration', () => {
 
     expect(membership?.roles.map((grant) => grant.role)).toContain('AUTHOR');
 
-    const otherMembership = await withTenantContext({ bypass: true }, async (tx) =>
+    const otherMembership = await withTenantContext({}, async (tx) =>
       tx.membership.findFirst({
         where: {
           userId: authorUserId,
@@ -201,7 +201,7 @@ describe('Author submit join link integration', () => {
   });
 
   it('rejects join when CFP is not open', async () => {
-    await withTenantContext({ bypass: true }, async (tx) => {
+    await withTenantContext({}, async (tx) => {
       await tx.conference.update({
         where: { id: conferenceId },
         data: { status: 'DRAFT' },
@@ -215,7 +215,7 @@ describe('Author submit join link integration', () => {
 
     expect(response.status).toBe(409);
 
-    await withTenantContext({ bypass: true }, async (tx) => {
+    await withTenantContext({}, async (tx) => {
       await tx.conference.update({
         where: { id: conferenceId },
         data: { status: 'CFP_OPEN' },

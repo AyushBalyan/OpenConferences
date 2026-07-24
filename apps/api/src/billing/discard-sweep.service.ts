@@ -19,7 +19,7 @@ export class DiscardSweepService {
     const now = new Date();
     const config = getConfig();
 
-    const candidates = await withTenantContext({ bypass: true }, async (tx) =>
+    const candidates = await withTenantContext({}, async (tx) =>
       tx.registration.findMany({
         where: {
           status: {
@@ -57,7 +57,7 @@ export class DiscardSweepService {
     let discarded = 0;
 
     for (const registration of candidates) {
-      const paidState = await withTenantContext({ bypass: true }, async (tx) =>
+      const paidState = await withTenantContext({}, async (tx) =>
         computePaidState(tx, registration.id),
       );
 
@@ -90,7 +90,7 @@ export class DiscardSweepService {
         continue;
       }
 
-      await withTenantContext({ bypass: true }, async (tx) => {
+      await withTenantContext({}, async (tx) => {
         await tx.registration.update({
           where: { id: registration.id },
           data: { status: 'DISCARDED_NONPAYMENT', version: { increment: 1 } },

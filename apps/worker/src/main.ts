@@ -1,6 +1,7 @@
 import PgBoss from 'pg-boss';
 import pino from 'pino';
 import { getConfig } from '@openconferences/config/env';
+import { assertSafeDatabaseRole } from '@openconferences/db';
 import {
   EMAIL_SEND_JOB_NAME,
   FILE_SCAN_JOB_NAME,
@@ -33,6 +34,8 @@ let boss: PgBoss | null = null;
 let isShuttingDown = false;
 
 async function startWorker(): Promise<void> {
+  await assertSafeDatabaseRole();
+
   boss = new PgBoss({
     connectionString: config.databaseUrl,
     schema: 'pgboss',

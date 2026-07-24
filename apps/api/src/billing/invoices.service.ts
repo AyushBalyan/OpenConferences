@@ -19,7 +19,7 @@ export class InvoicesService {
   ) {}
 
   async generateInvoice(payload: InvoiceGenerateJobPayload) {
-    const existing = await withTenantContext({ bypass: true }, async (tx) =>
+    const existing = await withTenantContext({}, async (tx) =>
       tx.invoice.findUnique({ where: { paymentId: payload.paymentId } }),
     );
 
@@ -27,7 +27,7 @@ export class InvoicesService {
       return mapInvoice(existing);
     }
 
-    const payment = await withTenantContext({ bypass: true }, async (tx) =>
+    const payment = await withTenantContext({}, async (tx) =>
       tx.payment.findFirst({
         where: { id: payload.paymentId },
         include: {
@@ -68,7 +68,7 @@ export class InvoicesService {
       }),
     );
 
-    const invoice = await withTenantContext({ bypass: true }, async (tx) => {
+    const invoice = await withTenantContext({}, async (tx) => {
       const fileAsset = await tx.fileAsset.create({
         data: {
           id: generateId(),
@@ -152,7 +152,7 @@ export class InvoicesService {
   private async nextInvoiceNumber(organizationId: string): Promise<string> {
     const fiscalYear = new Date().getFullYear();
 
-    const counter = await withTenantContext({ bypass: true }, async (tx) => {
+    const counter = await withTenantContext({}, async (tx) => {
       const existing = await tx.invoiceCounter.findUnique({
         where: {
           organizationId_fiscalYear: { organizationId, fiscalYear },

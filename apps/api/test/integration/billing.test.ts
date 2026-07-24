@@ -86,8 +86,8 @@ async function simulateCapture(
     .expect(201);
 }
 
-// Skipped: flaky pg-boss queue deadlock in beforeAll when suites run in parallel on CI.
-describe.skip('Billing integration (Phase 8)', () => {
+// Serialized via vitest singleFork to avoid pg-boss deadlocks across suites.
+describe('Billing integration (Phase 8)', () => {
   let app: INestApplication;
   let mockProvider: MockPaymentProvider;
 
@@ -136,7 +136,7 @@ describe.skip('Billing integration (Phase 8)', () => {
       data: { twoFactorEnabled: true },
     });
 
-    await withTenantContext({ bypass: true }, async (tx) => {
+    await withTenantContext({}, async (tx) => {
       await tx.organization.create({
         data: { id: orgId, slug: `org-bill-${Date.now()}`, name: 'Bill Org' },
       });
@@ -448,7 +448,7 @@ describe.skip('Billing integration (Phase 8)', () => {
       .send(payload)
       .expect(200);
 
-    const payments = await withTenantContext({ bypass: true }, async (tx) =>
+    const payments = await withTenantContext({}, async (tx) =>
       tx.payment.findMany({
         where: { providerPaymentId: paymentId },
       }),
@@ -474,7 +474,7 @@ describe.skip('Billing integration (Phase 8)', () => {
   });
 
   it('refund reverts paid-state', async () => {
-    const reg = await withTenantContext({ bypass: true }, async (tx) =>
+    const reg = await withTenantContext({}, async (tx) =>
       tx.registration.findFirst({
         where: { paperId: paperRegularId, conferenceId: confId },
       }),

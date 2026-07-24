@@ -78,7 +78,7 @@ export class RoundsService {
 
     try {
       const round = await withTenantContext(
-        { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+        { userId, conferenceId, organizationId: conference.organizationId },
         async (tx) => {
           await tx.reviewRound.updateMany({
             where: {
@@ -155,7 +155,7 @@ export class RoundsService {
     }
 
     const updated = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.reviewRound.update({
           where: { id: roundId },

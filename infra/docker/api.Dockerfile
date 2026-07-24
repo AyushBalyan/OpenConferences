@@ -85,7 +85,9 @@ RUN pnpm --filter @openconferences/api deploy --prod --ignore-scripts /app/out/a
 
 FROM node:${NODE_VERSION}-alpine AS runner
 
-RUN apk add --no-cache openssl \
+# curl: Coolify healthchecks require curl/wget inside the image.
+# openssl: Prisma/engine TLS for Postgres.
+RUN apk add --no-cache openssl curl \
  && addgroup --system --gid 1001 nodejs \
  && adduser --system --uid 1001 nestjs
 
@@ -100,7 +102,9 @@ COPY --from=builder --chown=nestjs:nodejs /app/out/api ./
 USER nestjs
 EXPOSE 3001
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:3001/api/v1/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+# Coolify often overrides this with its own curl check; keep a Node fallback too.
+# start-period must cover slow first DB connect (pooler/DNS); prefer fail-fast via connect_timeout.
+HEALTHCHECK --interval=10s --timeout=5s --start-period=120s --retries=12 \
+  CMD curl -fsS http://127.0.0.1:3001/api/v1/healthz || exit 1
 
 CMD ["node", "dist/main.js"]

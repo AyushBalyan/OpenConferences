@@ -1,5 +1,5 @@
 import type PgBoss from 'pg-boss';
-import { generateId, prisma, withTenantContext } from '@openconferences/db';
+import { generateId, withTenantContext } from '@openconferences/db';
 import type { ReminderSweepJobPayload } from '@openconferences/schemas';
 import { NOTIFICATION_SEND_JOB_NAME } from '@openconferences/schemas';
 
@@ -34,34 +34,33 @@ async function enqueueDirect(
 ): Promise<boolean> {
   const normalizedEmail = input.to.trim().toLowerCase();
 
-  const suppressed = await prisma.emailSuppression.findUnique({
-    where: { email: normalizedEmail },
-  });
-  if (suppressed) return false;
+  const prepared = await withTenantContext({}, async (tx) => {
+    const suppressed = await tx.emailSuppression.findUnique({
+      where: { email: normalizedEmail },
+    });
+    if (suppressed) return null;
 
-  const existing = await prisma.notificationLog.findUnique({
-    where: { idempotencyKey: input.idempotencyKey },
-  });
-  if (existing) return false;
+    const existing = await tx.notificationLog.findUnique({
+      where: { idempotencyKey: input.idempotencyKey },
+    });
+    if (existing) return null;
 
-  const template = await prisma.notificationTemplate.findFirst({
-    where: {
-      key: input.templateKey,
-      isActive: true,
-      OR: [{ organizationId: input.organizationId }, { organizationId: null }],
-    },
-    orderBy: [{ organizationId: 'desc' }, { version: 'desc' }],
-  });
+    const template = await tx.notificationTemplate.findFirst({
+      where: {
+        key: input.templateKey,
+        isActive: true,
+        OR: [{ organizationId: input.organizationId }, { organizationId: null }],
+      },
+      orderBy: [{ organizationId: 'desc' }, { version: 'desc' }],
+    });
+    if (!template) return null;
 
-  if (!template) return false;
+    const subject = renderTemplate(template.subject, input.context);
+    const html = renderTemplate(template.bodyHtml, input.context);
+    const text = template.bodyText ? renderTemplate(template.bodyText, input.context) : undefined;
+    const logId = generateId();
 
-  const subject = renderTemplate(template.subject, input.context);
-  const html = renderTemplate(template.bodyHtml, input.context);
-  const text = template.bodyText ? renderTemplate(template.bodyText, input.context) : undefined;
-  const logId = generateId();
-
-  await withTenantContext({ bypass: true }, async (tx) =>
-    tx.notificationLog.create({
+    await tx.notificationLog.create({
       data: {
         id: logId,
         organizationId: input.organizationId,
@@ -76,17 +75,21 @@ async function enqueueDirect(
         relatedEntity: input.relatedEntity,
         relatedEntityId: input.relatedEntityId,
       },
-    }),
-  );
+    });
+
+    return { logId, subject, html, text };
+  });
+
+  if (!prepared) return false;
 
   await boss.send(
     NOTIFICATION_SEND_JOB_NAME,
     {
-      logId,
+      logId: prepared.logId,
       to: normalizedEmail,
-      subject,
-      html,
-      text,
+      subject: prepared.subject,
+      html: prepared.html,
+      text: prepared.text,
       tags: [input.templateKey],
       idempotencyKey: input.idempotencyKey,
     },
@@ -115,17 +118,19 @@ export async function processReminderSweepJob(
 
   for (const kind of kinds) {
     if (kind === 'review.reminder') {
-      const assignments = await prisma.reviewerAssignment.findMany({
-        where: {
-          status: { in: ['ASSIGNED', 'ACCEPTED'] },
-          ...(payload.conferenceId ? { conferenceId: payload.conferenceId } : {}),
-        },
-        include: {
-          reviewer: { select: { email: true } },
-          paper: { select: { title: true } },
-          round: { select: { reviewDueAt: true } },
-        },
-      });
+      const assignments = await withTenantContext({}, async (tx) =>
+        tx.reviewerAssignment.findMany({
+          where: {
+            status: { in: ['ASSIGNED', 'ACCEPTED'] },
+            ...(payload.conferenceId ? { conferenceId: payload.conferenceId } : {}),
+          },
+          include: {
+            reviewer: { select: { email: true } },
+            paper: { select: { title: true } },
+            round: { select: { reviewDueAt: true } },
+          },
+        }),
+      );
 
       for (const assignment of assignments) {
         const dueAt = assignment.dueAt ?? assignment.round.reviewDueAt;
@@ -149,16 +154,18 @@ export async function processReminderSweepJob(
     }
 
     if (kind === 'cameraready.reminder') {
-      const papers = await prisma.paper.findMany({
-        where: {
-          status: { in: ['DECISION_MADE', 'CAMERA_READY'] },
-          ...(payload.conferenceId ? { conferenceId: payload.conferenceId } : {}),
-        },
-        include: {
-          authorships: true,
-          conference: { select: { cameraReadyDueAt: true } },
-        },
-      });
+      const papers = await withTenantContext({}, async (tx) =>
+        tx.paper.findMany({
+          where: {
+            status: { in: ['DECISION_MADE', 'CAMERA_READY'] },
+            ...(payload.conferenceId ? { conferenceId: payload.conferenceId } : {}),
+          },
+          include: {
+            authorships: true,
+            conference: { select: { cameraReadyDueAt: true } },
+          },
+        }),
+      );
 
       for (const paper of papers) {
         const deadlineAt = paper.conference.cameraReadyDueAt;
@@ -185,16 +192,18 @@ export async function processReminderSweepJob(
     }
 
     if (kind === 'registration.deadline_reminder') {
-      const registrations = await prisma.registration.findMany({
-        where: {
-          status: { in: ['PENDING', 'AWAITING_VERIFICATION', 'ADDITIONAL_PAYMENT_REQUIRED'] },
-          ...(payload.conferenceId ? { conferenceId: payload.conferenceId } : {}),
-          deadlineAt: { lte: inThreeDays, gte: now },
-        },
-        include: {
-          paper: { include: { authorships: true } },
-        },
-      });
+      const registrations = await withTenantContext({}, async (tx) =>
+        tx.registration.findMany({
+          where: {
+            status: { in: ['PENDING', 'AWAITING_VERIFICATION', 'ADDITIONAL_PAYMENT_REQUIRED'] },
+            ...(payload.conferenceId ? { conferenceId: payload.conferenceId } : {}),
+            deadlineAt: { lte: inThreeDays, gte: now },
+          },
+          include: {
+            paper: { include: { authorships: true } },
+          },
+        }),
+      );
 
       for (const registration of registrations) {
         const author =
@@ -220,9 +229,11 @@ export async function processReminderSweepJob(
     }
 
     if (kind === 'registration.early_bird_ending') {
-      const conferences = await prisma.conference.findMany({
-        where: payload.conferenceId ? { id: payload.conferenceId } : {},
-      });
+      const conferences = await withTenantContext({}, async (tx) =>
+        tx.conference.findMany({
+          where: payload.conferenceId ? { id: payload.conferenceId } : {},
+        }),
+      );
 
       for (const conference of conferences) {
         const feeSchedule = conference.feeSchedule as { earlyBirdEndsAt?: string };
@@ -231,13 +242,15 @@ export async function processReminderSweepJob(
           : null;
         if (!earlyBirdEndsAt || earlyBirdEndsAt > inThreeDays || earlyBirdEndsAt < now) continue;
 
-        const registrations = await prisma.registration.findMany({
-          where: {
-            conferenceId: conference.id,
-            status: { in: ['PENDING', 'AWAITING_VERIFICATION', 'ADDITIONAL_PAYMENT_REQUIRED'] },
-          },
-          include: { paper: { include: { authorships: true } } },
-        });
+        const registrations = await withTenantContext({}, async (tx) =>
+          tx.registration.findMany({
+            where: {
+              conferenceId: conference.id,
+              status: { in: ['PENDING', 'AWAITING_VERIFICATION', 'ADDITIONAL_PAYMENT_REQUIRED'] },
+            },
+            include: { paper: { include: { authorships: true } } },
+          }),
+        );
 
         for (const registration of registrations) {
           const author =

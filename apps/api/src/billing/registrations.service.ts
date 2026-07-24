@@ -46,7 +46,7 @@ export class RegistrationsService {
     conferenceId: string,
     paperId: string,
   ): Promise<Registration> {
-    const conference = await withTenantContext({ bypass: true }, async (tx) =>
+    const conference = await withTenantContext({}, async (tx) =>
       tx.conference.findFirst({ where: { id: conferenceId } }),
     );
 
@@ -57,7 +57,7 @@ export class RegistrationsService {
     const feeSchedule = parseFeeSchedule(conference.feeSchedule);
     const deadlineAt = getRegistrationDeadline(feeSchedule, conference.registrationDueAt);
 
-    const existing = await withTenantContext({ bypass: true }, async (tx) =>
+    const existing = await withTenantContext({}, async (tx) =>
       tx.registration.findUnique({
         where: { conferenceId_paperId: { conferenceId, paperId } },
       }),
@@ -67,7 +67,7 @@ export class RegistrationsService {
       return existing;
     }
 
-    const registration = await withTenantContext({ bypass: true }, async (tx) =>
+    const registration = await withTenantContext({}, async (tx) =>
       tx.registration.create({
         data: {
           id: generateId(),
@@ -93,7 +93,7 @@ export class RegistrationsService {
       diff: { paperId },
     });
 
-    const paper = await withTenantContext({ bypass: true }, async (tx) =>
+    const paper = await withTenantContext({}, async (tx) =>
       tx.paper.findFirst({
         where: { id: paperId },
         include: { authorships: true },
@@ -216,7 +216,7 @@ export class RegistrationsService {
     }
 
     const updated = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
         const current = await tx.registration.findFirst({
           where: { id: registration.id },
@@ -351,7 +351,7 @@ export class RegistrationsService {
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
 
     const updated = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
         const registration = await tx.registration.findFirst({
           where: { id: registrationId, conferenceId },
@@ -421,7 +421,7 @@ export class RegistrationsService {
   }
 
   private async assertPaperAccepted(paperId: string, conferenceId: string) {
-    const decision = await withTenantContext({ bypass: true }, async (tx) =>
+    const decision = await withTenantContext({}, async (tx) =>
       tx.decision.findFirst({
         where: { paperId, conferenceId, outcome: 'ACCEPT' as DecisionOutcome },
       }),

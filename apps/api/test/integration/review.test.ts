@@ -164,7 +164,7 @@ describe('Reviewer management & assignment integration', () => {
     const biddingOpen = new Date(Date.now() - 86_400_000);
     const biddingClose = new Date(Date.now() + 86_400_000 * 30);
 
-    await withTenantContext({ bypass: true }, async (tx) => {
+    await withTenantContext({}, async (tx) => {
       await tx.organization.create({
         data: { id: orgId, slug: `rev-org-${Date.now()}`, name: 'Review Org' },
       });
@@ -391,7 +391,7 @@ describe('Reviewer management & assignment integration', () => {
       data: { twoFactorEnabled: true },
     });
 
-    await withTenantContext({ bypass: true }, async (tx) => {
+    await withTenantContext({}, async (tx) => {
       await tx.membership.create({
         data: {
           id: generateId(),
@@ -422,7 +422,7 @@ describe('Reviewer management & assignment integration', () => {
       data: { twoFactorEnabled: true },
     });
 
-    await withTenantContext({ bypass: true }, async (tx) => {
+    await withTenantContext({}, async (tx) => {
       await tx.membership.create({
         data: {
           id: generateId(),
@@ -447,7 +447,7 @@ describe('Reviewer management & assignment integration', () => {
     const noMfaEmail = `no-mfa-chair-${Date.now()}@example.com`;
     const user = await createUserWithSession(app, noMfaEmail, 'No MFA Chair');
 
-    await withTenantContext({ bypass: true }, async (tx) => {
+    await withTenantContext({}, async (tx) => {
       await tx.membership.create({
         data: {
           id: generateId(),
@@ -484,7 +484,7 @@ describe('Reviewer management & assignment integration', () => {
     expect(lastTestNotification?.html).not.toContain('magic-link');
     expect(lastTestNotification?.html).not.toContain('/sign-up?');
 
-    const invitation = await withTenantContext({ bypass: true }, async (tx) =>
+    const invitation = await withTenantContext({}, async (tx) =>
       tx.reviewerInvitation.findFirst({ where: { email: inviteeEmail.toLowerCase() } }),
     );
     invitationToken = invitation?.token ?? '';
@@ -494,7 +494,7 @@ describe('Reviewer management & assignment integration', () => {
   it('resends a pending reviewer invitation email', async () => {
     resetLastTestNotification();
 
-    const invitation = await withTenantContext({ bypass: true }, async (tx) =>
+    const invitation = await withTenantContext({}, async (tx) =>
       tx.reviewerInvitation.findFirst({ where: { email: inviteeEmail.toLowerCase() } }),
     );
     expect(invitation?.id).toBeTruthy();
@@ -530,7 +530,7 @@ describe('Reviewer management & assignment integration', () => {
 
     expect(revokeRes.status).toBe(204);
 
-    const invitation = await withTenantContext({ bypass: true }, async (tx) =>
+    const invitation = await withTenantContext({}, async (tx) =>
       tx.reviewerInvitation.findFirst({ where: { id: invitationId } }),
     );
     expect(invitation).toBeNull();
@@ -563,7 +563,7 @@ describe('Reviewer management & assignment integration', () => {
     expect(acceptRes.status).toBe(200);
     expect(acceptRes.body.invitation.status).toBe('ACCEPTED');
 
-    const membership = await withTenantContext({ bypass: true }, async (tx) =>
+    const membership = await withTenantContext({}, async (tx) =>
       tx.membership.findFirst({
         where: { userId: inviteeUserId, conferenceId: confId },
         include: { roles: true },
@@ -610,7 +610,7 @@ describe('Reviewer management & assignment integration', () => {
     expect(res.body.data).toHaveLength(1);
     expect(res.body.data[0].status).toBe('ACCEPTED');
 
-    const membership = await withTenantContext({ bypass: true }, async (tx) =>
+    const membership = await withTenantContext({}, async (tx) =>
       tx.membership.findFirst({
         where: { userId: legacyInvitee.userId, conferenceId: confId },
         include: { roles: true },
@@ -634,7 +634,7 @@ describe('Reviewer management & assignment integration', () => {
 
   // Depends on magic-link onboarding test above.
   it.skip('cannot resend an accepted reviewer invitation', async () => {
-    const invitation = await withTenantContext({ bypass: true }, async (tx) =>
+    const invitation = await withTenantContext({}, async (tx) =>
       tx.reviewerInvitation.findFirst({ where: { email: inviteeEmail.toLowerCase() } }),
     );
     expect(invitation?.id).toBeTruthy();
@@ -659,7 +659,7 @@ describe('Reviewer management & assignment integration', () => {
     expect(createRes.status).toBe(201);
     const invitationId = createRes.body.id as string;
 
-    await withTenantContext({ bypass: true }, async (tx) => {
+    await withTenantContext({}, async (tx) => {
       await tx.reviewerInvitation.update({
         where: { id: invitationId },
         data: { status: 'ACCEPTED' },
@@ -772,7 +772,7 @@ describe('Reviewer management & assignment integration', () => {
     const otherVersionId = generateId();
     const otherFileAssetId = generateId();
 
-    await withTenantContext({ bypass: true }, async (tx) => {
+    await withTenantContext({}, async (tx) => {
       await tx.fileAsset.create({
         data: {
           id: fileAssetId,
@@ -856,7 +856,7 @@ describe('Reviewer management & assignment integration', () => {
 
   it('rejects assignment when reviewer bid CONFLICT', async () => {
     const secondPaperId = generateId();
-    await withTenantContext({ bypass: true }, async (tx) => {
+    await withTenantContext({}, async (tx) => {
       await tx.paper.create({
         data: {
           id: secondPaperId,
@@ -1042,7 +1042,7 @@ describe('Reviewer management & assignment integration', () => {
 
     it('blocks rebuttal before reviews are visible to authors', async () => {
       const secondPaperId = generateId();
-      await withTenantContext({ bypass: true }, async (tx) => {
+      await withTenantContext({}, async (tx) => {
         await tx.paper.create({
           data: {
             id: secondPaperId,
@@ -1097,7 +1097,7 @@ describe('Reviewer management & assignment integration', () => {
       const coiPaperId = generateId();
       const coiAssignmentId = generateId();
 
-      await withTenantContext({ bypass: true }, async (tx) => {
+      await withTenantContext({}, async (tx) => {
         await tx.paper.create({
           data: {
             id: coiPaperId,
@@ -1165,7 +1165,7 @@ describe('Reviewer management & assignment integration', () => {
 
   describe('Phase 6 — decisions', () => {
     beforeAll(async () => {
-      await withTenantContext({ bypass: true }, async (tx) => {
+      await withTenantContext({}, async (tx) => {
         const existingTrack = await tx.track.findFirst({ where: { conferenceId: confBId } });
         if (!existingTrack) {
           await tx.track.create({
@@ -1218,7 +1218,7 @@ describe('Reviewer management & assignment integration', () => {
       const noMfaEmail = `no-mfa-decide-${Date.now()}@example.com`;
       const user = await createUserWithSession(app, noMfaEmail, 'No MFA Decide Chair');
 
-      await withTenantContext({ bypass: true }, async (tx) => {
+      await withTenantContext({}, async (tx) => {
         await tx.membership.create({
           data: {
             id: generateId(),
@@ -1315,7 +1315,7 @@ describe('Reviewer management & assignment integration', () => {
       const revisionPaperId = generateId();
       let revisionRoundId = '';
 
-      await withTenantContext({ bypass: true }, async (tx) => {
+      await withTenantContext({}, async (tx) => {
         await tx.paper.create({
           data: {
             id: revisionPaperId,
@@ -1395,7 +1395,7 @@ describe('Reviewer management & assignment integration', () => {
       const bulkPaper2Id = generateId();
       let bulkRoundId = '';
 
-      await withTenantContext({ bypass: true }, async (tx) => {
+      await withTenantContext({}, async (tx) => {
         await tx.paper.createMany({
           data: [
             {
@@ -1473,7 +1473,7 @@ describe('Reviewer management & assignment integration', () => {
     const copyPaperId = generateId();
     let priorRoundId = '';
 
-    await withTenantContext({ bypass: true }, async (tx) => {
+    await withTenantContext({}, async (tx) => {
       const existingTrack = await tx.track.findFirst({ where: { conferenceId: confBId } });
       if (!existingTrack) {
         await tx.track.create({

@@ -245,7 +245,7 @@ async function waitForAllLogs(
 
   while (pending.size > 0 && Date.now() - started < timeoutMs) {
     const batch = [...pending];
-    const logs = await withTenantContext({ bypass: true }, async (tx) =>
+    const logs = await withTenantContext({}, async (tx) =>
       tx.notificationLog.findMany({
         where: { id: { in: batch } },
         select: { id: true, status: true },
@@ -272,7 +272,7 @@ async function waitForAllLogs(
 }
 
 async function loadFailedRecipients(): Promise<string[]> {
-  const logs = await withTenantContext({ bypass: true }, async (tx) =>
+  const logs = await withTenantContext({}, async (tx) =>
     tx.notificationLog.findMany({
       where: { templateKey: EASYDMARC_TEST_NAME, status: 'FAILED' },
       orderBy: { toEmail: 'asc' },
@@ -340,7 +340,7 @@ async function runBulkSend(recipients: string[], delayMs: number): Promise<numbe
     const logId = generateId();
     const idempotencyKey = `${EASYDMARC_TEST_NAME}:${runId}:${to}`;
 
-    await withTenantContext({ bypass: true }, async (tx) =>
+    await withTenantContext({}, async (tx) =>
       tx.notificationLog.create({
         data: {
           id: logId,
@@ -403,7 +403,7 @@ async function runBulkSend(recipients: string[], delayMs: number): Promise<numbe
     else queued += 1;
   }
 
-  const failedLogs = await withTenantContext({ bypass: true }, async (tx) =>
+  const failedLogs = await withTenantContext({}, async (tx) =>
     tx.notificationLog.findMany({
       where: {
         id: { in: pendingJobs.map((job) => job.logId) },

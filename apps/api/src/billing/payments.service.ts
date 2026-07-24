@@ -82,7 +82,7 @@ export class PaymentsService {
       }
     }
 
-    const existingByKey = await withTenantContext({ bypass: true }, async (tx) =>
+    const existingByKey = await withTenantContext({}, async (tx) =>
       tx.payment.findFirst({ where: { idempotencyKey } }),
     );
 
@@ -96,7 +96,7 @@ export class PaymentsService {
 
     let amountMinor: number;
     if (kind === 'ADDITIONAL') {
-      const paidState = await withTenantContext({ bypass: true }, async (tx) =>
+      const paidState = await withTenantContext({}, async (tx) =>
         computePaidState(tx, registration.id),
       );
       amountMinor = registration.amountDueMinor - paidState.netMinor;
@@ -120,7 +120,7 @@ export class PaymentsService {
     });
 
     const payment = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.payment.create({
           data: {
@@ -139,7 +139,7 @@ export class PaymentsService {
         }),
     );
 
-    await withTenantContext({ bypass: true }, async (tx) =>
+    await withTenantContext({}, async (tx) =>
       tx.registration.update({
         where: { id: registration.id },
         data: { userId },
@@ -173,7 +173,7 @@ export class PaymentsService {
       return { received: true };
     }
 
-    const payment = await withTenantContext({ bypass: true }, async (tx) =>
+    const payment = await withTenantContext({}, async (tx) =>
       tx.payment.findFirst({
         where: {
           provider: provider.name,
@@ -188,7 +188,7 @@ export class PaymentsService {
       return { received: true };
     }
 
-    const duplicate = await withTenantContext({ bypass: true }, async (tx) =>
+    const duplicate = await withTenantContext({}, async (tx) =>
       tx.payment.findFirst({
         where: {
           provider: provider.name,
@@ -205,7 +205,7 @@ export class PaymentsService {
       return { received: true };
     }
 
-    await withTenantContext({ bypass: true }, async (tx) => {
+    await withTenantContext({}, async (tx) => {
       const locked = await lockRegistrationForUpdate(tx, payment.registrationId);
       if (!locked) {
         throw new NotFoundException('Registration not found');
@@ -265,7 +265,7 @@ export class PaymentsService {
       });
     });
 
-    const capturedPayment = await withTenantContext({ bypass: true }, async (tx) =>
+    const capturedPayment = await withTenantContext({}, async (tx) =>
       tx.payment.findFirst({
         where: { id: payment.id },
         include: {
@@ -329,7 +329,7 @@ export class PaymentsService {
     const provider = this.providerRegistry.resolve(conference.organizationId);
 
     const result = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
         const registration = await lockRegistrationForUpdate(tx, registrationId);
         if (!registration || registration.conferenceId !== conferenceId) {
@@ -412,7 +412,7 @@ export class PaymentsService {
   }
 
   async runReconciliation(paymentId?: string) {
-    const stalePayments = await withTenantContext({ bypass: true }, async (tx) =>
+    const stalePayments = await withTenantContext({}, async (tx) =>
       tx.payment.findMany({
         where: {
           status: 'CREATED',
@@ -453,7 +453,7 @@ export class PaymentsService {
   }
 
   private async hasStudentDocument(registrationId: string): Promise<boolean> {
-    const verification = await withTenantContext({ bypass: true }, async (tx) =>
+    const verification = await withTenantContext({}, async (tx) =>
       tx.studentVerification.findFirst({
         where: {
           registrationId,

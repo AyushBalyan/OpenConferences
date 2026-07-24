@@ -99,7 +99,7 @@ describe('Tenancy & RBAC integration', () => {
       data: { twoFactorEnabled: true },
     });
 
-    await withTenantContext({ bypass: true }, async (tx) => {
+    await withTenantContext({}, async (tx) => {
       await tx.organization.createMany({
         data: [
           { id: orgAId, slug: `org-a-${Date.now()}`, name: 'Org A' },

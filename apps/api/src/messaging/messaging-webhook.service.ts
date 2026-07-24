@@ -69,7 +69,7 @@ export class MessagingWebhookService {
         message.event_data?.[0]?.email ?? message.email_info?.to?.[0]?.email_address ?? null;
 
       if (providerMessageId) {
-        await withTenantContext({ bypass: true }, async (tx) => {
+        await withTenantContext({}, async (tx) => {
           await tx.notificationLog.updateMany({
             where: { providerMessageId },
             data: { status: 'BOUNCED', error: eventName },
@@ -79,7 +79,7 @@ export class MessagingWebhookService {
 
       if (email) {
         const normalized = email.trim().toLowerCase();
-        await withTenantContext({ bypass: true }, async (tx) => {
+        await withTenantContext({}, async (tx) => {
           await tx.emailSuppression.upsert({
             where: { email: normalized },
             create: {

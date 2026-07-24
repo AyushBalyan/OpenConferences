@@ -59,8 +59,8 @@ async function createUserWithSession(
   return { userId, cookie };
 }
 
-// Skipped: flaky pg-boss queue deadlock in beforeAll when suites run in parallel on CI.
-describe.skip('Paper submission integration', () => {
+// Serialized via vitest singleFork to avoid pg-boss deadlocks across suites.
+describe('Paper submission integration', () => {
   let app: INestApplication;
 
   const orgId = generateId();
@@ -99,7 +99,7 @@ describe.skip('Paper submission integration', () => {
     outsiderCookie = outsider.cookie;
     organizerCookie = organizer.cookie;
 
-    await withTenantContext({ bypass: true }, async (tx) => {
+    await withTenantContext({}, async (tx) => {
       await tx.organization.create({
         data: { id: orgId, slug: `sub-org-${Date.now()}`, name: 'Submission Org' },
       });
@@ -438,7 +438,7 @@ describe.skip('Paper submission integration', () => {
     beforeAll(async () => {
       const cameraReadyDue = new Date(Date.now() + 86_400_000 * 14);
 
-      await withTenantContext({ bypass: true }, async (tx) => {
+      await withTenantContext({}, async (tx) => {
         await tx.conference.update({
           where: { id: confId },
           data: { cameraReadyDueAt: cameraReadyDue },
@@ -620,7 +620,7 @@ describe.skip('Paper submission integration', () => {
     });
 
     it('rejects camera-ready upload after deadline', async () => {
-      await withTenantContext({ bypass: true }, async (tx) => {
+      await withTenantContext({}, async (tx) => {
         await tx.conference.update({
           where: { id: confId },
           data: { cameraReadyDueAt: new Date(Date.now() - 86_400_000) },
@@ -639,7 +639,7 @@ describe.skip('Paper submission integration', () => {
 
       expect(res.status).toBe(422);
 
-      await withTenantContext({ bypass: true }, async (tx) => {
+      await withTenantContext({}, async (tx) => {
         await tx.conference.update({
           where: { id: confId },
           data: { cameraReadyDueAt: new Date(Date.now() + 86_400_000 * 14) },
@@ -719,7 +719,7 @@ describe.skip('Paper submission integration', () => {
       const paperId = generateId();
       const roundId = generateId();
 
-      await withTenantContext({ bypass: true }, async (tx) => {
+      await withTenantContext({}, async (tx) => {
         await tx.reviewRound.create({
           data: {
             id: roundId,

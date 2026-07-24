@@ -37,7 +37,7 @@ export async function runAvScan(payload: FileScanJobPayload): Promise<'CLEAN' | 
     return filenameIndicatesInfection(payload.originalFilename) ? 'INFECTED' : 'CLEAN';
   }
 
-  const asset = await withTenantContext({ bypass: true }, async (tx) =>
+  const asset = await withTenantContext({}, async (tx) =>
     tx.fileAsset.findFirst({
       where: { id: payload.fileAssetId },
       select: { bucket: true, objectKey: true },

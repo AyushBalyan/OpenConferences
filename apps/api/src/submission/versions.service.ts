@@ -251,7 +251,7 @@ export class VersionsService {
   }
 
   private async nextVersionNumber(paperId: string, kind: VersionKind): Promise<number> {
-    const latest = await withTenantContext({ bypass: true }, async (tx) =>
+    const latest = await withTenantContext({}, async (tx) =>
       tx.paperVersion.findFirst({
         where: { paperId, kind },
         orderBy: { versionNumber: 'desc' },

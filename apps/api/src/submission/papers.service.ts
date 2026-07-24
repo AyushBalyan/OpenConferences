@@ -64,7 +64,7 @@ export class PapersService {
       throw new NotFoundException('Track not found');
     }
 
-    const user = await withTenantContext({ userId, bypass: true }, async (tx) =>
+    const user = await withTenantContext({ userId }, async (tx) =>
       tx.user.findUnique({ where: { id: userId } }),
     );
 
@@ -73,7 +73,7 @@ export class PapersService {
     }
 
     const paper = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.paper.create({
           data: {
@@ -199,7 +199,7 @@ export class PapersService {
     }
 
     const updated = await withTenantContext(
-      { userId, conferenceId, organizationId: paper.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: paper.organizationId },
       async (tx) =>
         tx.paper.update({
           where: { id: paperId },
@@ -250,7 +250,7 @@ export class PapersService {
     }
 
     const updated = await withTenantContext(
-      { userId, conferenceId, organizationId: paper.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: paper.organizationId },
       async (tx) =>
         tx.paper.update({
           where: { id: paperId },

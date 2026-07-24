@@ -8,7 +8,7 @@ import { getS3Client, getS3Bucket } from './s3.client.js';
 async function nextInvoiceNumber(organizationId: string): Promise<string> {
   const fiscalYear = new Date().getFullYear();
 
-  const counter = await withTenantContext({ bypass: true }, async (tx) => {
+  const counter = await withTenantContext({}, async (tx) => {
     const existing = await tx.invoiceCounter.findUnique({
       where: { organizationId_fiscalYear: { organizationId, fiscalYear } },
     });
@@ -54,7 +54,7 @@ async function renderInvoicePdf(input: {
 }
 
 export async function processInvoiceJob(payload: InvoiceGenerateJobPayload): Promise<void> {
-  const existing = await withTenantContext({ bypass: true }, async (tx) =>
+  const existing = await withTenantContext({}, async (tx) =>
     tx.invoice.findUnique({ where: { paymentId: payload.paymentId } }),
   );
 
@@ -62,7 +62,7 @@ export async function processInvoiceJob(payload: InvoiceGenerateJobPayload): Pro
     return;
   }
 
-  const payment = await withTenantContext({ bypass: true }, async (tx) =>
+  const payment = await withTenantContext({}, async (tx) =>
     tx.payment.findFirst({
       where: { id: payload.paymentId, status: 'CAPTURED' },
       include: {
@@ -102,7 +102,7 @@ export async function processInvoiceJob(payload: InvoiceGenerateJobPayload): Pro
     }),
   );
 
-  await withTenantContext({ bypass: true }, async (tx) => {
+  await withTenantContext({}, async (tx) => {
     const fileAsset = await tx.fileAsset.create({
       data: {
         id: generateId(),

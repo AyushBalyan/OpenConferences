@@ -181,7 +181,6 @@ export class FilesService {
         userId: input.userId,
         organizationId: input.organizationId,
         conferenceId: input.conferenceId,
-        bypass: true,
       },
       async (tx) => {
         const fileAsset = await tx.fileAsset.create({
@@ -272,7 +271,7 @@ export class FilesService {
   }
 
   async presignDownload(fileAssetId: string, userId: string, organizationId: string) {
-    const asset = await withTenantContext({ userId, organizationId, bypass: true }, async (tx) =>
+    const asset = await withTenantContext({ userId, organizationId }, async (tx) =>
       tx.fileAsset.findFirst({
         where: { id: fileAssetId },
       }),
@@ -459,7 +458,6 @@ export class FilesService {
         userId: input.userId,
         organizationId: input.organizationId,
         conferenceId: input.conferenceId,
-        bypass: true,
       },
       async (tx) =>
         tx.fileAsset.create({

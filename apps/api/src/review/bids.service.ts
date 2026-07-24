@@ -207,7 +207,7 @@ export class BidsService {
     }
 
     const bid = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.bid.upsert({
           where: { paperId_reviewerUserId: { paperId, reviewerUserId: userId } },
@@ -225,7 +225,7 @@ export class BidsService {
 
     if (input.value === 'CONFLICT') {
       await withTenantContext(
-        { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+        { userId, conferenceId, organizationId: conference.organizationId },
         async (tx) => {
           const existing = await tx.conflictOfInterest.findFirst({
             where: { conferenceId, userId, paperId },
@@ -332,7 +332,7 @@ export class CoiService {
     const source = targetUserId === userId ? 'SELF' : 'CHAIR';
 
     const coi = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.conflictOfInterest.create({
           data: {
@@ -385,7 +385,7 @@ export class CoiService {
     }
 
     await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => tx.conflictOfInterest.delete({ where: { id: coiId } }),
     );
 

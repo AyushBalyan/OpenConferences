@@ -43,7 +43,7 @@ async function resolveActiveTemplate(
   key: string,
 ): Promise<NotificationTemplate> {
   const orgTemplate = organizationId
-    ? await withTenantContext({ bypass: true }, async (tx) =>
+    ? await withTenantContext({}, async (tx) =>
         tx.notificationTemplate.findFirst({
           where: { organizationId, key, isActive: true },
           orderBy: { version: 'desc' },
@@ -55,7 +55,7 @@ async function resolveActiveTemplate(
     return orgTemplate;
   }
 
-  const platformTemplate = await withTenantContext({ bypass: true }, async (tx) =>
+  const platformTemplate = await withTenantContext({}, async (tx) =>
     tx.notificationTemplate.findFirst({
       where: { organizationId: null, key, isActive: true },
       orderBy: { version: 'desc' },
@@ -228,7 +228,7 @@ function parseArgs(argv: string[]): {
 }
 
 async function listTemplateKeys(): Promise<void> {
-  const templates = await withTenantContext({ bypass: true }, async (tx) =>
+  const templates = await withTenantContext({}, async (tx) =>
     tx.notificationTemplate.findMany({
       where: { organizationId: null, isActive: true },
       orderBy: [{ key: 'asc' }, { version: 'desc' }],
@@ -255,7 +255,7 @@ async function waitForLogStatus(
   const started = Date.now();
 
   while (Date.now() - started < timeoutMs) {
-    const log = await withTenantContext({ bypass: true }, async (tx) =>
+    const log = await withTenantContext({}, async (tx) =>
       tx.notificationLog.findUnique({ where: { id: logId } }),
     );
 
@@ -312,7 +312,7 @@ async function main(): Promise<void> {
   const tags = [args.templateKey, 'mail-test'];
   const logId = generateId();
 
-  await withTenantContext({ bypass: true }, async (tx) =>
+  await withTenantContext({}, async (tx) =>
     tx.notificationLog.create({
       data: {
         id: logId,
@@ -344,7 +344,7 @@ async function main(): Promise<void> {
     console.log('\nSending via processNotificationJob (worker mail path)...');
     await processNotificationJob(payload);
 
-    const log = await withTenantContext({ bypass: true }, async (tx) =>
+    const log = await withTenantContext({}, async (tx) =>
       tx.notificationLog.findUnique({ where: { id: logId } }),
     );
 
@@ -388,7 +388,7 @@ async function main(): Promise<void> {
 
   console.log('Waiting for worker to process (up to 60s)...');
   const status = await waitForLogStatus(logId, 60_000);
-  const log = await withTenantContext({ bypass: true }, async (tx) =>
+  const log = await withTenantContext({}, async (tx) =>
     tx.notificationLog.findUnique({ where: { id: logId } }),
   );
 

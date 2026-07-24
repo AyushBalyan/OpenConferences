@@ -41,7 +41,7 @@ async function main(): Promise<void> {
   const reviewerMembershipId = generateId();
   const authorshipId = generateId();
 
-  await withTenantContext({ bypass: true }, async (tx) => {
+  await withTenantContext({}, async (tx) => {
     await tx.organization.create({
       data: {
         id: orgId,

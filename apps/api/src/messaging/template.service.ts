@@ -36,19 +36,17 @@ export class TemplateService {
     organizationId: string,
     options: CursorPaginationOptions = {},
   ): Promise<{ data: NotificationTemplateDto[]; nextCursor: string | null }> {
-    const [orgTemplates, platformTemplates] = await withTenantContext(
-      { bypass: true },
-      async (tx) =>
-        Promise.all([
-          tx.notificationTemplate.findMany({
-            where: { organizationId },
-            orderBy: [{ key: 'asc' }, { version: 'desc' }],
-          }),
-          tx.notificationTemplate.findMany({
-            where: { organizationId: null },
-            orderBy: [{ key: 'asc' }, { version: 'desc' }],
-          }),
-        ]),
+    const [orgTemplates, platformTemplates] = await withTenantContext({}, async (tx) =>
+      Promise.all([
+        tx.notificationTemplate.findMany({
+          where: { organizationId },
+          orderBy: [{ key: 'asc' }, { version: 'desc' }],
+        }),
+        tx.notificationTemplate.findMany({
+          where: { organizationId: null },
+          orderBy: [{ key: 'asc' }, { version: 'desc' }],
+        }),
+      ]),
     );
 
     const byKey = new Map<string, NotificationTemplate>();
@@ -88,7 +86,7 @@ export class TemplateService {
   }
 
   async listAllVersions(organizationId: string, key: string): Promise<NotificationTemplateDto[]> {
-    const templates = await withTenantContext({ bypass: true }, async (tx) =>
+    const templates = await withTenantContext({}, async (tx) =>
       tx.notificationTemplate.findMany({
         where: {
           key,
@@ -106,7 +104,7 @@ export class TemplateService {
     key: string,
   ): Promise<NotificationTemplate> {
     const orgTemplate = organizationId
-      ? await withTenantContext({ bypass: true }, async (tx) =>
+      ? await withTenantContext({}, async (tx) =>
           tx.notificationTemplate.findFirst({
             where: { organizationId, key, isActive: true },
             orderBy: { version: 'desc' },
@@ -118,7 +116,7 @@ export class TemplateService {
       return orgTemplate;
     }
 
-    const platformTemplate = await withTenantContext({ bypass: true }, async (tx) =>
+    const platformTemplate = await withTenantContext({}, async (tx) =>
       tx.notificationTemplate.findFirst({
         where: { organizationId: null, key, isActive: true },
         orderBy: { version: 'desc' },
@@ -144,7 +142,7 @@ export class TemplateService {
       );
     }
 
-    const latest = await withTenantContext({ bypass: true }, async (tx) =>
+    const latest = await withTenantContext({}, async (tx) =>
       tx.notificationTemplate.findFirst({
         where: { organizationId, key: input.key },
         orderBy: { version: 'desc' },
@@ -154,7 +152,7 @@ export class TemplateService {
     const nextVersion = (latest?.version ?? 0) + 1;
 
     if (input.isActive) {
-      await withTenantContext({ bypass: true }, async (tx) =>
+      await withTenantContext({}, async (tx) =>
         tx.notificationTemplate.updateMany({
           where: { organizationId, key: input.key, isActive: true },
           data: { isActive: false },
@@ -162,7 +160,7 @@ export class TemplateService {
       );
     }
 
-    const created = await withTenantContext({ bypass: true }, async (tx) =>
+    const created = await withTenantContext({}, async (tx) =>
       tx.notificationTemplate.create({
         data: {
           id: generateId(),
@@ -187,7 +185,7 @@ export class TemplateService {
     templateId: string,
     input: UpdateNotificationTemplateInput,
   ): Promise<NotificationTemplateDto> {
-    const existing = await withTenantContext({ bypass: true }, async (tx) =>
+    const existing = await withTenantContext({}, async (tx) =>
       tx.notificationTemplate.findFirst({
         where: { id: templateId, organizationId },
       }),
@@ -210,7 +208,7 @@ export class TemplateService {
     }
 
     if (input.isActive === true) {
-      await withTenantContext({ bypass: true }, async (tx) =>
+      await withTenantContext({}, async (tx) =>
         tx.notificationTemplate.updateMany({
           where: {
             organizationId,
@@ -223,7 +221,7 @@ export class TemplateService {
       );
     }
 
-    const updated = await withTenantContext({ bypass: true }, async (tx) =>
+    const updated = await withTenantContext({}, async (tx) =>
       tx.notificationTemplate.update({
         where: { id: templateId },
         data: {
@@ -240,7 +238,7 @@ export class TemplateService {
   }
 
   async getById(organizationId: string, templateId: string): Promise<NotificationTemplateDto> {
-    const template = await withTenantContext({ bypass: true }, async (tx) =>
+    const template = await withTenantContext({}, async (tx) =>
       tx.notificationTemplate.findFirst({
         where: {
           id: templateId,

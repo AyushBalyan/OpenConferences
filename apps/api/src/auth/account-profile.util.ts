@@ -7,7 +7,7 @@ export function isPlaceholderDisplayName(name: string, email: string): boolean {
 }
 
 export async function userHasCredentialPassword(userId: string): Promise<boolean> {
-  const account = await withTenantContext({ bypass: true }, async (tx) =>
+  const account = await withTenantContext({}, async (tx) =>
     tx.account.findFirst({
       where: {
         userId,

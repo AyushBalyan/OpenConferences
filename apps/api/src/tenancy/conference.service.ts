@@ -49,7 +49,6 @@ export class ConferenceService {
       {
         userId,
         organizationId: options.organizationId,
-        bypass: userRoles.includes('PLATFORM_ADMIN'),
       },
       async (tx) => {
         const memberships = await tx.membership.findMany({
@@ -140,13 +139,12 @@ export class ConferenceService {
   async loadConference(
     userId: string,
     conferenceId: string,
-    userRoles: RoleKind[],
+    _userRoles: RoleKind[],
   ): Promise<Conference> {
     const conference = await withTenantContext(
       {
         userId,
         conferenceId,
-        bypass: userRoles.includes('PLATFORM_ADMIN'),
       },
       async (tx) =>
         tx.conference.findFirst({
@@ -167,7 +165,7 @@ export class ConferenceService {
     }
 
     const orgExists = await withTenantContext(
-      { userId: actorUserId, organizationId: input.organizationId, bypass: true },
+      { userId: actorUserId, organizationId: input.organizationId },
       async (tx) =>
         tx.organization.findFirst({
           where: { id: input.organizationId, deletedAt: null },
@@ -180,7 +178,7 @@ export class ConferenceService {
 
     try {
       const conference = await withTenantContext(
-        { userId: actorUserId, organizationId: input.organizationId, bypass: true },
+        { userId: actorUserId, organizationId: input.organizationId },
         async (tx) =>
           tx.conference.create({
             data: {
@@ -195,7 +193,7 @@ export class ConferenceService {
       );
 
       await withTenantContext(
-        { userId: actorUserId, organizationId: input.organizationId, bypass: true },
+        { userId: actorUserId, organizationId: input.organizationId },
         async (tx) =>
           tx.membership.create({
             data: {
@@ -611,7 +609,7 @@ export class ConferenceService {
   }
 
   async joinAsAuthor(userId: string, token: string) {
-    const user = await withTenantContext({ userId, bypass: true }, async (tx) =>
+    const user = await withTenantContext({ userId }, async (tx) =>
       tx.user.findFirst({ where: { id: userId, deletedAt: null } }),
     );
 
@@ -623,7 +621,7 @@ export class ConferenceService {
       throw new ForbiddenException('Email verification required before joining as author');
     }
 
-    const conference = await withTenantContext({ bypass: true }, async (tx) =>
+    const conference = await withTenantContext({}, async (tx) =>
       tx.conference.findFirst({
         where: { authorJoinToken: token, deletedAt: null },
       }),
@@ -644,7 +642,6 @@ export class ConferenceService {
         userId,
         organizationId: conference.organizationId,
         conferenceId: conference.id,
-        bypass: true,
       },
       async (tx) => {
         let membership = await tx.membership.findFirst({

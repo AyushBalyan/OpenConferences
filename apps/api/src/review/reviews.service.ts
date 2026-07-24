@@ -142,7 +142,7 @@ export class ReviewsService {
     this.assertReviewEditable(round.status, review?.submittedAt ?? null);
 
     const saved = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
         const coiResult = await this.coiCheck.checkReviewerPaperConflict(
           tx,
@@ -243,7 +243,7 @@ export class ReviewsService {
     this.validateReviewForSubmit(review, conference.reviewConfig as ReviewConfig);
 
     const submitted = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
         const coiResult = await this.coiCheck.checkReviewerPaperConflict(
           tx,
@@ -387,7 +387,7 @@ export class ReviewsService {
     }
 
     const result = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
         const submittedReviews = await tx.review.findMany({
           where: {

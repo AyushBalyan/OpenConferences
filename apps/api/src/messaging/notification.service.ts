@@ -1,7 +1,7 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { getConfig } from '@openconferences/config/env';
 import type { NotificationLog, NotificationStatus } from '@openconferences/db';
-import { generateId, prisma, withTenantContext } from '@openconferences/db';
+import { generateId, withTenantContext } from '@openconferences/db';
 import type { NotificationLogListDto, NotificationLogDto } from '@openconferences/schemas';
 import { renderTemplate } from './template-renderer';
 import { TemplateService } from './template.service';
@@ -68,7 +68,7 @@ export class NotificationService {
   async enqueue(input: EnqueueNotificationInput): Promise<string | null> {
     const normalizedEmail = input.to.trim().toLowerCase();
 
-    const suppressed = await withTenantContext({ bypass: true }, async (tx) =>
+    const suppressed = await withTenantContext({}, async (tx) =>
       tx.emailSuppression.findUnique({ where: { email: normalizedEmail } }),
     );
 
@@ -78,7 +78,7 @@ export class NotificationService {
     }
 
     if (input.idempotencyKey) {
-      const existing = await withTenantContext({ bypass: true }, async (tx) =>
+      const existing = await withTenantContext({}, async (tx) =>
         tx.notificationLog.findUnique({ where: { idempotencyKey: input.idempotencyKey } }),
       );
 
@@ -112,7 +112,7 @@ export class NotificationService {
 
     const logId = generateId();
 
-    await withTenantContext({ bypass: true }, async (tx) =>
+    await withTenantContext({}, async (tx) =>
       tx.notificationLog.create({
         data: {
           id: logId,
@@ -155,24 +155,26 @@ export class NotificationService {
   ): Promise<NotificationLogListDto> {
     const limit = query.limit ?? 50;
 
-    const logs = await prisma.notificationLog.findMany({
-      where: {
-        conferenceId,
-        ...(query.status ? { status: query.status } : {}),
-        ...(query.templateKey ? { templateKey: query.templateKey } : {}),
-        ...(query.search
-          ? {
-              OR: [
-                { toEmail: { contains: query.search, mode: 'insensitive' as const } },
-                { subject: { contains: query.search, mode: 'insensitive' as const } },
-              ],
-            }
-          : {}),
-        ...(query.cursor ? { id: { lt: query.cursor } } : {}),
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: limit + 1,
-    });
+    const logs = await withTenantContext({ conferenceId }, async (tx) =>
+      tx.notificationLog.findMany({
+        where: {
+          conferenceId,
+          ...(query.status ? { status: query.status } : {}),
+          ...(query.templateKey ? { templateKey: query.templateKey } : {}),
+          ...(query.search
+            ? {
+                OR: [
+                  { toEmail: { contains: query.search, mode: 'insensitive' as const } },
+                  { subject: { contains: query.search, mode: 'insensitive' as const } },
+                ],
+              }
+            : {}),
+          ...(query.cursor ? { id: { lt: query.cursor } } : {}),
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: limit + 1,
+      }),
+    );
 
     const hasMore = logs.length > limit;
     const page = hasMore ? logs.slice(0, limit) : logs;
@@ -184,9 +186,11 @@ export class NotificationService {
   }
 
   async resend(conferenceId: string, logId: string): Promise<{ logId: string; message: string }> {
-    const original = await prisma.notificationLog.findFirst({
-      where: { id: logId, conferenceId },
-    });
+    const original = await withTenantContext({ conferenceId }, async (tx) =>
+      tx.notificationLog.findFirst({
+        where: { id: logId, conferenceId },
+      }),
+    );
 
     if (!original) {
       throw new NotFoundException('Notification log not found');
@@ -204,7 +208,7 @@ export class NotificationService {
     const newLogId = generateId();
     const idempotencyKey = `resend:${original.id}:${Date.now()}`;
 
-    await withTenantContext({ bypass: true }, async (tx) =>
+    await withTenantContext({}, async (tx) =>
       tx.notificationLog.create({
         data: {
           id: newLogId,

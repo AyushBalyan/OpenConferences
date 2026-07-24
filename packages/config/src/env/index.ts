@@ -146,6 +146,19 @@ export type AppConfig = {
 
 let cachedConfig: AppConfig | null = null;
 
+/** Ensure node-pg fails fast instead of hanging for minutes on unreachable hosts. */
+function withConnectTimeout(databaseUrl: string, seconds = 15): string {
+  try {
+    const url = new URL(databaseUrl);
+    if (!url.searchParams.has('connect_timeout')) {
+      url.searchParams.set('connect_timeout', String(seconds));
+    }
+    return url.toString();
+  } catch {
+    return databaseUrl;
+  }
+}
+
 function parseEnv(env: Record<string, string | undefined> = process.env): AppConfig {
   ensureEnvLoaded();
   const result = baseEnvSchema.safeParse(env);
@@ -158,10 +171,13 @@ function parseEnv(env: Record<string, string | undefined> = process.env): AppCon
   }
 
   const data = result.data;
+  const databaseUrl = withConnectTimeout(data.DATABASE_URL);
+  // Prisma and other libs read process.env.DATABASE_URL directly.
+  process.env.DATABASE_URL = databaseUrl;
 
   return {
     nodeEnv: data.NODE_ENV,
-    databaseUrl: data.DATABASE_URL,
+    databaseUrl,
     redisUrl: data.REDIS_URL,
     s3: {
       endpoint: data.S3_ENDPOINT,

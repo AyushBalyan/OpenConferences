@@ -19,7 +19,7 @@ export type ApplyScanResultOutcome = {
 export async function applyScanResult(
   input: ApplyScanResultInput,
 ): Promise<ApplyScanResultOutcome> {
-  return withTenantContext({ bypass: true }, async (tx) => {
+  return withTenantContext({}, async (tx) => {
     const version = await tx.paperVersion.findFirst({
       where: { id: input.paperVersionId },
       select: { kind: true },

@@ -23,7 +23,7 @@ export class OrganizationService {
     const limit = resolveLimit(options.limit);
     const isPlatformAdmin = userRoles.includes('PLATFORM_ADMIN');
 
-    const orgs = await withTenantContext({ userId, bypass: isPlatformAdmin }, async (tx) => {
+    const orgs = await withTenantContext({ userId }, async (tx) => {
       if (isPlatformAdmin) {
         return tx.organization.findMany({
           where: { deletedAt: null },
@@ -60,13 +60,11 @@ export class OrganizationService {
     };
   }
 
-  async getById(userId: string, organizationId: string, userRoles: RoleKind[]) {
-    const org = await withTenantContext(
-      { userId, organizationId, bypass: userRoles.includes('PLATFORM_ADMIN') },
-      async (tx) =>
-        tx.organization.findFirst({
-          where: { id: organizationId, deletedAt: null },
-        }),
+  async getById(userId: string, organizationId: string, _userRoles: RoleKind[]) {
+    const org = await withTenantContext({ userId, organizationId }, async (tx) =>
+      tx.organization.findFirst({
+        where: { id: organizationId, deletedAt: null },
+      }),
     );
 
     if (!org) {
@@ -82,7 +80,7 @@ export class OrganizationService {
     }
 
     try {
-      const org = await withTenantContext({ userId: actorUserId, bypass: true }, async (tx) =>
+      const org = await withTenantContext({ userId: actorUserId }, async (tx) =>
         tx.organization.create({
           data: {
             id: generateId(),
@@ -123,13 +121,11 @@ export class OrganizationService {
 
     await this.getById(actorUserId, organizationId, userRoles);
 
-    const org = await withTenantContext(
-      { userId: actorUserId, organizationId, bypass: userRoles.includes('PLATFORM_ADMIN') },
-      async (tx) =>
-        tx.organization.update({
-          where: { id: organizationId },
-          data: { ...(name !== undefined ? { name } : {}) },
-        }),
+    const org = await withTenantContext({ userId: actorUserId, organizationId }, async (tx) =>
+      tx.organization.update({
+        where: { id: organizationId },
+        data: { ...(name !== undefined ? { name } : {}) },
+      }),
     );
 
     await this.audit.log({

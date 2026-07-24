@@ -246,7 +246,7 @@ export class DecisionsService {
 
     try {
       const results = await withTenantContext(
-        { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+        { userId, conferenceId, organizationId: conference.organizationId },
         async (tx) => {
           const applied: Array<{ decision: Decision; paper: PaperForDecision }> = [];
           let currentRound = round;
@@ -384,41 +384,38 @@ export class DecisionsService {
     paperVersion: number,
   ) {
     try {
-      return await withTenantContext(
-        { userId, conferenceId, organizationId, bypass: true },
-        async (tx) => {
-          const paper = await tx.paper.findFirst({
-            where: { id: paperId, conferenceId },
-            include: {
-              authorships: {
-                where: { isCorresponding: true },
-                select: { email: true, fullName: true, isCorresponding: true, userId: true },
-              },
+      return await withTenantContext({ userId, conferenceId, organizationId }, async (tx) => {
+        const paper = await tx.paper.findFirst({
+          where: { id: paperId, conferenceId },
+          include: {
+            authorships: {
+              where: { isCorresponding: true },
+              select: { email: true, fullName: true, isCorresponding: true, userId: true },
             },
-          });
+          },
+        });
 
-          if (!paper) {
-            throw new NotFoundException('Paper not found');
-          }
+        if (!paper) {
+          throw new NotFoundException('Paper not found');
+        }
 
-          assertScope(paper, { conferenceId });
+        assertScope(paper, { conferenceId });
 
-          if (paper.version !== paperVersion) {
-            throw new ConflictException('Paper was modified by another request');
-          }
+        if (paper.version !== paperVersion) {
+          throw new ConflictException('Paper was modified by another request');
+        }
 
-          return this.createDecisionAndUpdatePaper(
-            tx,
-            userId,
-            organizationId,
-            conferenceId,
-            paper,
-            round,
-            outcome,
-            rationale,
-          );
-        },
-      );
+        return this.createDecisionAndUpdatePaper(
+          tx,
+          userId,
+          organizationId,
+          conferenceId,
+          paper,
+          round,
+          outcome,
+          rationale,
+        );
+      });
     } catch (error) {
       if (error instanceof Error && error.message.includes('Unique constraint')) {
         throw new ConflictException('A decision already exists for this paper in this round');
@@ -532,7 +529,7 @@ export class DecisionsService {
     const now = new Date();
     const decisionIds = decisions.map((d) => d.id);
 
-    await withTenantContext({ bypass: true }, async (tx) => {
+    await withTenantContext({}, async (tx) => {
       await tx.decision.updateMany({
         where: { id: { in: decisionIds } },
         data: { notifiedAt: now },

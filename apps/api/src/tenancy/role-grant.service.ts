@@ -101,7 +101,7 @@ export class RoleGrantService {
       grantorRoles,
     );
 
-    const targetUser = await withTenantContext({ bypass: true }, async (tx) =>
+    const targetUser = await withTenantContext({}, async (tx) =>
       tx.user.findFirst({
         where: { id: input.userId, deletedAt: null },
       }),
@@ -234,14 +234,13 @@ export class RoleGrantService {
     conferenceId: string,
     targetUserId: string,
     scope: MembershipScope,
-    grantorRoles: RoleKind[],
+    _grantorRoles: RoleKind[],
   ) {
     const existing = await withTenantContext(
       {
         userId: actorUserId,
         organizationId,
         conferenceId,
-        bypass: grantorRoles.includes('PLATFORM_ADMIN'),
       },
       async (tx) =>
         tx.membership.findFirst({
@@ -264,7 +263,6 @@ export class RoleGrantService {
         userId: actorUserId,
         organizationId,
         conferenceId,
-        bypass: grantorRoles.includes('PLATFORM_ADMIN'),
       },
       async (tx) =>
         tx.membership.create({

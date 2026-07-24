@@ -33,7 +33,6 @@ export class LifecycleService {
       {
         userId: actorUserId,
         conferenceId,
-        bypass: userRoles.includes('PLATFORM_ADMIN'),
       },
       async (tx) =>
         tx.conference.findFirst({

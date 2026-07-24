@@ -346,7 +346,7 @@ export class AssignmentsService {
     assertScope(assignment, { conferenceId });
 
     await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId, bypass: true },
+      { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => tx.reviewerAssignment.delete({ where: { id: assignmentId } }),
     );
 
@@ -379,7 +379,7 @@ export class AssignmentsService {
     | { kind: 'skipped'; reason: string }
     | { kind: 'failed'; reason: string }
   > {
-    const existing = await withTenantContext({ userId, conferenceId, bypass: true }, async (tx) =>
+    const existing = await withTenantContext({ userId, conferenceId }, async (tx) =>
       tx.reviewerAssignment.findFirst({
         where: { roundId: round.id, paperId, reviewerUserId },
       }),
@@ -389,7 +389,7 @@ export class AssignmentsService {
       return { kind: 'skipped', reason: 'Already assigned in this round' };
     }
 
-    const paper = await withTenantContext({ userId, conferenceId, bypass: true }, async (tx) =>
+    const paper = await withTenantContext({ userId, conferenceId }, async (tx) =>
       tx.paper.findFirst({
         where: { id: paperId, conferenceId, status: { in: ['SUBMITTED', 'UNDER_REVIEW'] } },
       }),
@@ -400,7 +400,7 @@ export class AssignmentsService {
     }
 
     const reviewerMembership = await withTenantContext(
-      { userId, conferenceId, organizationId, bypass: true },
+      { userId, conferenceId, organizationId },
       async (tx) =>
         tx.membership.findFirst({
           where: {
@@ -419,7 +419,7 @@ export class AssignmentsService {
 
     try {
       const created = await withTenantContext(
-        { userId, conferenceId, organizationId, bypass: true },
+        { userId, conferenceId, organizationId },
         async (tx) => {
           const coiResult = await this.coiCheck.checkReviewerPaperConflict(
             tx,

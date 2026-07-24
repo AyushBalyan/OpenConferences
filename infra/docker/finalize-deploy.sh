@@ -107,11 +107,12 @@ prisma_pkg="$(
     -path '*/@prisma+client@*/node_modules/@prisma/client' 2>/dev/null | head -n1 || true
 )"
 if [ -n "$prisma_pkg" ]; then
-  parent="$(dirname "$prisma_pkg")"
-  if [ ! -d "$parent/.prisma/client" ] || [ ! "$prisma_src" -ef "$parent/.prisma/client" ]; then
-    rm -rf "$parent/.prisma"
-    mkdir -p "$parent/.prisma"
-    cp -a "$prisma_src" "$parent/.prisma/client"
+  modules_dir="$(dirname "$(dirname "$prisma_pkg")")"
+  if [ ! -d "$modules_dir/.prisma/client" ] || \
+     [ ! "$prisma_src" -ef "$modules_dir/.prisma/client" ]; then
+    rm -rf "$modules_dir/.prisma"
+    mkdir -p "$modules_dir/.prisma"
+    cp -a "$prisma_src" "$modules_dir/.prisma/client"
   fi
 fi
 
