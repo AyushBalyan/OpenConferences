@@ -27,7 +27,7 @@ const ibmPlexSans = IBM_Plex_Sans({
 });
 
 export const metadata: Metadata = {
-  title: 'OpenConferences',
+  title: 'FresiCMT',
   description:
     'Academic conference management — submissions, peer review, decisions, and registration in one platform.',
 };

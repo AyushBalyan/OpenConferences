@@ -89,7 +89,7 @@ export function ConferenceSidebar() {
 
       <div className={cn('mt-auto border-t border-slate-200', collapsed ? 'p-2' : 'p-4')}>
         <Link
-          href="mailto:support@openconferences.local"
+          href="mailto:contact@fresi.org"
           className={cn(
             'flex items-center rounded-md text-sm text-slate-600 transition hover:bg-slate-100 hover:text-slate-900',
             collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2',

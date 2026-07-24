@@ -118,7 +118,7 @@ export function RegistrationCard({ conferenceId, paperId }: RegistrationCardProp
         amount: payment.amountMinor,
         currency: payment.currency,
         order_id: payment.orderId,
-        name: 'OpenConferences',
+        name: 'FresiCMT',
         description: 'Conference registration',
         handler: () => {
           void load();

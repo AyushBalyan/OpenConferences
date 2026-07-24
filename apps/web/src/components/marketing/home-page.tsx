@@ -33,7 +33,7 @@ export function HomePage() {
       <nav className="fixed top-0 z-50 w-full border-b border-[var(--oc-surface-variant)] bg-[var(--oc-surface)]">
         <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-4 md:px-16">
           <div className="oc-font-headline text-2xl font-bold text-[var(--oc-primary)] md:text-[32px] md:leading-10">
-            OpenConferences
+            FresiCMT
           </div>
           <div className="hidden items-center gap-8 md:flex">
             <a
@@ -75,7 +75,7 @@ export function HomePage() {
       <header className="relative flex min-h-[min(921px,100dvh)] flex-col justify-center bg-paper-grain hero-gradient px-4 pb-20 pt-40 md:px-16">
         <div className="relative z-10 mx-auto max-w-4xl space-y-6 text-center">
           <h1 className="oc-font-display mb-2 text-4xl font-bold leading-tight tracking-tight text-[var(--oc-primary)] sm:text-5xl md:text-[57px] md:leading-[64px]">
-            OpenConferences
+            FresiCMT
           </h1>
           <h2 className="oc-font-headline mb-6 text-2xl font-semibold text-[var(--oc-on-surface)] md:text-[32px] md:leading-10">
             From submission to registration, in one place.
@@ -257,8 +257,8 @@ export function HomePage() {
             Ready to run your next conference?
           </h2>
           <p className="text-lg leading-7 text-[var(--oc-on-surface-variant)]">
-            Join thousands of academic organizers relying on OpenConferences for a seamless,
-            professional experience.
+            Join thousands of academic organizers relying on FresiCMT for a seamless, professional
+            experience.
           </p>
           <Link
             href="/sign-up"
@@ -273,13 +273,13 @@ export function HomePage() {
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-8 md:flex-row">
           <div className="flex flex-col items-center gap-4 md:items-start">
             <div className="oc-font-headline text-[28px] font-semibold text-[var(--oc-primary)]">
-              OpenConferences
+              FresiCMT
             </div>
             <p className="text-center text-sm text-[var(--oc-secondary)] md:text-left">
               Built for academic conference organizers and participants.
             </p>
             <p className="text-center text-sm text-[var(--oc-secondary)] md:text-left">
-              © 2026 OpenConferences.
+              © 2026 FresiCMT.
             </p>
           </div>
           <div className="oc-font-label flex flex-col items-center gap-6 text-xs font-medium tracking-wide md:flex-row md:gap-8">
@@ -297,7 +297,7 @@ export function HomePage() {
             </a>
             <a
               className="text-[var(--oc-on-surface-variant)] opacity-80 transition-colors hover:text-[var(--oc-primary)] hover:opacity-100"
-              href="#"
+              href="mailto:contact@fresi.org"
             >
               Contact Support
             </a>
