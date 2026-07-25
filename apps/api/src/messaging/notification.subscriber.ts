@@ -3,6 +3,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import {
   DomainEvents,
   type AuthEmailVerifyPayload,
+  type AuthMfaOtpPayload,
   type AuthPasswordResetPayload,
   type DecisionNotifiedPayload,
   type PaperSubmittedPayload,
@@ -33,6 +34,11 @@ export class NotificationSubscriber {
   @OnEvent(DomainEvents.AUTH_PASSWORD_RESET, { async: true })
   async onAuthPasswordReset(payload: AuthPasswordResetPayload): Promise<void> {
     await this.publisher.publishAuthPasswordReset(payload);
+  }
+
+  @OnEvent(DomainEvents.AUTH_MFA_OTP, { async: true })
+  async onAuthMfaOtp(payload: AuthMfaOtpPayload): Promise<void> {
+    await this.publisher.publishAuthMfaOtp(payload);
   }
 
   @OnEvent(DomainEvents.PAPER_SUBMITTED, { async: true })

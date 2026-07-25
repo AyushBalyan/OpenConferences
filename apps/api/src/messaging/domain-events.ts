@@ -2,6 +2,7 @@
 export const DomainEvents = {
   AUTH_EMAIL_VERIFY: 'notification.auth.email_verify',
   AUTH_PASSWORD_RESET: 'notification.auth.password_reset',
+  AUTH_MFA_OTP: 'notification.auth.mfa_otp',
   PAPER_SUBMITTED: 'notification.paper.submitted',
   REVIEWER_INVITATION: 'notification.reviewer.invitation',
   REVIEWER_ASSIGNED: 'notification.reviewer.assigned',
@@ -24,6 +25,13 @@ export type AuthEmailVerifyPayload = {
 export type AuthPasswordResetPayload = {
   to: string;
   resetUrl: string;
+  idempotencyKey: string;
+};
+
+export type AuthMfaOtpPayload = {
+  to: string;
+  otp: string;
+  expiresMinutes: number;
   idempotencyKey: string;
 };
 

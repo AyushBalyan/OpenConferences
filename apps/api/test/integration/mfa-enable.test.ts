@@ -6,8 +6,24 @@ import { LoggerModule } from 'nestjs-pino';
 import { getConfig } from '@openconferences/config/env';
 import { prisma, generateId } from '@openconferences/db';
 import { AppModule } from '../../src/app.module.ts';
+import {
+  lastTestNotification,
+  resetLastTestNotification,
+} from '../../src/messaging/notification.service.ts';
+import { ensureNotificationTemplates } from '../helpers/notifications.ts';
 
-describe('MFA enable', () => {
+function extractCookies(setCookie: string | string[] | undefined): string {
+  if (!setCookie) return '';
+  const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
+  return cookies.map((cookie) => cookie.split(';')[0]).join('; ');
+}
+
+function extractOtpFromEmail(html: string): string | null {
+  const match = html.match(/>\s*(\d{6})\s*</) ?? html.match(/Code:\s*(\d{6})/);
+  return match?.[1] ?? null;
+}
+
+describe('MFA enable (email OTP)', () => {
   let app: INestApplication;
   const email = `mfa-smoke-${Date.now()}@example.com`;
   const password = 'TestPassword123!';
@@ -22,6 +38,7 @@ describe('MFA enable', () => {
     app = moduleRef.createNestApplication();
     app.setGlobalPrefix(getConfig().api.basePath.replace(/^\//, ''));
     await app.init();
+    await ensureNotificationTemplates();
 
     const { hashPassword } = await import('better-auth/crypto');
     userId = generateId();
@@ -47,11 +64,7 @@ describe('MFA enable', () => {
       .set('Origin', getConfig().api.corsOrigins[0] ?? 'http://localhost:3000')
       .send({ email, password });
 
-    const setCookie = signIn.headers['set-cookie'];
-    cookie = (Array.isArray(setCookie) ? setCookie : [setCookie])
-      .map((entry) => entry?.split(';')[0])
-      .filter(Boolean)
-      .join('; ');
+    cookie = extractCookies(signIn.headers['set-cookie']);
   }, 60000);
 
   afterAll(async () => {
@@ -60,15 +73,43 @@ describe('MFA enable', () => {
     await app?.close();
   });
 
-  it('POST /auth/two-factor/enable returns totpURI and backup codes', async () => {
-    const response = await request(app.getHttpServer())
+  it('enables MFA via enable → send-otp → verify-otp', async () => {
+    const origin = getConfig().api.corsOrigins[0] ?? 'http://localhost:3000';
+
+    const enable = await request(app.getHttpServer())
       .post('/api/v1/auth/two-factor/enable')
-      .set('Origin', getConfig().api.corsOrigins[0] ?? 'http://localhost:3000')
+      .set('Origin', origin)
       .set('Cookie', cookie)
       .send({ password });
 
-    expect(response.status).toBe(200);
-    expect(response.body.totpURI).toBeTruthy();
-    expect(response.body.backupCodes?.length).toBeGreaterThan(0);
+    expect(enable.status).toBe(200);
+    expect(enable.body.totpURI).toBeTruthy();
+    expect(enable.body.backupCodes?.length).toBeGreaterThan(0);
+    cookie = [cookie, extractCookies(enable.headers['set-cookie'])].filter(Boolean).join('; ');
+
+    resetLastTestNotification();
+    const sendOtp = await request(app.getHttpServer())
+      .post('/api/v1/auth/two-factor/send-otp')
+      .set('Origin', origin)
+      .set('Cookie', cookie)
+      .send({});
+
+    expect(sendOtp.status).toBe(200);
+    expect(lastTestNotification?.templateKey).toBe('auth.mfa_otp');
+    expect(lastTestNotification?.to).toBe(email);
+    const otp = extractOtpFromEmail(lastTestNotification!.html);
+    expect(otp).toMatch(/^\d{6}$/);
+
+    const verify = await request(app.getHttpServer())
+      .post('/api/v1/auth/two-factor/verify-otp')
+      .set('Origin', origin)
+      .set('Cookie', cookie)
+      .send({ code: otp });
+
+    expect(verify.status).toBe(200);
+    cookie = [cookie, extractCookies(verify.headers['set-cookie'])].filter(Boolean).join('; ');
+
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    expect(user.twoFactorEnabled).toBe(true);
   });
 });

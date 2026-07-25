@@ -1,5 +1,6 @@
 import { initClient } from '@ts-rest/core';
 import { apiContract } from '@openconferences/contracts';
+import { MFA_REQUIRED_DETAIL, MfaRequiredError } from '@/lib/mfa-errors';
 
 const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1';
 
@@ -91,7 +92,13 @@ export async function createConference(body: {
 }) {
   const result = await apiClient.conferences.create({ body });
   if (result.status === 201) return result.body;
-  if (result.status === 403) throw new Error(result.body.detail ?? 'Forbidden');
+  if (result.status === 403) {
+    const detail = result.body.detail ?? 'Forbidden';
+    if (detail.includes(MFA_REQUIRED_DETAIL)) {
+      throw new MfaRequiredError(detail);
+    }
+    throw new Error(detail);
+  }
   if (result.status === 409) throw new Error(result.body.detail ?? 'Conflict');
   throw new Error('Failed to create conference');
 }

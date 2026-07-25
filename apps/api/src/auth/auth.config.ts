@@ -7,7 +7,11 @@ import { prisma, generateId } from '@openconferences/db';
 import type { AuditService } from '../audit/audit.service';
 import { NotificationPublisher } from '../messaging/notification.publisher';
 import { formatEmailDate } from '../messaging/format-email-date';
-import type { AuthEmailVerifyPayload, AuthPasswordResetPayload } from '../messaging/domain-events';
+import type {
+  AuthEmailVerifyPayload,
+  AuthMfaOtpPayload,
+  AuthPasswordResetPayload,
+} from '../messaging/domain-events';
 
 export type ReviewerInvitationMagicLinkMetadata = {
   reviewerInvitationId: string;
@@ -147,6 +151,10 @@ export function createAuthInstance(deps: AuthDependencies): AuthInstance {
           window: 60,
           max: 3,
         },
+        '/two-factor/send-otp': {
+          window: 60,
+          max: 3,
+        },
         '/magic-link/verify': {
           window: 60,
           max: 10,
@@ -251,6 +259,20 @@ export function createAuthInstance(deps: AuthDependencies): AuthInstance {
       }),
       twoFactor({
         issuer: 'OpenConferences',
+        otpOptions: {
+          period: 10,
+          digits: 6,
+          storeOTP: 'hashed',
+          sendOTP: async ({ user, otp }) => {
+            const payload: AuthMfaOtpPayload = {
+              to: user.email,
+              otp,
+              expiresMinutes: 10,
+              idempotencyKey: `mfa-otp:${user.id}:${Date.now()}`,
+            };
+            await deps.notifications.publishAuthMfaOtp(payload);
+          },
+        },
       }),
     ],
     databaseHooks: {

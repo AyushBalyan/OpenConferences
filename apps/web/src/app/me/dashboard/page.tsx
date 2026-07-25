@@ -17,7 +17,8 @@ import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { fetchMeDashboard } from '@/lib/api-client';
+import { fetchMe, fetchMeDashboard } from '@/lib/api-client';
+import { mfaEnrollHref } from '@/lib/mfa-errors';
 import { paperStatusLabel, paperStatusTone } from '@/lib/paper-status-styles';
 import { roleLabels } from '@/lib/roles';
 import type { MeDashboard } from '@openconferences/schemas';
@@ -27,12 +28,16 @@ const PREVIEW_LIMIT = 3;
 
 export default function MeDashboardPage() {
   const [dashboard, setDashboard] = useState<MeDashboard | null>(null);
+  const [needsMfaEnroll, setNeedsMfaEnroll] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchMeDashboard()
-      .then(setDashboard)
+    Promise.all([fetchMeDashboard(), fetchMe()])
+      .then(([dash, me]) => {
+        setDashboard(dash);
+        setNeedsMfaEnroll(Boolean(dash.canCreateConference && me && !me.twoFactorEnabled));
+      })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load dashboard'))
       .finally(() => setLoading(false));
   }, []);
@@ -57,6 +62,19 @@ export default function MeDashboardPage() {
       />
 
       {error ? <p className="mb-4 text-sm text-rose-600">{error}</p> : null}
+
+      {!loading && needsMfaEnroll ? (
+        <div className="mb-6 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <p className="font-medium">Enable email verification for admin actions</p>
+          <p className="mt-1 text-amber-900/90">
+            Creating conferences and other privileged organizer actions require a one-time code
+            emailed to your account.
+          </p>
+          <Button asChild className="mt-3" size="sm">
+            <Link href={mfaEnrollHref('/me/dashboard')}>Enable email verification</Link>
+          </Button>
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="space-y-6">

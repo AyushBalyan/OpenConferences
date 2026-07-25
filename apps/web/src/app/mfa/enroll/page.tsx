@@ -1,101 +1,214 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { mfaEnrollSchema, type MfaEnrollInput } from '@openconferences/schemas';
-import { authClient } from '@/lib/auth-client';
+import {
+  mfaEnrollSchema,
+  mfaVerifySchema,
+  type MfaEnrollInput,
+  type MfaVerifyInput,
+} from '@openconferences/schemas';
+import { authClient, refreshSession } from '@/lib/auth-client';
 import { ProtectedRoute } from '@/components/auth/protected-route';
 import { AuthShell } from '@/components/auth/auth-shell';
-import { TotpQrCode } from '@/components/auth/totp-qr-code';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
+const RESEND_COOLDOWN_SEC = 60;
+
+function safeNextPath(raw: string | null): string | null {
+  if (!raw || !raw.startsWith('/') || raw.startsWith('//')) return null;
+  return raw;
+}
+
 export default function MfaEnrollPage() {
   return (
     <ProtectedRoute>
-      <MfaEnrollForm />
+      <Suspense fallback={<div className="p-8 text-center text-sm">Loading…</div>}>
+        <MfaEnrollForm />
+      </Suspense>
     </ProtectedRoute>
   );
 }
 
 function MfaEnrollForm() {
-  const [totpUri, setTotpUri] = useState<string | null>(null);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextPath = safeNextPath(searchParams.get('next')) ?? '/me/dashboard';
+
+  const [step, setStep] = useState<'password' | 'code' | 'done'>('password');
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<MfaEnrollInput>({
+  const [resendIn, setResendIn] = useState(0);
+  const [sending, setSending] = useState(false);
+
+  const passwordForm = useForm<MfaEnrollInput>({
     resolver: zodResolver(mfaEnrollSchema),
   });
+  const codeForm = useForm<MfaVerifyInput>({
+    resolver: zodResolver(mfaVerifySchema),
+    defaultValues: { trustDevice: false },
+  });
 
-  const onSubmit = handleSubmit(async (values) => {
+  const startResendCooldown = () => {
+    setResendIn(RESEND_COOLDOWN_SEC);
+    const timer = window.setInterval(() => {
+      setResendIn((prev) => {
+        if (prev <= 1) {
+          window.clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const sendOtp = async () => {
+    setSending(true);
     setError(null);
-    const result = await authClient.twoFactor.enable({
+    const result = await authClient.twoFactor.sendOtp({});
+    setSending(false);
+    if (result.error) {
+      setError(result.error.message ?? 'Unable to send verification code');
+      return false;
+    }
+    startResendCooldown();
+    return true;
+  };
+
+  const onPasswordSubmit = passwordForm.handleSubmit(async (values) => {
+    setError(null);
+    const enableResult = await authClient.twoFactor.enable({
       password: values.password,
     });
 
-    if (result.error) {
-      setError(result.error.message ?? 'Unable to start MFA enrollment');
+    if (enableResult.error) {
+      setError(enableResult.error.message ?? 'Unable to start MFA enrollment');
       return;
     }
 
-    if (result.data) {
-      setTotpUri(result.data.totpURI);
-      setBackupCodes(result.data.backupCodes);
+    if (enableResult.data?.backupCodes?.length) {
+      setBackupCodes(enableResult.data.backupCodes);
     }
+
+    setStep('code');
+    await sendOtp();
+  });
+
+  const onCodeSubmit = codeForm.handleSubmit(async (values) => {
+    setError(null);
+    const result = await authClient.twoFactor.verifyOtp({
+      code: values.code,
+      trustDevice: values.trustDevice ?? false,
+    });
+
+    if (result.error) {
+      setError('Invalid or expired verification code');
+      return;
+    }
+
+    await refreshSession();
+
+    if (backupCodes.length > 0) {
+      setStep('done');
+      return;
+    }
+
+    router.push(nextPath);
   });
 
   return (
     <AuthShell
-      title="Enable two-factor authentication"
-      description="Protect privileged organizer actions with a TOTP authenticator app."
+      title="Enable email verification"
+      description="We will email a one-time code to confirm admin actions on your account."
     >
-      {!totpUri ? (
-        <form className="space-y-4" onSubmit={onSubmit}>
+      {step === 'password' ? (
+        <form className="space-y-4" onSubmit={onPasswordSubmit}>
           <div className="space-y-2">
             <Label htmlFor="password">Confirm password</Label>
             <Input
               id="password"
               type="password"
               autoComplete="current-password"
-              {...register('password')}
+              {...passwordForm.register('password')}
             />
-            {errors.password ? (
-              <p className="text-sm text-destructive">{errors.password.message}</p>
+            {passwordForm.formState.errors.password ? (
+              <p className="text-sm text-destructive">
+                {passwordForm.formState.errors.password.message}
+              </p>
             ) : null}
           </div>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          <Button type="submit" className="w-full" disabled={isSubmitting}>
-            {isSubmitting ? 'Generating…' : 'Generate authenticator setup'}
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={passwordForm.formState.isSubmitting || sending}
+          >
+            {passwordForm.formState.isSubmitting || sending ? 'Sending code…' : 'Email me a code'}
           </Button>
         </form>
-      ) : (
+      ) : null}
+
+      {step === 'code' ? (
+        <form className="space-y-4" onSubmit={onCodeSubmit}>
+          <p className="text-sm text-muted-foreground">
+            We emailed a 6-digit code to your address. Enter it below to finish enabling
+            verification.
+          </p>
+          <div className="space-y-2">
+            <Label htmlFor="code">Verification code</Label>
+            <Input
+              id="code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              {...codeForm.register('code')}
+            />
+            {codeForm.formState.errors.code ? (
+              <p className="text-sm text-destructive">{codeForm.formState.errors.code.message}</p>
+            ) : null}
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" {...codeForm.register('trustDevice')} />
+            Trust this device
+          </label>
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          <Button type="submit" className="w-full" disabled={codeForm.formState.isSubmitting}>
+            {codeForm.formState.isSubmitting ? 'Verifying…' : 'Verify and enable'}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            disabled={sending || resendIn > 0}
+            onClick={() => void sendOtp()}
+          >
+            {resendIn > 0 ? `Resend in ${resendIn}s` : sending ? 'Sending…' : 'Resend code'}
+          </Button>
+        </form>
+      ) : null}
+
+      {step === 'done' ? (
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Scan this QR code with your authenticator app (Google Authenticator, Authy, 1Password,
-            etc.), then verify a code on the next page.
+            Email verification is enabled. Save these backup codes in a safe place — each can be
+            used once if you cannot receive email.
           </p>
-          <TotpQrCode uri={totpUri} />
-          <div>
-            <p className="mb-2 text-sm font-medium">Backup codes</p>
-            <ul className="grid grid-cols-2 gap-2 text-sm font-mono">
-              {backupCodes.map((code) => (
-                <li key={code} className="rounded bg-muted px-2 py-1">
-                  {code}
-                </li>
-              ))}
-            </ul>
-          </div>
+          <ul className="grid grid-cols-2 gap-2 font-mono text-sm">
+            {backupCodes.map((code) => (
+              <li key={code} className="rounded bg-muted px-2 py-1">
+                {code}
+              </li>
+            ))}
+          </ul>
           <Button asChild className="w-full">
-            <Link href="/mfa/challenge">Verify setup</Link>
+            <Link href={nextPath}>Continue</Link>
           </Button>
         </div>
-      )}
+      ) : null}
     </AuthShell>
   );
 }

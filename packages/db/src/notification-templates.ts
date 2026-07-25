@@ -206,6 +206,33 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
     variables: ['resetUrl'],
   },
   {
+    key: 'auth.mfa_otp',
+    subject: 'Your OpenConferences verification code',
+    bodyHtml: buildEmailHtml({
+      preheader: 'Your verification code expires shortly.',
+      headline: 'Your verification code',
+      paragraphs: [
+        'Use this code to finish signing in or enable two-factor authentication on your OpenConferences account.',
+        'Enter the code in the browser window where you requested it. Do not share this code with anyone.',
+      ],
+      extraHtml:
+        '<div style="font-size:32px;font-weight:700;letter-spacing:8px;text-align:center;margin:8px 0 8px;padding:20px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;color:#0f172a;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;">{{otp}}</div><p style="margin:0 0 16px;font-size:14px;line-height:1.55;color:#64748b;text-align:center;">Expires in {{expiresMinutes}} minutes</p>',
+      secondaryNote:
+        'If you did not request this code, you can ignore this email. Someone else may have typed your address by mistake.',
+    }),
+    bodyText: plainText({
+      headline: 'Your verification code',
+      paragraphs: [
+        'Use this code to finish signing in or enable two-factor authentication on your OpenConferences account.',
+        'Code: {{otp}}',
+        'This code expires in {{expiresMinutes}} minutes.',
+        'Do not share this code with anyone.',
+      ],
+      secondaryNote: 'If you did not request this code, you can ignore this email.',
+    }),
+    variables: ['otp', 'expiresMinutes'],
+  },
+  {
     key: 'submission.confirmed',
     subject: 'Submission received: {{paperTitle}}',
     bodyHtml: buildEmailHtml({

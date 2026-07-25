@@ -82,6 +82,10 @@ function buildSampleContext(templateKey: string, webUrl: string): Record<string,
     'auth.password_reset': {
       resetUrl: `${base}/reset-password?token=deliverability-test-token`,
     },
+    'auth.mfa_otp': {
+      otp: '123456',
+      expiresMinutes: '10',
+    },
     'submission.confirmed': {
       paperTitle: 'Deliverability Test Paper',
     },

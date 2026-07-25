@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   type AuthEmailVerifyPayload,
+  type AuthMfaOtpPayload,
   type AuthPasswordResetPayload,
   type DecisionNotifiedPayload,
   type PaperSubmittedPayload,
@@ -44,6 +45,20 @@ export class NotificationPublisher {
       context: { resetUrl: payload.resetUrl },
       idempotencyKey: payload.idempotencyKey,
       tags: ['auth.password_reset'],
+      relatedEntity: 'User',
+    });
+  }
+
+  async publishAuthMfaOtp(payload: AuthMfaOtpPayload): Promise<void> {
+    await this.notifications.enqueue({
+      templateKey: 'auth.mfa_otp',
+      to: payload.to,
+      context: {
+        otp: payload.otp,
+        expiresMinutes: String(payload.expiresMinutes),
+      },
+      idempotencyKey: payload.idempotencyKey,
+      tags: ['auth.mfa_otp'],
       relatedEntity: 'User',
     });
   }
