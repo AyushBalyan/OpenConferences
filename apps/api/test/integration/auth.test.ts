@@ -102,17 +102,10 @@ describe('Auth integration', () => {
 
     const response = await request(app.getHttpServer())
       .get(`/api/v1/auth/verify-email?token=${encodeURIComponent(verificationToken!)}`)
-      .set('Origin', config.api.corsOrigins[0] ?? 'http://localhost:3000');
+      .set('Origin', config.api.corsOrigins[0] ?? 'http://localhost:3000')
+      .expect(200);
 
-    if (response.status !== 200) {
-      // Fallback: mark verified directly if Better Auth handler errors in test harness
-      await prisma.user.updateMany({
-        where: { email: testEmail },
-        data: { emailVerified: true },
-      });
-    } else {
-      expect(response.body.status).toBe(true);
-    }
+    expect(response.body.status).toBe(true);
 
     const user = await prisma.user.findFirst({ where: { email: testEmail } });
     expect(user?.emailVerified).toBe(true);

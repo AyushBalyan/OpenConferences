@@ -76,7 +76,18 @@ export default function MeDashboardPage() {
         <EmptyState
           icon="inbox"
           title="Nothing to show yet"
-          description="You will see your papers, review assignments, and organizer conferences here once you join a conference."
+          description={
+            dashboard?.canCreateConference
+              ? 'Create your first conference to start organizing submissions, reviews, and registration.'
+              : 'You will see your papers, review assignments, and organizer conferences here once you join a conference.'
+          }
+          action={
+            dashboard?.canCreateConference ? (
+              <Button asChild>
+                <Link href="/dashboard/conferences/new">Create conference</Link>
+              </Button>
+            ) : undefined
+          }
         />
       ) : null}
 

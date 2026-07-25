@@ -341,6 +341,16 @@ describe('Dashboard, pagination & analytics integration', () => {
     expect(res.status).toBe(200);
     expect(res.body.authoredPapers.length).toBeGreaterThan(0);
     expect(res.body.authoredPapers[0].conferenceName).toBe('Dashboard Conf A');
+    expect(res.body.canCreateConference).toBe(false);
+  });
+
+  it('exposes canCreateConference for org admins without relying on conference list', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/me/dashboard')
+      .set('Cookie', organizerCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.canCreateConference).toBe(true);
   });
 
   it('reconciles analytics overview with source data', async () => {

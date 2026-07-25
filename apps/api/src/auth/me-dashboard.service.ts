@@ -6,6 +6,7 @@ import { effectiveRolesForConference, mergeRolesByConference } from '../tenancy/
 import { maxRoleRank } from '../tenancy/role-hierarchy';
 
 const ORGANIZER_SURFACE_ROLES: RoleKind[] = ['ORGANIZER', 'ORG_ADMIN', 'CHAIR', 'PLATFORM_ADMIN'];
+const CREATE_CONFERENCE_ROLES: RoleKind[] = ['ORG_ADMIN', 'PLATFORM_ADMIN'];
 
 @Injectable()
 export class MeDashboardService {
@@ -96,6 +97,10 @@ export class MeDashboardService {
         };
       });
 
+    const canCreateConference = memberships.some((membership) =>
+      membership.roles.some((grant) => CREATE_CONFERENCE_ROLES.includes(grant.role)),
+    );
+
     return {
       authoredPapers: papers.map((paper) => ({
         id: paper.id,
@@ -118,6 +123,7 @@ export class MeDashboardService {
         roundNumber: assignment.round.roundNumber,
       })),
       organizerConferences,
+      canCreateConference,
     };
   }
 }

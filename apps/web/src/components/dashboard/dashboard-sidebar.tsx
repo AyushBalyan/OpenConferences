@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { HelpCircle, Home, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { fetchConferences } from '@/lib/api-client';
+import { fetchConferences, fetchMeDashboard } from '@/lib/api-client';
 import { canCreateConference } from '@/lib/roles';
 import type { Conference } from '@/lib/conference-types';
 import { ConferenceSwitcher } from './conference-switcher';
@@ -45,16 +45,25 @@ function SidebarLink({
 export function DashboardSidebar() {
   const pathname = usePathname();
   const [conferences, setConferences] = useState<Conference[]>([]);
+  const [canCreate, setCanCreate] = useState(false);
   const sidebar = useSidebarOptional();
   const collapsed = sidebar?.collapsed ?? false;
 
   useEffect(() => {
-    fetchConferences()
-      .then((result) => setConferences(result.data))
-      .catch(() => setConferences([]));
+    void Promise.all([
+      fetchConferences()
+        .then((result) => result.data)
+        .catch(() => [] as Conference[]),
+      fetchMeDashboard()
+        .then((dashboard) => dashboard.canCreateConference)
+        .catch(() => false),
+    ]).then(([list, createAllowed]) => {
+      setConferences(list);
+      setCanCreate(
+        createAllowed || list.some((conference) => canCreateConference(conference.myRoles ?? [])),
+      );
+    });
   }, []);
-
-  const showCreate = conferences.some((c) => canCreateConference(c.myRoles ?? []));
 
   return (
     <div className="flex h-full flex-col">
@@ -82,7 +91,7 @@ export function DashboardSidebar() {
           active={pathname === '/me/dashboard' || pathname === '/dashboard'}
           collapsed={collapsed}
         />
-        {showCreate ? (
+        {canCreate ? (
           <SidebarLink
             href="/dashboard/conferences/new"
             label="Create conference"
@@ -107,11 +116,11 @@ export function DashboardSidebar() {
           href="mailto:contact@fresi.org"
           className={cn(
             'flex items-center rounded-md text-sm text-slate-600 transition hover:bg-slate-100 hover:text-slate-900',
-            collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2',
+            collapsed ? 'justify-center px-2 py-2' : 'gap-2.5 px-3 py-2',
           )}
           title={collapsed ? 'Help & support' : undefined}
         >
-          <HelpCircle className="h-4 w-4" />
+          <HelpCircle className="h-4 w-4 shrink-0 opacity-80" />
           {!collapsed ? 'Help & support' : null}
         </Link>
       </div>

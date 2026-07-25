@@ -133,6 +133,8 @@ export const meDashboardSchema = z.object({
   authoredPapers: z.array(meDashboardPaperSchema),
   reviewerAssignments: z.array(meDashboardAssignmentSchema),
   organizerConferences: z.array(meDashboardOrganizerConferenceSchema),
+  /** True when the user has ORG_ADMIN or PLATFORM_ADMIN on any membership (incl. org-scoped). */
+  canCreateConference: z.boolean(),
 });
 
 export type MeDashboard = z.infer<typeof meDashboardSchema>;
