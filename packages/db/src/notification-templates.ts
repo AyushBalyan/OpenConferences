@@ -157,28 +157,30 @@ function plainInvitationText(options: {
 export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
   {
     key: 'auth.email_verify',
-    subject: 'Verify your email for OpenConferences',
+    subject: 'Your OpenConferences email verification code',
     bodyHtml: buildEmailHtml({
-      preheader: 'Confirm your email to access submissions, reviews, and registrations.',
+      preheader: 'Enter this code to verify your email address.',
       headline: 'Verify your email address',
       paragraphs: [
         'Thanks for creating an OpenConferences account.',
-        'Please confirm your email address to sign in, submit papers, accept reviewer invitations, and manage conference registrations.',
+        'Enter this code in the browser window where you signed up. Do not share this code with anyone.',
       ],
-      cta: { label: 'Verify email address', url: '{{verifyUrl}}' },
+      extraHtml:
+        '<div style="font-size:32px;font-weight:700;letter-spacing:8px;text-align:center;margin:8px 0 8px;padding:20px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;color:#0f172a;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;">{{otp}}</div><p style="margin:0 0 16px;font-size:14px;line-height:1.55;color:#64748b;text-align:center;">Expires in {{expiresMinutes}} minutes</p>',
       secondaryNote:
-        'If you did not create an account, you can safely ignore this email. This link may expire after a short period.',
+        'If you did not create an account, you can safely ignore this email. Someone else may have typed your address by mistake.',
     }),
     bodyText: plainText({
       headline: 'Verify your email address',
       paragraphs: [
         'Thanks for creating an OpenConferences account.',
-        'Please confirm your email address to sign in and use the platform.',
+        'Code: {{otp}}',
+        'This code expires in {{expiresMinutes}} minutes.',
+        'Enter the code in the browser window where you signed up. Do not share it with anyone.',
       ],
-      cta: { label: 'Verify email address', url: '{{verifyUrl}}' },
       secondaryNote: 'If you did not create an account, you can ignore this email.',
     }),
-    variables: ['verifyUrl'],
+    variables: ['otp', 'expiresMinutes'],
   },
   {
     key: 'auth.password_reset',

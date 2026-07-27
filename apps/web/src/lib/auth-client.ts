@@ -1,7 +1,7 @@
 'use client';
 
 import { createAuthClient } from 'better-auth/react';
-import { twoFactorClient } from 'better-auth/client/plugins';
+import { emailOTPClient, twoFactorClient } from 'better-auth/client/plugins';
 
 const apiOrigin =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/v1\/?$/, '') ?? 'http://localhost:3001';
@@ -12,6 +12,7 @@ export const authClient = createAuthClient({
     credentials: 'include',
   },
   plugins: [
+    emailOTPClient(),
     twoFactorClient({
       twoFactorPage: '/mfa/challenge',
     }),

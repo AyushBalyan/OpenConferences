@@ -21,8 +21,8 @@ function extractCookies(setCookie: string | string[] | undefined): string {
   return cookies.map((cookie) => cookie.split(';')[0]).join('; ');
 }
 
-function extractTokenFromEmail(html: string): string | null {
-  const match = html.match(/token=([^"&]+)/);
+function extractOtpFromEmail(html: string): string | null {
+  const match = html.match(/>\s*(\d{6})\s*</) ?? html.match(/Code:\s*(\d{6})/);
   return match?.[1] ?? null;
 }
 
@@ -35,7 +35,7 @@ describe('Auth integration', () => {
   let app: INestApplication;
   const config = getConfig();
   let sessionCookie = '';
-  let verificationToken: string | null = null;
+  let verificationOtp: string | null = null;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -77,7 +77,8 @@ describe('Auth integration', () => {
 
     expect(response.body.user ?? response.body).toBeTruthy();
     expect(lastTestNotification?.to).toBe(testEmail);
-    verificationToken = extractTokenFromEmail(lastTestNotification!.html);
+    expect(lastTestNotification?.templateKey).toBe('auth.email_verify');
+    verificationOtp = extractOtpFromEmail(lastTestNotification!.html);
 
     const audit = await prisma.auditLog.findFirst({
       where: { action: 'auth.signup' },
@@ -97,12 +98,16 @@ describe('Auth integration', () => {
       .expect(403);
   });
 
-  it('verifies email via JWT token from mailer queue', async () => {
-    expect(verificationToken).toBeTruthy();
+  it('verifies email via OTP from mailer queue', async () => {
+    expect(verificationOtp).toMatch(/^\d{6}$/);
 
     const response = await request(app.getHttpServer())
-      .get(`/api/v1/auth/verify-email?token=${encodeURIComponent(verificationToken!)}`)
+      .post('/api/v1/auth/email-otp/verify-email')
       .set('Origin', config.api.corsOrigins[0] ?? 'http://localhost:3000')
+      .send({
+        email: testEmail,
+        otp: verificationOtp,
+      })
       .expect(200);
 
     expect(response.body.status).toBe(true);

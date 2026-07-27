@@ -582,7 +582,7 @@ model RoleGrant {
 
 - **One global identity.** Better Auth manages `users`, `accounts`, `sessions`. Email+password and/or OAuth.
 - **Session strategy.** HTTP-only, secure cookies; sessions stored in Postgres, **cached in Redis** for fast lookup. Next.js forwards the cookie; the API re-validates every request.
-- **Email verification** required before submitting papers or accepting reviewer invites.
+- **Email verification** required before submitting papers or accepting reviewer invites. Product UX uses a **same-tab email OTP** (Better Auth `emailOTP` with `overrideDefaultEmailVerification`); magic verification links are not the primary path.
 - **Password reset, account recovery, login lockout** enabled via Better Auth.
 - **Mandatory MFA** for `ORGANIZER`, `CHAIR`, `ORG_ADMIN`, `PLATFORM_ADMIN` (anyone who moves money or grants roles). Product UX uses **email OTP** (Better Auth two-factor `otpOptions`); authenticator TOTP is not required in the UI.
 - **CSRF:** SameSite cookies + CSRF tokens on state-changing routes; strict CORS allow-list.
@@ -1457,7 +1457,7 @@ Magic-byte sniffing, server checksum, ClamAV gating (`PENDING_SCAN → CLEAN | I
 
 ### 18.8 Auth lifecycle + MFA
 
-Password reset, lockout, CSRF, CORS, security headers; mandatory MFA for money/role-grant roles. MFA factor in product UX is **email OTP** (send/verify via Better Auth `/two-factor/send-otp` and `/two-factor/verify-otp`); TOTP may exist under the hood from `twoFactor.enable` but is not exposed as the primary enrollment path.
+Password reset, lockout, CSRF, CORS, security headers; mandatory MFA for money/role-grant roles. Email verification uses **email OTP** (Better Auth `/email-otp/send-verification-otp` + `/email-otp/verify-email`). MFA factor in product UX is also **email OTP** (send/verify via Better Auth `/two-factor/send-otp` and `/two-factor/verify-otp`); TOTP may exist under the hood from `twoFactor.enable` but is not exposed as the primary enrollment path.
 
 ### 18.9 Privilege-escalation ceiling
 

@@ -154,7 +154,45 @@ describe('Author submit join link integration', () => {
     expect(response.body.urlPath).toBe(`/join/author?token=${authorJoinToken}`);
   });
 
-  it('join-as-author grants conference-scoped AUTHOR role', async () => {
+  it('RLS hides conference from non-members; SECURITY DEFINER resolver still finds token', async () => {
+    // Author has no org/conference membership yet — mirrors production joiners.
+    const prior = await withTenantContext({}, async (tx) =>
+      tx.membership.findFirst({ where: { userId: authorUserId, organizationId: orgId } }),
+    );
+    expect(prior).toBeNull();
+
+    const directSelect = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL ROLE openconferences_api');
+      await tx.$executeRaw`SELECT set_config('app.current_user_id', ${authorUserId}, true)`;
+      await tx.$executeRaw`SELECT set_config('app.current_org_id', '', true)`;
+      await tx.$executeRaw`SELECT set_config('app.current_conference_id', '', true)`;
+      return tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM conferences
+        WHERE "authorJoinToken" = ${authorJoinToken}::uuid
+          AND "deletedAt" IS NULL
+      `;
+    });
+    expect(directSelect).toEqual([]);
+
+    const resolved = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL ROLE openconferences_api');
+      await tx.$executeRaw`SELECT set_config('app.current_user_id', ${authorUserId}, true)`;
+      return tx.$queryRaw<Array<{ id: string; name: string; status: string }>>`
+        SELECT id, name, status::text AS status
+        FROM public.app_resolve_conference_by_author_join_token(${authorJoinToken}::uuid)
+      `;
+    });
+    expect(resolved).toEqual([
+      { id: conferenceId, name: 'Author Join Conference', status: 'CFP_OPEN' },
+    ]);
+  });
+
+  it('join-as-author grants conference-scoped AUTHOR role for a user with no prior membership', async () => {
+    const prior = await withTenantContext({}, async (tx) =>
+      tx.membership.findFirst({ where: { userId: authorUserId, organizationId: orgId } }),
+    );
+    expect(prior).toBeNull();
+
     const response = await request(app.getHttpServer())
       .post('/api/v1/conferences/join-as-author')
       .set('Cookie', authorCookie)

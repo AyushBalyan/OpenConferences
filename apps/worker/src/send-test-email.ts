@@ -77,7 +77,8 @@ function buildSampleContext(templateKey: string, webUrl: string): Record<string,
 
   const byKey: Record<string, Record<string, string>> = {
     'auth.email_verify': {
-      verifyUrl: `${base}/verify-email?token=deliverability-test-token`,
+      otp: '123456',
+      expiresMinutes: '10',
     },
     'auth.password_reset': {
       resetUrl: `${base}/reset-password?token=deliverability-test-token`,

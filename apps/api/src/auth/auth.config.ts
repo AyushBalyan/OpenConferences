@@ -1,6 +1,6 @@
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
-import { magicLink, twoFactor } from 'better-auth/plugins';
+import { magicLink, twoFactor, emailOTP } from 'better-auth/plugins';
 import type Redis from 'ioredis';
 import { getConfig } from '@openconferences/config/env';
 import { prisma, generateId } from '@openconferences/db';
@@ -54,14 +54,6 @@ function buildWebAuthPageUrl(
     pageUrl.searchParams.set(key, value);
   }
   return pageUrl.toString();
-}
-
-function extractVerificationTokenFromAuthUrl(url: string): string {
-  const token = new URL(url).searchParams.get('token');
-  if (!token) {
-    throw new Error('Verification email URL is missing token');
-  }
-  return token;
 }
 
 function extractResetTokenFromAuthUrl(url: string): string {
@@ -151,6 +143,10 @@ export function createAuthInstance(deps: AuthDependencies): AuthInstance {
           window: 60,
           max: 3,
         },
+        '/email-otp/send-verification-otp': {
+          window: 60,
+          max: 3,
+        },
         '/two-factor/send-otp': {
           window: 60,
           max: 3,
@@ -206,19 +202,7 @@ export function createAuthInstance(deps: AuthDependencies): AuthInstance {
       },
     },
     emailVerification: {
-      sendVerificationEmail: async ({ user, url, token }) => {
-        const verifyUrl = buildWebAuthPageUrl(
-          config.webUrl,
-          '/verify-email',
-          token ?? extractVerificationTokenFromAuthUrl(url),
-        );
-        const payload: AuthEmailVerifyPayload = {
-          to: user.email,
-          verifyUrl,
-          idempotencyKey: `verify:${user.id}:${Date.now()}`,
-        };
-        await deps.notifications.publishAuthEmailVerify(payload);
-      },
+      // Link sender replaced by emailOTP when overrideDefaultEmailVerification is true.
       sendOnSignUp: true,
       autoSignInAfterVerification: false,
     },
@@ -226,6 +210,26 @@ export function createAuthInstance(deps: AuthDependencies): AuthInstance {
       storeInDatabase: true,
     },
     plugins: [
+      emailOTP({
+        otpLength: 6,
+        expiresIn: 600,
+        storeOTP: 'hashed',
+        overrideDefaultEmailVerification: true,
+        // Signup OTP is sent via overridden emailVerification.sendVerificationEmail.
+        sendVerificationOnSignUp: false,
+        sendVerificationOTP: async ({ email, otp, type }) => {
+          if (type !== 'email-verification') {
+            return;
+          }
+          const payload: AuthEmailVerifyPayload = {
+            to: email,
+            otp,
+            expiresMinutes: 10,
+            idempotencyKey: `verify-otp:${email}:${Date.now()}`,
+          };
+          await deps.notifications.publishAuthEmailVerify(payload);
+        },
+      }),
       magicLink({
         expiresIn: 86400,
         storeToken: 'hashed',

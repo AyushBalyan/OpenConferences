@@ -91,7 +91,7 @@ export const authContract = c.router({
       200: genericAuthMessageSchema,
       400: problemEnvelopeSchema,
     },
-    summary: 'Verify email address with token',
+    summary: 'Verify email address with a one-time code',
   },
   resendVerification: {
     method: 'POST',
@@ -101,7 +101,7 @@ export const authContract = c.router({
       200: genericAuthMessageSchema,
       429: problemEnvelopeSchema,
     },
-    summary: 'Resend email verification link',
+    summary: 'Resend email verification OTP',
   },
   forgotPassword: {
     method: 'POST',

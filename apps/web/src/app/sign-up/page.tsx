@@ -82,8 +82,8 @@ function SignUpContent() {
       return;
     }
 
-    setMessage('Account created. Check your email to verify your address before signing in.');
-    const verifyParams = new URLSearchParams({ sent: '1' });
+    setMessage('Account created. Check your email for a verification code before signing in.');
+    const verifyParams = new URLSearchParams({ sent: '1', email: values.email });
     if (reviewerInvite) {
       verifyParams.set('reviewerInvite', reviewerInvite);
     }

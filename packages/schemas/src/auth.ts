@@ -45,7 +45,8 @@ export const resetPasswordSchema = z
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
 export const verifyEmailSchema = z.object({
-  token: z.string().min(1, 'Verification token is required'),
+  email: z.string().email('Invalid email address'),
+  otp: z.string().min(6, 'Code must be 6 digits').max(8, 'Code must be at most 8 characters'),
 });
 
 export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;

@@ -621,11 +621,24 @@ export class ConferenceService {
       throw new ForbiddenException('Email verification required before joining as author');
     }
 
-    const conference = await withTenantContext({}, async (tx) =>
-      tx.conference.findFirst({
-        where: { authorJoinToken: token, deletedAt: null },
-      }),
+    // Resolve via SECURITY DEFINER: RLS conferences_api_select requires org membership,
+    // which new authors do not have until after this join succeeds.
+    const resolved = await withTenantContext(
+      { userId },
+      async (tx) =>
+        tx.$queryRaw<
+          Array<{
+            id: string;
+            organizationId: string;
+            name: string;
+            status: ConferenceStatus;
+          }>
+        >`
+        SELECT id, "organizationId", name, status
+        FROM public.app_resolve_conference_by_author_join_token(${token}::uuid)
+      `,
     );
+    const conference = resolved[0];
 
     if (!conference) {
       throw new NotFoundException('Invalid or expired submit link');

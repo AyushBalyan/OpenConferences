@@ -18,7 +18,8 @@ export const DomainEvents = {
 
 export type AuthEmailVerifyPayload = {
   to: string;
-  verifyUrl: string;
+  otp: string;
+  expiresMinutes: number;
   idempotencyKey: string;
 };
 

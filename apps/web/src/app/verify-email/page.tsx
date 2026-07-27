@@ -5,113 +5,171 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import { resolveReviewerInviteToken } from '@/lib/reviewer-invite-pending';
 import { authorJoinPath, resolveAuthorJoinToken } from '@/lib/author-join-pending';
-import { resendVerificationSchema, type ResendVerificationInput } from '@openconferences/schemas';
+import { verifyEmailSchema, type VerifyEmailInput } from '@openconferences/schemas';
 import { authClient } from '@/lib/auth-client';
 import { AuthShell, AuthLink } from '@/components/auth/auth-shell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
+const RESEND_COOLDOWN_SEC = 60;
+
+function authRedirectQuery(reviewerInvite: string | null, authorJoin: string | null) {
+  const params = new URLSearchParams();
+  if (reviewerInvite) params.set('reviewerInvite', reviewerInvite);
+  if (authorJoin) params.set('authorJoin', authorJoin);
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}
+
 function VerifyEmailContent() {
   const searchParams = useSearchParams();
-  const token = searchParams.get('token');
   const sent = searchParams.get('sent');
+  const emailFromQuery = searchParams.get('email')?.trim() ?? '';
   const reviewerInvite = resolveReviewerInviteToken(searchParams.get('reviewerInvite'));
   const authorJoin = resolveAuthorJoinToken(searchParams.get('authorJoin'));
   const signInHref = authorJoin
     ? authorJoinPath(authorJoin)
-    : reviewerInvite
-      ? `/sign-in?reviewerInvite=${encodeURIComponent(reviewerInvite)}`
-      : '/sign-in';
-  const [status, setStatus] = useState<'idle' | 'verifying' | 'success' | 'error'>('idle');
+    : `/sign-in${authRedirectQuery(reviewerInvite, null)}`;
+
+  const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(
-    sent ? 'We sent a verification link to your email.' : null,
+    sent ? 'We emailed a 6-digit verification code to your address.' : null,
   );
+  const [verified, setVerified] = useState(false);
+  const [resendIn, setResendIn] = useState(0);
+  const [sending, setSending] = useState(false);
+
   const {
     register,
     handleSubmit,
+    getValues,
     formState: { errors, isSubmitting },
-  } = useForm<ResendVerificationInput>({
-    resolver: zodResolver(resendVerificationSchema),
+  } = useForm<VerifyEmailInput>({
+    resolver: zodResolver(verifyEmailSchema),
+    defaultValues: { email: emailFromQuery, otp: '' },
   });
 
   useEffect(() => {
-    if (!token) return;
+    if (!sent) return;
+    setResendIn(RESEND_COOLDOWN_SEC);
+    const timer = window.setInterval(() => {
+      setResendIn((prev) => {
+        if (prev <= 1) {
+          window.clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [sent]);
 
-    setStatus('verifying');
-    void authClient.verifyEmail({ query: { token } }).then((result) => {
-      if (result.error) {
-        setStatus('error');
-        setMessage('Verification link is invalid or expired.');
-      } else {
-        setStatus('success');
-        setMessage(null);
-      }
-    });
-  }, [token]);
+  const startResendCooldown = () => {
+    setResendIn(RESEND_COOLDOWN_SEC);
+    const timer = window.setInterval(() => {
+      setResendIn((prev) => {
+        if (prev <= 1) {
+          window.clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
 
-  const onResend = handleSubmit(async (values) => {
-    setMessage(null);
-    await authClient.sendVerificationEmail({
+  const onVerify = handleSubmit(async (values) => {
+    setError(null);
+    const result = await authClient.emailOtp.verifyEmail({
       email: values.email,
+      otp: values.otp,
     });
-    setMessage('If an account exists for that email, a verification link has been sent.');
+
+    if (result.error) {
+      setError(result.error.message ?? 'Invalid or expired verification code');
+      return;
+    }
+
+    setVerified(true);
+    setMessage(null);
   });
+
+  const onResend = async () => {
+    const email = getValues('email')?.trim();
+    if (!email) {
+      setError('Enter your email to resend a code');
+      return;
+    }
+    setSending(true);
+    setError(null);
+    const result = await authClient.emailOtp.sendVerificationOtp({
+      email,
+      type: 'email-verification',
+    });
+    setSending(false);
+    if (result.error) {
+      setError(result.error.message ?? 'Unable to send verification code');
+      return;
+    }
+    setMessage('If an account exists for that email, a verification code has been sent.');
+    startResendCooldown();
+  };
 
   return (
     <AuthShell
       title="Verify your email"
-      description="Confirm your address to submit papers and accept reviewer invitations."
+      description="Enter the 6-digit code we emailed you to confirm your address."
       footer={
         <>
           Ready to continue? <AuthLink href={signInHref}>Sign in</AuthLink>
         </>
       }
     >
-      {status === 'success' ? (
+      {verified ? (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-6 py-8 text-center">
           <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-emerald-100">
             <CheckCircle2 className="size-8 text-emerald-600" aria-hidden />
           </div>
           <h2 className="mt-4 text-xl font-semibold text-emerald-950">Email verified</h2>
           <p className="mt-2 text-sm leading-relaxed text-emerald-800">
-            Your address is confirmed. You can sign in and accept reviewer invitations.
+            Your address is confirmed. Sign in to continue.
           </p>
           <Button asChild className="mt-6 w-full">
             <Link href={signInHref}>Continue to sign in</Link>
           </Button>
         </div>
-      ) : status === 'verifying' ? (
-        <div className="flex flex-col items-center gap-3 py-8 text-center">
-          <Loader2 className="size-8 animate-spin text-indigo-600" aria-hidden />
-          <p className="text-sm font-medium text-slate-700">Verifying your email…</p>
-        </div>
       ) : (
-        <>
-          {status === 'error' && message ? (
-            <div className="flex gap-3 rounded-lg border border-red-200 bg-red-50 p-4" role="alert">
-              <XCircle className="mt-0.5 size-5 shrink-0 text-red-600" aria-hidden />
-              <p className="text-sm text-red-800">{message}</p>
-            </div>
-          ) : message ? (
-            <p className="text-sm text-muted-foreground">{message}</p>
-          ) : null}
-          <form className="space-y-4" onSubmit={onResend}>
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" autoComplete="email" {...register('email')} />
-              {errors.email ? (
-                <p className="text-sm text-destructive">{errors.email.message}</p>
-              ) : null}
-            </div>
-            <Button type="submit" variant="outline" className="w-full" disabled={isSubmitting}>
-              {isSubmitting ? 'Sending…' : 'Resend verification email'}
-            </Button>
-          </form>
-        </>
+        <form className="space-y-4" onSubmit={onVerify}>
+          {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input id="email" type="email" autoComplete="email" {...register('email')} />
+            {errors.email ? (
+              <p className="text-sm text-destructive">{errors.email.message}</p>
+            ) : null}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="otp">Verification code</Label>
+            <Input id="otp" inputMode="numeric" autoComplete="one-time-code" {...register('otp')} />
+            {errors.otp ? <p className="text-sm text-destructive">{errors.otp.message}</p> : null}
+          </div>
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          <Button type="submit" className="w-full" disabled={isSubmitting}>
+            {isSubmitting ? 'Verifying…' : 'Verify email'}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            disabled={sending || resendIn > 0}
+            onClick={() => void onResend()}
+          >
+            {resendIn > 0 ? `Resend in ${resendIn}s` : sending ? 'Sending…' : 'Resend code'}
+          </Button>
+        </form>
       )}
     </AuthShell>
   );

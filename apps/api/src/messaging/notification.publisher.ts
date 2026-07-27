@@ -31,7 +31,10 @@ export class NotificationPublisher {
     await this.notifications.enqueue({
       templateKey: 'auth.email_verify',
       to: payload.to,
-      context: { verifyUrl: payload.verifyUrl },
+      context: {
+        otp: payload.otp,
+        expiresMinutes: String(payload.expiresMinutes),
+      },
       idempotencyKey: payload.idempotencyKey,
       tags: ['auth.email_verify'],
       relatedEntity: 'User',
