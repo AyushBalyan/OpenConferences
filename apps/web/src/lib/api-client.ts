@@ -513,7 +513,10 @@ export async function createReviewRound(
   if (result.status === 409) throw new Error(result.body.detail ?? 'Round already exists');
   if (result.status === 403)
     throw new Error(result.body.detail ?? 'Not allowed to open review rounds');
-  throw new Error(result.body.detail ?? 'Failed to create review round');
+  if (result.status === 400 || result.status === 401 || result.status === 404) {
+    throw new Error(result.body.detail ?? 'Failed to create review round');
+  }
+  throw new Error('Failed to create review round');
 }
 
 export async function updateReviewRound(
