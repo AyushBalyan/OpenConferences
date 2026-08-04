@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from '@/lib/auth-client';
 
@@ -11,9 +11,11 @@ type ProtectedRouteProps = {
 };
 
 /**
- * Client-side auth gate. Better Auth's session atom can briefly report
- * `isPending: false` with `data: null` after sign-in (delayed refresh) or
- * React Strict Mode abort — always confirm with a fresh refetch before redirecting.
+ * Client-side auth gate.
+ *
+ * Trust Better Auth's session atom only — do not call `refetch()` from an effect
+ * that depends on `isPending`. `refetch()` sets `isPending: true` when session
+ * data is null, which re-enters the effect and can storm `/get-session`.
  */
 export function ProtectedRoute({
   children,
@@ -21,37 +23,15 @@ export function ProtectedRoute({
   redirectTo = '/sign-in',
 }: ProtectedRouteProps) {
   const router = useRouter();
-  const { data: session, isPending, refetch } = useSession();
-  const [freshCheckDone, setFreshCheckDone] = useState(false);
+  const { data: session, isPending } = useSession();
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function verifySession() {
-      if (isPending) return;
-
-      if (session) {
-        setFreshCheckDone(true);
-        return;
-      }
-
-      if (!freshCheckDone) {
-        await refetch();
-        if (cancelled) return;
-        setFreshCheckDone(true);
-        return;
-      }
-
+    if (!isPending && !session) {
       router.replace(redirectTo);
     }
+  }, [isPending, session, router, redirectTo]);
 
-    void verifySession();
-    return () => {
-      cancelled = true;
-    };
-  }, [isPending, session, freshCheckDone, refetch, router, redirectTo]);
-
-  if (isPending || (!session && !freshCheckDone)) {
+  if (isPending) {
     return (
       fallback ?? (
         <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">

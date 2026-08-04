@@ -1,6 +1,11 @@
 'use client';
 
 import { PageHeader } from '@/components/dashboard/page-header';
+import {
+  PdfUploadField,
+  UploadProgressSteps,
+  type UploadProgressStep,
+} from '@/components/dashboard/pdf-upload-field';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -8,8 +13,6 @@ import { Label } from '@/components/ui/label';
 import {
   addAuthorship,
   createPaper,
-  fetchConference,
-  fetchTracks,
   submitPaper,
   updatePaper,
   uploadPaperPdf,
@@ -17,7 +20,7 @@ import {
 import { getStoredAuthorAffiliation } from '@/lib/author-join-pending';
 import type { PaperDto } from '@/lib/submission-types';
 import { useParams, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 
 type Step = 'details' | 'authors' | 'upload';
 
@@ -31,11 +34,8 @@ function SubmissionWizard() {
   const conferenceId = params.id;
 
   const [step, setStep] = useState<Step>('details');
-  const [, setConferenceName] = useState('');
-  const [tracks, setTracks] = useState<{ id: string; name: string }[]>([]);
   const [paper, setPaper] = useState<PaperDto | null>(null);
 
-  const [trackId, setTrackId] = useState('');
   const [title, setTitle] = useState('');
   const [abstract, setAbstract] = useState('');
   const [keywords, setKeywords] = useState('');
@@ -45,22 +45,8 @@ function SubmissionWizard() {
   const [authorAffiliation, setAuthorAffiliation] = useState('');
 
   const [file, setFile] = useState<File | null>(null);
-  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgressStep | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    const [conference, trackList] = await Promise.all([
-      fetchConference(conferenceId),
-      fetchTracks(conferenceId),
-    ]);
-    setConferenceName(conference.name);
-    setTracks(trackList);
-    if (trackList[0]) setTrackId(trackList[0].id);
-  }, [conferenceId]);
-
-  useEffect(() => {
-    load().catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'));
-  }, [load]);
 
   async function saveDetails(event: React.FormEvent) {
     event.preventDefault();
@@ -73,7 +59,6 @@ function SubmissionWizard() {
 
       if (paper) {
         const updated = await updatePaper(conferenceId, paper.id, {
-          trackId,
           title,
           abstract,
           keywords: keywordList,
@@ -82,7 +67,6 @@ function SubmissionWizard() {
         setPaper(updated);
       } else {
         const created = await createPaper(conferenceId, {
-          trackId,
           title,
           abstract,
           keywords: keywordList,
@@ -118,12 +102,12 @@ function SubmissionWizard() {
     event.preventDefault();
     if (!paper || !file) return;
     setError(null);
-    setUploadProgress('Uploading PDF…');
+    setUploadProgress('uploading');
     try {
       await uploadPaperPdf(conferenceId, paper.id, file);
-      setUploadProgress('Scanning file…');
+      setUploadProgress('scanning');
       await new Promise((r) => setTimeout(r, 300));
-      setUploadProgress('Submitting…');
+      setUploadProgress('submitting');
       await submitPaper(conferenceId, paper.id);
       router.push(`/dashboard/conferences/${conferenceId}/submissions/${paper.id}`);
     } catch (err) {
@@ -145,26 +129,10 @@ function SubmissionWizard() {
         <Card>
           <CardHeader>
             <CardTitle>Paper details</CardTitle>
-            <CardDescription>Title, abstract, and track selection.</CardDescription>
+            <CardDescription>Title, abstract, and keywords for your paper.</CardDescription>
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={saveDetails}>
-              <div className="space-y-2">
-                <Label htmlFor="track">Track</Label>
-                <select
-                  id="track"
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={trackId}
-                  onChange={(e) => setTrackId(e.target.value)}
-                  required
-                >
-                  {tracks.map((track) => (
-                    <option key={track.id} value={track.id}>
-                      {track.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
               <div className="space-y-2">
                 <Label htmlFor="title">Title</Label>
                 <Input
@@ -250,30 +218,40 @@ function SubmissionWizard() {
           <CardHeader>
             <CardTitle>Upload PDF</CardTitle>
             <CardDescription>
-              Upload your submission PDF. It will be scanned before submission.
+              Add your manuscript as a PDF. It will be scanned for security before submission is
+              finalized.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form className="space-y-4" onSubmit={uploadAndSubmit}>
-              <div className="space-y-2">
-                <Label htmlFor="pdf">PDF file</Label>
-                <Input
-                  id="pdf"
-                  type="file"
-                  accept="application/pdf,.pdf"
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                  required
-                />
-              </div>
-              {uploadProgress ? (
-                <p className="text-sm text-muted-foreground">{uploadProgress}</p>
+            <form className="space-y-5" onSubmit={uploadAndSubmit}>
+              <PdfUploadField
+                file={file}
+                onFileChange={setFile}
+                disabled={Boolean(uploadProgress)}
+              />
+
+              {uploadProgress ? <UploadProgressSteps current={uploadProgress} /> : null}
+
+              {error ? (
+                <p
+                  className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
+                  role="alert"
+                >
+                  {error}
+                </p>
               ) : null}
-              <div className="flex gap-2">
-                <Button type="button" variant="outline" onClick={() => setStep('authors')}>
+
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setStep('authors')}
+                  disabled={Boolean(uploadProgress)}
+                >
                   Back
                 </Button>
-                <Button type="submit" disabled={!file || !!uploadProgress}>
-                  Upload & submit
+                <Button type="submit" disabled={!file || Boolean(uploadProgress)}>
+                  {uploadProgress ? 'Working…' : 'Upload & submit'}
                 </Button>
               </div>
             </form>
@@ -281,7 +259,7 @@ function SubmissionWizard() {
         </Card>
       ) : null}
 
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {error && step !== 'upload' ? <p className="text-sm text-destructive">{error}</p> : null}
     </div>
   );
 }

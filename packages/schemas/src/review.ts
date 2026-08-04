@@ -225,6 +225,15 @@ export const coiListSchema = z.object({
 
 export const coiListQuerySchema = cursorPaginationQuerySchema;
 
+export const coiDeclareTargetPaperSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+});
+
+export const coiDeclareTargetPaperListSchema = z.object({
+  data: z.array(coiDeclareTargetPaperSchema),
+});
+
 export const reviewerAssignmentSchema = z.object({
   id: z.string().uuid(),
   organizationId: z.string().uuid(),

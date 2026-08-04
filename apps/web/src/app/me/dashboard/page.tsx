@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { ArrowRight } from 'lucide-react';
 import {
   DataTable,
   DataTableBody,
@@ -11,16 +10,15 @@ import {
   DataTableRow,
 } from '@/components/dashboard/data-table';
 import { EmptyState } from '@/components/dashboard/empty-state';
+import { DashboardConferenceCards } from '@/components/dashboard/dashboard-conference-cards';
 import { PageHeader } from '@/components/dashboard/page-header';
-import { StatusBadge } from '@/components/dashboard/status-badge';
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { fetchMe, fetchMeDashboard } from '@/lib/api-client';
 import { mfaEnrollHref } from '@/lib/mfa-errors';
 import { paperStatusLabel, paperStatusTone } from '@/lib/paper-status-styles';
-import { roleLabels } from '@/lib/roles';
 import type { MeDashboard } from '@openconferences/schemas';
 import { useEffect, useState } from 'react';
 
@@ -46,6 +44,8 @@ export default function MeDashboardPage() {
     dashboard &&
     dashboard.authoredPapers.length === 0 &&
     dashboard.reviewerAssignments.length === 0 &&
+    dashboard.authorConferences.length === 0 &&
+    dashboard.reviewerConferences.length === 0 &&
     dashboard.organizerConferences.length === 0;
 
   const papersPreview = dashboard?.authoredPapers.slice(0, PREVIEW_LIMIT) ?? [];
@@ -107,6 +107,26 @@ export default function MeDashboardPage() {
             ) : undefined
           }
         />
+      ) : null}
+
+      {!loading && dashboard && dashboard.authorConferences.length > 0 ? (
+        <section className="mb-10 space-y-4">
+          <SectionHeading title="Author conferences" />
+          <DashboardConferenceCards
+            conferences={dashboard.authorConferences}
+            actionLabel="Open submissions"
+          />
+        </section>
+      ) : null}
+
+      {!loading && dashboard && dashboard.reviewerConferences.length > 0 ? (
+        <section className="mb-10 space-y-4">
+          <SectionHeading title="Reviewer conferences" />
+          <DashboardConferenceCards
+            conferences={dashboard.reviewerConferences}
+            actionLabel="Open reviews"
+          />
+        </section>
       ) : null}
 
       {!loading && dashboard && dashboard.authoredPapers.length > 0 ? (
@@ -207,33 +227,7 @@ export default function MeDashboardPage() {
       {!loading && dashboard && dashboard.organizerConferences.length > 0 ? (
         <section className="space-y-4">
           <SectionHeading title="Organizer conferences" />
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {dashboard.organizerConferences.map((conference) => {
-              const labels = roleLabels(conference.myRoles);
-              return (
-                <Card key={conference.id} className="group transition-shadow hover:shadow-md">
-                  <CardHeader>
-                    <div className="flex items-start justify-between gap-3">
-                      <CardTitle className="text-lg">{conference.name}</CardTitle>
-                      <StatusBadge status={conference.status} />
-                    </div>
-                    <CardDescription>
-                      {conference.slug}
-                      {labels.length > 0 ? ` · ${labels.join(', ')}` : ''}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <Button asChild variant="outline" className="group-hover:border-indigo-300">
-                      <Link href={`/dashboard/conferences/${conference.id}`}>
-                        Open workspace
-                        <ArrowRight className="ml-2 h-4 w-4" />
-                      </Link>
-                    </Button>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
+          <DashboardConferenceCards conferences={dashboard.organizerConferences} />
         </section>
       ) : null}
     </>

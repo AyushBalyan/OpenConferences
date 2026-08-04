@@ -52,17 +52,11 @@ export class PapersService {
       throw new ForbiddenException('Author role required to create submissions');
     }
 
-    const track = await withTenantContext(
+    const trackId = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
-        tx.track.findFirst({
-          where: { id: input.trackId, conferenceId, deletedAt: null },
-        }),
+        this.resolveSubmissionTrackId(tx, conferenceId, conference.organizationId, input.trackId),
     );
-
-    if (!track) {
-      throw new NotFoundException('Track not found');
-    }
 
     const user = await withTenantContext({ userId }, async (tx) =>
       tx.user.findUnique({ where: { id: userId } }),
@@ -80,7 +74,7 @@ export class PapersService {
             id: generateId(),
             organizationId: conference.organizationId,
             conferenceId,
-            trackId: input.trackId,
+            trackId,
             submittedById: userId,
             title: input.title,
             abstract: input.abstract,
@@ -319,6 +313,43 @@ export class PapersService {
     if (conference.status !== 'CFP_OPEN') {
       throw new ConflictException('Conference is not accepting submissions');
     }
+  }
+
+  private async resolveSubmissionTrackId(
+    tx: Parameters<Parameters<typeof withTenantContext>[1]>[0],
+    conferenceId: string,
+    organizationId: string,
+    requestedTrackId?: string,
+  ): Promise<string> {
+    if (requestedTrackId) {
+      const requested = await tx.track.findFirst({
+        where: { id: requestedTrackId, conferenceId, deletedAt: null },
+      });
+      if (!requested) {
+        throw new NotFoundException('Track not found');
+      }
+      return requested.id;
+    }
+
+    const existing = await tx.track.findFirst({
+      where: { conferenceId, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (existing) {
+      return existing.id;
+    }
+
+    const created = await tx.track.create({
+      data: {
+        id: generateId(),
+        conferenceId,
+        organizationId,
+        slug: 'main',
+        name: 'Main Track',
+      },
+    });
+
+    return created.id;
   }
 
   private async assertAuthorCanEdit(userId: string, paper: LoadedPaper, roles: RoleKind[]) {

@@ -15,6 +15,7 @@ import {
   bidListSchema,
   blindedPaperPoolSchema,
   coiListSchema,
+  coiDeclareTargetPaperListSchema,
   declareCoiSchema,
   conflictOfInterestSchema,
   assignmentListSchema,
@@ -280,6 +281,18 @@ export const reviewContract = c.router({
       404: problemEnvelopeSchema,
     },
     summary: 'List declared conflicts of interest',
+  },
+  listCoiDeclareTargets: {
+    method: 'GET',
+    path: '/conferences/:conferenceId/conflicts-of-interest/declare-targets',
+    pathParams: conferenceParams,
+    responses: {
+      200: coiDeclareTargetPaperListSchema,
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+    },
+    summary: 'List papers a reviewer or chair may declare a conflict against',
   },
   declareCoi: {
     method: 'POST',

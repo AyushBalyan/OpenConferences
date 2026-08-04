@@ -3,8 +3,78 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Check, ClipboardCheck, FilePenLine, Settings2 } from 'lucide-react';
+import {
+  ArrowRight,
+  Check,
+  CheckCircle2,
+  Circle,
+  FileCheck2,
+  Fingerprint,
+  ScanSearch,
+  ShieldCheck,
+} from 'lucide-react';
 import { useSession } from '@/lib/auth-client';
+
+const lifecycle = [
+  {
+    number: '01',
+    title: 'Submit',
+    detail: 'Collect manuscripts, authorship, and metadata in one structured intake.',
+  },
+  {
+    number: '02',
+    title: 'Review',
+    detail: 'Coordinate invitations, bids, conflicts, assignments, and review rounds.',
+  },
+  {
+    number: '03',
+    title: 'Decide',
+    detail: 'Record outcomes and move each paper into its correct next step.',
+  },
+  {
+    number: '04A',
+    title: 'Camera-ready',
+    detail: 'After acceptance, collect final versions through the controlled paper workflow.',
+  },
+  {
+    number: '04B',
+    title: 'Register',
+    detail: 'In parallel, connect accepted papers with registration and verification.',
+  },
+];
+
+const roleRows = [
+  {
+    label: 'Paper intake',
+    organizer: 'Configure & monitor',
+    author: 'Submit',
+    reviewer: '—',
+  },
+  {
+    label: 'Peer review',
+    organizer: 'Assign & coordinate',
+    author: 'Track',
+    reviewer: 'Review',
+  },
+  {
+    label: 'Conflict safeguards',
+    organizer: 'Oversee',
+    author: 'Authorship scoped',
+    reviewer: 'Declare',
+  },
+  {
+    label: 'Finalization',
+    organizer: 'Control windows',
+    author: 'Upload & register',
+    reviewer: '—',
+  },
+];
+
+const papers = [
+  { id: 'FC-1042', title: 'Adaptive Systems for…', review: '3 / 3', decision: 'Accept' },
+  { id: 'FC-1043', title: 'A Framework for…', review: '2 / 3', decision: 'Pending' },
+  { id: 'FC-1044', title: 'Evaluating Distributed…', review: '3 / 3', decision: 'Revision' },
+];
 
 export function HomePage() {
   const router = useRouter();
@@ -16,312 +86,384 @@ export function HomePage() {
     }
   }, [isPending, session, router]);
 
-  if (isPending) {
-    return (
-      <div className="oc-landing flex min-h-dvh items-center justify-center text-[var(--oc-on-surface-variant)]">
-        Loading…
-      </div>
-    );
-  }
-
   if (session) {
     return null;
   }
 
   return (
-    <div className="oc-landing antialiased overflow-x-hidden">
-      <nav className="fixed top-0 z-50 w-full border-b border-[var(--oc-surface-variant)] bg-[var(--oc-surface)]">
-        <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-4 md:px-16">
-          <div className="oc-font-headline text-2xl font-bold text-[var(--oc-primary)] md:text-[32px] md:leading-10">
-            FresiCMT
-          </div>
-          <div className="hidden items-center gap-8 md:flex">
-            <a
-              className="oc-font-label text-xs font-medium tracking-wide text-[var(--oc-on-surface-variant)] transition-colors hover:text-[var(--oc-primary-dim)]"
-              href="#capabilities"
-            >
-              Features
+    <div className="fc-landing overflow-x-hidden">
+      {/* THESIS: The conference lifecycle is the page—not a row of generic feature cards.
+          OWN-WORLD: Mineral paper, ink rules, blue control fields, chartreuse status signals.
+          STORY: Organizers see the whole workflow, its participants, and its safeguards before acting.
+          FIRST VIEWPORT: Editorial headline at left; operational conference ledger at right; CTA in-line.
+          FORM: Conference control sheet, lifecycle-led composition, generated in Stitch with Gemini 3.1 Pro. */}
+      <nav className="fc-nav" aria-label="Primary navigation">
+        <div className="fc-shell flex h-16 items-center justify-between">
+          <a href="#" className="fc-wordmark" aria-label="FresiCMT home">
+            Fresi<span>CMT</span>
+          </a>
+          <div className="hidden items-center gap-7 md:flex">
+            <a className="fc-nav-link" href="#workflow">
+              Workflow
             </a>
-            <a
-              className="oc-font-label text-xs font-medium tracking-wide text-[var(--oc-on-surface-variant)] transition-colors hover:text-[var(--oc-primary-dim)]"
-              href="#roles"
-            >
+            <a className="fc-nav-link" href="#roles">
               Roles
             </a>
-            <a
-              className="oc-font-label text-xs font-medium tracking-wide text-[var(--oc-on-surface-variant)] transition-colors hover:text-[var(--oc-primary-dim)]"
-              href="#cta"
-            >
-              Pricing
+            <a className="fc-nav-link" href="#capabilities">
+              Capabilities
             </a>
           </div>
-          <div className="flex items-center gap-6">
-            <Link
-              href="/sign-in"
-              className="oc-font-label text-xs font-medium tracking-wide text-[var(--oc-on-surface-variant)] transition-colors hover:text-[var(--oc-primary-dim)]"
-            >
+          <div className="flex items-center gap-3">
+            <Link href="/sign-in" className="fc-text-link hidden sm:inline-flex">
               Sign in
             </Link>
-            <Link
-              href="/sign-up"
-              className="oc-font-label rounded-sm bg-[var(--oc-primary)] px-4 py-2 text-xs font-medium tracking-wide text-white shadow-sm transition-colors hover:bg-[var(--oc-primary-dim)]"
-            >
+            <Link href="/sign-up" className="fc-button fc-button-ink">
               Create account
             </Link>
           </div>
         </div>
       </nav>
 
-      <header className="relative flex min-h-[min(921px,100dvh)] flex-col justify-center bg-paper-grain hero-gradient px-4 pb-20 pt-40 md:px-16">
-        <div className="relative z-10 mx-auto max-w-4xl space-y-6 text-center">
-          <h1 className="oc-font-display mb-2 text-4xl font-bold leading-tight tracking-tight text-[var(--oc-primary)] sm:text-5xl md:text-[57px] md:leading-[64px]">
-            FresiCMT
-          </h1>
-          <h2 className="oc-font-headline mb-6 text-2xl font-semibold text-[var(--oc-on-surface)] md:text-[32px] md:leading-10">
-            From submission to registration, in one place.
-          </h2>
-          <p className="mx-auto mb-10 max-w-2xl text-lg leading-relaxed text-[var(--oc-on-surface-variant)]">
-            Run peer review, notify authors, collect camera-ready files, and manage registrations —
-            without juggling spreadsheets and inboxes. A scholarly platform built for precision.
-          </p>
-          <div className="flex flex-col items-center justify-center gap-2 pt-6 sm:flex-row sm:gap-3">
-            <Link
-              href="/sign-up"
-              className="oc-font-label w-full rounded-sm bg-[var(--oc-primary)] px-8 py-3 text-center text-xs font-medium tracking-wide text-white shadow-sm transition-colors hover:bg-[var(--oc-primary-dim)] sm:w-auto"
-            >
-              Create account
-            </Link>
-            <Link
-              href="/sign-in"
-              className="oc-font-label w-full rounded-sm border border-[var(--oc-outline)] px-8 py-3 text-center text-xs font-medium tracking-wide text-[var(--oc-secondary)] transition-colors hover:bg-[var(--oc-surface-container)] hover:text-[var(--oc-on-surface)] sm:w-auto"
-            >
-              Sign in
-            </Link>
+      <main>
+        <header className="fc-grid-paper border-b border-[var(--fc-ink)]">
+          <div className="fc-shell grid min-h-[calc(100dvh-4rem)] items-center gap-14 py-20 lg:grid-cols-[0.8fr_1.2fr] lg:py-28">
+            <div className="max-w-xl">
+              <div className="fc-status-stamp mb-8">
+                <span className="fc-signal-dot" />
+                Conference management, end to end
+              </div>
+              <h1 className="fc-display text-balance">
+                One conference.
+                <br />
+                One continuous
+                <br />
+                <span className="text-[var(--fc-blue)]">workflow.</span>
+              </h1>
+              <p className="mt-7 max-w-[58ch] text-lg leading-8 text-[var(--fc-muted)]">
+                Run submissions, peer review, decisions, camera-ready collection, and registration
+                without stitching together spreadsheets and inboxes.
+              </p>
+              <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+                <Link href="/sign-up" className="fc-button fc-button-blue">
+                  Create account
+                  <ArrowRight className="size-4" aria-hidden />
+                </Link>
+                <Link href="/sign-in" className="fc-button fc-button-outline">
+                  Sign in
+                </Link>
+              </div>
+            </div>
+
+            <ConferenceLedger />
           </div>
-        </div>
-      </header>
+        </header>
 
-      <section
-        id="roles"
-        className="scroll-mt-24 border-y border-[var(--oc-surface-variant)] bg-[var(--oc-surface-container-lowest)] px-4 py-20 md:px-16"
-      >
-        <div className="mx-auto max-w-7xl">
-          <h3 className="oc-font-headline mb-16 text-center text-[28px] font-semibold leading-9 text-[var(--oc-on-surface)]">
-            I am an...
-          </h3>
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-            <div className="flex flex-col items-start rounded-sm border border-[var(--oc-surface-variant)] bg-[var(--oc-surface)] p-8 transition-shadow hover:shadow-sm">
-              <FilePenLine className="mb-6 size-10 text-[var(--oc-primary)]" aria-hidden />
-              <h4 className="oc-font-headline mb-4 text-xl font-semibold text-[var(--oc-on-surface)]">
-                Author
-              </h4>
-              <p className="mb-8 flex-grow text-base leading-6 text-[var(--oc-on-surface-variant)]">
-                Submit papers seamlessly, track review progress transparently, upload camera-ready
-                versions, and handle your conference registration.
+        <section id="workflow" className="fc-section scroll-mt-20 border-b border-[var(--fc-ink)]">
+          <div className="fc-shell">
+            <div className="fc-section-heading">
+              <div>
+                <span className="fc-data-label">Lifecycle control</span>
+                <h2>A clear handoff—then two parallel finalization tracks.</h2>
+              </div>
+              <p>
+                The paper remains the shared thread through decisions; after acceptance,
+                camera-ready collection and registration can progress side by side.
               </p>
-              <Link
-                href="/sign-in"
-                className="oc-font-label mt-auto inline-flex items-center gap-2 text-xs font-medium tracking-wide text-[var(--oc-primary)] transition-colors hover:text-[var(--oc-primary-dim)]"
-              >
-                Sign in to submit
-                <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-1" />
-              </Link>
             </div>
-
-            <div className="flex flex-col items-start rounded-sm border border-[var(--oc-surface-variant)] bg-[var(--oc-surface)] p-8 transition-shadow hover:shadow-sm">
-              <ClipboardCheck className="mb-6 size-10 text-[var(--oc-primary)]" aria-hidden />
-              <h4 className="oc-font-headline mb-4 text-xl font-semibold text-[var(--oc-on-surface)]">
-                Reviewer
-              </h4>
-              <p className="mb-8 flex-grow text-base leading-6 text-[var(--oc-on-surface-variant)]">
-                Accept invitations securely, declare conflicts of interest upfront, access assigned
-                papers, and submit structured reviews.
-              </p>
-              <Link
-                href="/sign-in"
-                className="oc-font-label mt-auto inline-flex items-center gap-2 text-xs font-medium tracking-wide text-[var(--oc-primary)] transition-colors hover:text-[var(--oc-primary-dim)]"
-              >
-                Sign in as reviewer
-                <ArrowRight className="size-3.5" />
-              </Link>
-            </div>
-
-            <div className="flex flex-col items-start rounded-sm border border-[var(--oc-surface-variant)] bg-[var(--oc-surface)] p-8 transition-shadow hover:shadow-sm">
-              <Settings2 className="mb-6 size-10 text-[var(--oc-primary)]" aria-hidden />
-              <h4 className="oc-font-headline mb-4 text-xl font-semibold text-[var(--oc-on-surface)]">
-                Organizer
-              </h4>
-              <p className="mb-8 flex-grow text-base leading-6 text-[var(--oc-on-surface-variant)]">
-                Manage call for papers, assign reviewers, record decisions, notify participants, and
-                oversee the entire registration pipeline.
-              </p>
-              <Link
-                href="/sign-in"
-                className="oc-font-label mt-auto inline-flex items-center gap-2 text-xs font-medium tracking-wide text-[var(--oc-primary)] transition-colors hover:text-[var(--oc-primary-dim)]"
-              >
-                Open dashboard
-                <ArrowRight className="size-3.5" />
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="lifecycle" className="scroll-mt-24 bg-[var(--oc-surface)] px-4 py-20 md:px-16">
-        <div className="mx-auto max-w-7xl">
-          <h3 className="oc-font-headline mb-20 text-center text-[28px] font-semibold leading-9 text-[var(--oc-on-surface)]">
-            The Conference Lifecycle
-          </h3>
-          <div className="relative">
-            <div className="absolute left-[10%] right-[10%] top-6 hidden h-px bg-[var(--oc-outline-variant)] md:block" />
-            <div className="relative z-10 grid grid-cols-1 gap-6 md:grid-cols-4">
-              {[
-                {
-                  n: '1',
-                  title: 'Submit',
-                  detail: 'Authors upload manuscripts and metadata through a clean interface.',
-                },
-                {
-                  n: '2',
-                  title: 'Review',
-                  detail: 'Program committee assigns papers. Reviewers evaluate and score.',
-                },
-                {
-                  n: '3',
-                  title: 'Decide',
-                  detail: 'Chairs finalize acceptance. Automated batch notifications are sent.',
-                },
-                {
-                  n: '4',
-                  title: 'Register',
-                  detail: 'Attendees secure their spots and manage travel requirements.',
-                },
-              ].map((step) => (
-                <div key={step.n} className="flex flex-col items-center text-center">
-                  <div className="oc-font-headline mb-6 flex size-12 items-center justify-center rounded-full border-2 border-[var(--oc-surface)] bg-[var(--oc-surface-container-high)] text-[var(--oc-primary)] shadow-sm">
-                    {step.n}
+            <ol className="fc-lifecycle">
+              {lifecycle.map((stage, index) => (
+                <li key={stage.number} className="fc-stage">
+                  <div className="fc-stage-rail" aria-hidden>
+                    <span>{stage.number}</span>
+                    <div className={index < lifecycle.length - 1 ? 'fc-stage-line' : ''} />
                   </div>
-                  <h4 className="oc-font-headline mb-2 text-lg font-semibold text-[var(--oc-on-surface)]">
-                    {step.title}
-                  </h4>
-                  <p className="px-4 text-sm leading-6 text-[var(--oc-on-surface-variant)]">
-                    {step.detail}
-                  </p>
+                  <h3>{stage.title}</h3>
+                  <p>{stage.detail}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        <section id="roles" className="fc-section scroll-mt-20 bg-white">
+          <div className="fc-shell grid gap-12 lg:grid-cols-[0.72fr_1.28fr]">
+            <div>
+              <span className="fc-data-label">Role-aware by design</span>
+              <h2 className="fc-section-title mt-4">
+                One system. A precise view for every participant.
+              </h2>
+              <p className="mt-6 max-w-[52ch] text-lg leading-8 text-[var(--fc-muted)]">
+                Organizers coordinate the full program while authors and reviewers see the work that
+                belongs to them—within the same conference context.
+              </p>
+              <Link href="/sign-in" className="fc-inline-action mt-8">
+                Open your workspace <ArrowRight className="size-4" aria-hidden />
+              </Link>
+            </div>
+
+            <div className="fc-role-matrix" role="table" aria-label="Role responsibilities">
+              <div className="fc-role-row fc-role-head" role="row">
+                <div role="columnheader">Workflow</div>
+                <div role="columnheader">Organizer · control</div>
+                <div role="columnheader">Author</div>
+                <div role="columnheader">Reviewer</div>
+              </div>
+              {roleRows.map((row) => (
+                <div className="fc-role-row" role="row" key={row.label}>
+                  <div role="cell">{row.label}</div>
+                  <div role="cell" className="fc-organizer-cell">
+                    <Check className="size-4" aria-hidden />
+                    {row.organizer}
+                  </div>
+                  <div role="cell">{row.author}</div>
+                  <div role="cell">{row.reviewer}</div>
                 </div>
               ))}
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section
-        id="capabilities"
-        className="scroll-mt-24 border-y border-[var(--oc-surface-variant)] bg-[var(--oc-surface-container-lowest)] px-4 py-20 md:px-16"
-      >
-        <div className="mx-auto max-w-7xl">
-          <div className="grid grid-cols-1 gap-16 md:grid-cols-3">
-            <CapabilityColumn
-              title="Peer review & COI"
-              items={[
-                'Double-blind or single-blind configurations.',
-                'Automated conflict of interest detection.',
-                'Customizable review forms and scoring rubrics.',
-              ]}
-            />
-            <CapabilityColumn
-              title="Decisions & notifications"
-              items={[
-                'Bulk email capabilities with mail merge fields.',
-                'Audit trails for decision changes.',
-                'Camera-ready deadline enforcement.',
-              ]}
-            />
-            <CapabilityColumn
-              title="Registration & roles"
-              items={[
-                'Tiered pricing (early bird, student, regular).',
-                'Secure payment gateway integrations.',
-                'Granular access control for PC members.',
-              ]}
-            />
-          </div>
-        </div>
-      </section>
-
-      <section
-        id="cta"
-        className="scroll-mt-24 bg-[var(--oc-surface-container)] px-4 py-20 text-center md:px-16"
-      >
-        <div className="mx-auto max-w-3xl space-y-8">
-          <h2 className="oc-font-headline text-[32px] font-semibold leading-10 text-[var(--oc-primary)]">
-            Ready to run your next conference?
-          </h2>
-          <p className="text-lg leading-7 text-[var(--oc-on-surface-variant)]">
-            Join thousands of academic organizers relying on FresiCMT for a seamless, professional
-            experience.
-          </p>
-          <Link
-            href="/sign-up"
-            className="oc-font-label mt-4 inline-block rounded-sm bg-[var(--oc-primary)] px-10 py-4 text-xs font-medium tracking-wide text-white shadow-sm transition-colors hover:bg-[var(--oc-primary-dim)]"
-          >
-            Create account
-          </Link>
-        </div>
-      </section>
-
-      <footer className="w-full bg-[var(--oc-surface-container-low)] px-4 py-20 md:px-16">
-        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-8 md:flex-row">
-          <div className="flex flex-col items-center gap-4 md:items-start">
-            <div className="oc-font-headline text-[28px] font-semibold text-[var(--oc-primary)]">
-              FresiCMT
+        <section
+          id="capabilities"
+          className="fc-section scroll-mt-20 border-y border-[var(--fc-ink)]"
+        >
+          <div className="fc-shell">
+            <div className="fc-section-heading">
+              <div>
+                <span className="fc-data-label">Mechanisms, not promises</span>
+                <h2>Built around the work organizers inspect.</h2>
+              </div>
+              <p>Every capability is connected to a visible state, participant, and next action.</p>
             </div>
-            <p className="text-center text-sm text-[var(--oc-secondary)] md:text-left">
-              Built for academic conference organizers and participants.
-            </p>
-            <p className="text-center text-sm text-[var(--oc-secondary)] md:text-left">
-              © 2026 FresiCMT.
+            <div className="fc-evidence-grid">
+              <CapabilityEvidence
+                icon={<ScanSearch className="size-5" />}
+                title="Peer review & COI"
+                description="Coordinate invitations, bidding, declarations, assignments, and blinded review from one round."
+              >
+                <div className="fc-assignment">
+                  <span className="fc-data-label">Assignment check</span>
+                  <div className="mt-4 flex items-center justify-between gap-4">
+                    <div>
+                      <strong>FC-1043</strong>
+                      <p>Reviewer 07</p>
+                    </div>
+                    <span className="fc-chip fc-chip-ok">
+                      <ShieldCheck className="size-3.5" /> No declared COI
+                    </span>
+                  </div>
+                </div>
+              </CapabilityEvidence>
+              <CapabilityEvidence
+                icon={<FileCheck2 className="size-5" />}
+                title="Decisions & notifications"
+                description="Record outcomes against the correct paper and round, then keep author communication connected."
+              >
+                <div className="fc-decision-strip">
+                  {['Accept', 'Revision', 'Pending'].map((item, index) => (
+                    <div key={item}>
+                      <span>{String(index + 1).padStart(2, '0')}</span>
+                      <strong>{item}</strong>
+                    </div>
+                  ))}
+                </div>
+              </CapabilityEvidence>
+              <CapabilityEvidence
+                icon={<Fingerprint className="size-5" />}
+                title="Registration & roles"
+                description="Carry accepted work forward while conference-scoped roles keep access and responsibilities explicit."
+              >
+                <div className="space-y-3">
+                  {[
+                    ['A. Rao', 'Author', 'Verified'],
+                    ['M. Singh', 'Organizer', 'Active'],
+                  ].map(([name, role, state]) => (
+                    <div className="fc-person-row" key={name}>
+                      <strong>{name}</strong>
+                      <span>{role}</span>
+                      <span className="fc-chip fc-chip-ok">{state}</span>
+                    </div>
+                  ))}
+                </div>
+              </CapabilityEvidence>
+            </div>
+          </div>
+        </section>
+
+        <section className="fc-control-section">
+          <div className="fc-shell grid gap-12 py-20 lg:grid-cols-[1fr_1.25fr] lg:py-28">
+            <div>
+              <span className="fc-data-label fc-data-label-light">Visible controls</span>
+              <h2 className="fc-section-title mt-4 text-white">
+                Trust is easier when the rules are visible.
+              </h2>
+              <p className="mt-6 max-w-[52ch] text-lg leading-8 text-zinc-300">
+                FresiCMT puts conference boundaries, review settings, and decision history where
+                organizers can see and manage them.
+              </p>
+            </div>
+            <div className="fc-control-ledger">
+              {[
+                ['Conference-scoped access', 'Roles stay attached to the correct conference.'],
+                [
+                  'Blinding configuration',
+                  'Open, single-, and double-blind modes shape visible data.',
+                ],
+                ['Conflict safeguards', 'Declarations remain part of reviewer coordination.'],
+                ['Auditable changes', 'Sensitive workflow actions retain a visible trail.'],
+              ].map(([title, description]) => (
+                <div key={title}>
+                  <CheckCircle2 className="size-5 text-[var(--fc-lime)]" aria-hidden />
+                  <strong>{title}</strong>
+                  <p>{description}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="cta" className="fc-cta border-b border-[var(--fc-ink)]">
+          <div className="fc-shell py-20 lg:py-28">
+            <span className="fc-data-label">Your next conference</span>
+            <div className="mt-5 flex flex-col justify-between gap-10 lg:flex-row lg:items-end">
+              <h2>Run the whole conference in one place.</h2>
+              <div className="flex shrink-0 flex-col gap-3 sm:flex-row">
+                <Link href="/sign-up" className="fc-button fc-button-ink">
+                  Create account <ArrowRight className="size-4" aria-hidden />
+                </Link>
+                <Link href="/sign-in" className="fc-button fc-button-outline">
+                  Sign in
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer className="bg-white">
+        <div className="fc-shell grid gap-10 py-12 md:grid-cols-[1.4fr_1fr_1fr]">
+          <div>
+            <div className="fc-wordmark">
+              Fresi<span>CMT</span>
+            </div>
+            <p className="mt-3 max-w-sm text-sm leading-6 text-[var(--fc-muted)]">
+              Conference management from submission through registration.
             </p>
           </div>
-          <div className="oc-font-label flex flex-col items-center gap-6 text-xs font-medium tracking-wide md:flex-row md:gap-8">
-            <a
-              className="text-[var(--oc-on-surface-variant)] opacity-80 transition-colors hover:text-[var(--oc-primary)] hover:opacity-100"
-              href="#"
-            >
-              Privacy Policy
-            </a>
-            <a
-              className="text-[var(--oc-on-surface-variant)] opacity-80 transition-colors hover:text-[var(--oc-primary)] hover:opacity-100"
-              href="#"
-            >
-              Terms of Service
-            </a>
-            <a
-              className="text-[var(--oc-on-surface-variant)] opacity-80 transition-colors hover:text-[var(--oc-primary)] hover:opacity-100"
-              href="mailto:contact@fresi.org"
-            >
-              Contact Support
-            </a>
+          <div className="fc-footer-links">
+            <strong>Product</strong>
+            <a href="#workflow">Workflow</a>
+            <a href="#roles">Roles</a>
+            <a href="#capabilities">Capabilities</a>
           </div>
+          <div className="fc-footer-links">
+            <strong>Connect</strong>
+            <Link href="/sign-in">Sign in</Link>
+            <Link href="/sign-up">Create account</Link>
+            <a href="mailto:contact@fresi.org">Contact support</a>
+          </div>
+        </div>
+        <div className="fc-shell flex flex-col gap-2 border-t border-zinc-200 py-5 text-xs text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
+          <span>© 2026 FresiCMT</span>
+          <span>Built for academic conference organizers and participants.</span>
         </div>
       </footer>
     </div>
   );
 }
 
-function CapabilityColumn({ title, items }: { title: string; items: string[] }) {
+function ConferenceLedger() {
   return (
-    <div>
-      <h4 className="oc-font-headline mb-6 border-b border-[var(--oc-surface-variant)] pb-4 text-[28px] font-semibold leading-9 text-[var(--oc-on-surface)]">
-        {title}
-      </h4>
-      <ul className="space-y-4 text-base leading-6 text-[var(--oc-on-surface-variant)]">
-        {items.map((item) => (
-          <li key={item} className="flex items-start gap-3">
-            <Check className="mt-0.5 size-5 shrink-0 text-[var(--oc-primary)]" aria-hidden />
-            <span>{item}</span>
-          </li>
+    <div className="fc-ledger">
+      <div className="fc-ledger-bar">
+        <span>Illustrative conference workspace</span>
+        <span>FC · DEMO 2026</span>
+      </div>
+      <div className="fc-ledger-summary">
+        <div>
+          <span>Conference</span>
+          <strong>Future Computing 2026</strong>
+        </div>
+        <div>
+          <span>Current phase</span>
+          <strong className="text-[var(--fc-blue)]">Decisions</strong>
+        </div>
+        <div>
+          <span>Next handoff</span>
+          <strong>Camera-ready · 14d</strong>
+        </div>
+      </div>
+      <div className="fc-ledger-flow" aria-label="Conference lifecycle progress">
+        {['Submit', 'Review', 'Decide', 'Camera', 'Register'].map((stage, index) => (
+          <div key={stage} className={index < 2 ? 'is-complete' : index === 2 ? 'is-active' : ''}>
+            {index < 2 ? <Check className="size-3" /> : <Circle className="size-3" />}
+            <span>{stage}</span>
+          </div>
         ))}
-      </ul>
+      </div>
+      <div className="fc-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Paper</th>
+              <th>Title</th>
+              <th>Reviews</th>
+              <th>Decision</th>
+              <th>Next</th>
+            </tr>
+          </thead>
+          <tbody>
+            {papers.map((paper, index) => (
+              <tr key={paper.id}>
+                <td>{paper.id}</td>
+                <td>{paper.title}</td>
+                <td>{paper.review}</td>
+                <td>
+                  <span
+                    className={`fc-chip ${
+                      paper.decision === 'Accept'
+                        ? 'fc-chip-ok'
+                        : paper.decision === 'Pending'
+                          ? 'fc-chip-pending'
+                          : 'fc-chip-blue'
+                    }`}
+                  >
+                    {paper.decision}
+                  </span>
+                </td>
+                <td>{index === 0 ? 'Final file' : index === 1 ? 'Record' : 'Round 2'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="fc-ledger-note">
+        <span className="fc-signal-dot" />
+        Synthetic data shown for product illustration
+      </div>
     </div>
+  );
+}
+
+function CapabilityEvidence({
+  icon,
+  title,
+  description,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <article className="fc-evidence">
+      <div className="flex items-center gap-3 text-[var(--fc-blue)]">
+        {icon}
+        <h3>{title}</h3>
+      </div>
+      <p>{description}</p>
+      <div className="fc-evidence-demo">{children}</div>
+    </article>
   );
 }

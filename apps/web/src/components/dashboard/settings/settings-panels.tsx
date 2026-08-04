@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useSettingsWorkspace } from './settings-workspace';
+import { useSettingsWorkspace, type SettingsForm } from './settings-workspace';
 
 function SettingsFeedback() {
   const { error, saved } = useSettingsWorkspace();
@@ -17,22 +17,50 @@ function SettingsFeedback() {
   );
 }
 
+function PhaseField({
+  id,
+  label,
+  value,
+  onChange,
+}: {
+  id: keyof SettingsForm;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        type="datetime-local"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </div>
+  );
+}
+
 export function SettingsPhasesPanel() {
   const { form, setForm, loading, save } = useSettingsWorkspace();
 
   if (loading) return <Skeleton className="h-64 w-full rounded-xl" />;
+
+  function updateField(key: keyof SettingsForm, value: string) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Phases & blinding</CardTitle>
         <CardDescription>
-          Configure review blinding mode and conference phase windows.
+          Configure review blinding and conference phase windows. All times are UTC (GMT).
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form
-          className="space-y-6"
+          className="space-y-8"
           onSubmit={(event) => {
             event.preventDefault();
             void save();
@@ -44,7 +72,7 @@ export function SettingsPhasesPanel() {
               id="blindingMode"
               className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
               value={form.blindingMode}
-              onChange={(e) => setForm({ ...form, blindingMode: e.target.value })}
+              onChange={(e) => updateField('blindingMode', e.target.value)}
             >
               <option value="SINGLE">Single blind</option>
               <option value="DOUBLE">Double blind</option>
@@ -52,44 +80,100 @@ export function SettingsPhasesPanel() {
             </select>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="cfpOpensAt">CFP opens</Label>
-              <Input
+          <section className="space-y-3">
+            <div>
+              <h3 className="text-sm font-medium text-slate-900">Call for papers</h3>
+              <p className="text-xs text-slate-500">Submission window for new manuscripts.</p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <PhaseField
                 id="cfpOpensAt"
-                type="datetime-local"
+                label="CFP opens"
                 value={form.cfpOpensAt}
-                onChange={(e) => setForm({ ...form, cfpOpensAt: e.target.value })}
+                onChange={(value) => updateField('cfpOpensAt', value)}
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="cfpClosesAt">CFP closes</Label>
-              <Input
+              <PhaseField
                 id="cfpClosesAt"
-                type="datetime-local"
+                label="CFP closes"
                 value={form.cfpClosesAt}
-                onChange={(e) => setForm({ ...form, cfpClosesAt: e.target.value })}
+                onChange={(value) => updateField('cfpClosesAt', value)}
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="reviewDueAt">Review due</Label>
-              <Input
+          </section>
+
+          <section className="space-y-3">
+            <div>
+              <h3 className="text-sm font-medium text-slate-900">Bidding</h3>
+              <p className="text-xs text-slate-500">Reviewer interest window before assignment.</p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <PhaseField
+                id="biddingOpensAt"
+                label="Bidding opens"
+                value={form.biddingOpensAt}
+                onChange={(value) => updateField('biddingOpensAt', value)}
+              />
+              <PhaseField
+                id="biddingClosesAt"
+                label="Bidding closes"
+                value={form.biddingClosesAt}
+                onChange={(value) => updateField('biddingClosesAt', value)}
+              />
+            </div>
+          </section>
+
+          <section className="space-y-3">
+            <div>
+              <h3 className="text-sm font-medium text-slate-900">Review cycle</h3>
+              <p className="text-xs text-slate-500">
+                Review, rebuttal, and decision deadlines for the program committee.
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <PhaseField
                 id="reviewDueAt"
-                type="datetime-local"
+                label="Review due"
                 value={form.reviewDueAt}
-                onChange={(e) => setForm({ ...form, reviewDueAt: e.target.value })}
+                onChange={(value) => updateField('reviewDueAt', value)}
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="decisionDueAt">Decision due</Label>
-              <Input
+              <PhaseField
+                id="rebuttalDueAt"
+                label="Rebuttal due"
+                value={form.rebuttalDueAt}
+                onChange={(value) => updateField('rebuttalDueAt', value)}
+              />
+              <PhaseField
                 id="decisionDueAt"
-                type="datetime-local"
+                label="Decision due"
                 value={form.decisionDueAt}
-                onChange={(e) => setForm({ ...form, decisionDueAt: e.target.value })}
+                onChange={(value) => updateField('decisionDueAt', value)}
               />
             </div>
-          </div>
+          </section>
+
+          <section className="space-y-3">
+            <div>
+              <h3 className="text-sm font-medium text-slate-900">Post-acceptance</h3>
+              <p className="text-xs text-slate-500">
+                Camera-ready uploads require a due date. Registration uses the registration due
+                window.
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <PhaseField
+                id="cameraReadyDueAt"
+                label="Camera-ready due"
+                value={form.cameraReadyDueAt}
+                onChange={(value) => updateField('cameraReadyDueAt', value)}
+              />
+              <PhaseField
+                id="registrationDueAt"
+                label="Registration due"
+                value={form.registrationDueAt}
+                onChange={(value) => updateField('registrationDueAt', value)}
+              />
+            </div>
+          </section>
 
           <SettingsFeedback />
           <Button type="submit">Save phases</Button>

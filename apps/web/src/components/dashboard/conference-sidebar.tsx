@@ -3,10 +3,9 @@
 import { ArrowLeft, HelpCircle } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { navGroupsForRoles, navItemIcon, roleLabels } from '@/lib/roles';
-import { ConferenceSwitcher } from './conference-switcher';
+import { navGroupsForRoles, navItemIcon } from '@/lib/roles';
+import { ConferenceSidebarList } from './conference-sidebar-list';
 import { SidebarNavItem } from './sidebar-nav-item';
-import { StatusBadge } from './status-badge';
 import { useConferenceWorkspace } from './conference-workspace';
 import { useSidebarOptional } from './sidebar-context';
 import { cn } from '@/lib/utils';
@@ -16,7 +15,6 @@ export function ConferenceSidebar() {
   const { conferenceId, conference, conferences } = useConferenceWorkspace();
   const roles = conference?.myRoles ?? [];
   const groups = navGroupsForRoles(roles);
-  const labels = roleLabels(roles);
   const sidebar = useSidebarOptional();
   const collapsed = sidebar?.collapsed ?? false;
 
@@ -41,26 +39,8 @@ export function ConferenceSidebar() {
           </Link>
         )}
 
-        {conference && !collapsed ? (
-          <div className="space-y-2">
-            <div>
-              <p className="font-semibold leading-snug text-slate-900">{conference.name}</p>
-              <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                <StatusBadge status={conference.status} />
-                {labels.map((label) => (
-                  <span
-                    key={label}
-                    className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-600"
-                  >
-                    {label}
-                  </span>
-                ))}
-              </div>
-            </div>
-            {conferences.length > 1 ? (
-              <ConferenceSwitcher conferences={conferences} currentId={conferenceId} />
-            ) : null}
-          </div>
+        {conferences.length > 0 && !collapsed ? (
+          <ConferenceSidebarList conferences={conferences} currentId={conferenceId} />
         ) : null}
       </div>
 

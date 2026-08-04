@@ -131,6 +131,16 @@ export async function rotateAuthorJoinLink(conferenceId: string) {
 export async function updateConferenceSettings(id: string, body: Record<string, unknown>) {
   const result = await apiClient.conferences.updateSettings({ params: { id }, body });
   if (result.status === 200) return result.body;
+  if (
+    'body' in result &&
+    result.body &&
+    typeof result.body === 'object' &&
+    'detail' in result.body
+  ) {
+    throw new Error(
+      String((result.body as { detail?: string }).detail ?? 'Failed to update settings'),
+    );
+  }
   throw new Error('Failed to update settings');
 }
 
@@ -322,7 +332,7 @@ export async function fetchPaper(conferenceId: string, paperId: string) {
 export async function createPaper(
   conferenceId: string,
   body: {
-    trackId: string;
+    trackId?: string;
     title: string;
     abstract: string;
     keywords: string[];
@@ -501,7 +511,9 @@ export async function createReviewRound(
   const result = await apiClient.review.createRound({ params: { conferenceId }, body });
   if (result.status === 201) return result.body;
   if (result.status === 409) throw new Error(result.body.detail ?? 'Round already exists');
-  throw new Error('Failed to create review round');
+  if (result.status === 403)
+    throw new Error(result.body.detail ?? 'Not allowed to open review rounds');
+  throw new Error(result.body.detail ?? 'Failed to create review round');
 }
 
 export async function updateReviewRound(
@@ -600,6 +612,12 @@ export async function fetchCoiList(conferenceId: string) {
   const result = await apiClient.review.listCoi({ params: { conferenceId } });
   if (result.status === 200) return result.body.data;
   throw new Error('Failed to load conflicts of interest');
+}
+
+export async function fetchCoiDeclareTargets(conferenceId: string) {
+  const result = await apiClient.review.listCoiDeclareTargets({ params: { conferenceId } });
+  if (result.status === 200) return result.body.data;
+  throw new Error('Failed to load papers for conflict declaration');
 }
 
 export async function declareCoi(
@@ -830,7 +848,11 @@ export async function makeDecision(
     body,
   });
   if (result.status === 201) return result.body;
-  if (result.status === 409) throw new Error(result.body.detail ?? 'Conflict');
+  if (result.status === 409) {
+    const err = new Error(result.body.detail ?? 'Conflict') as Error & { status: number };
+    err.status = 409;
+    throw err;
+  }
   throw new Error('Failed to record decision');
 }
 

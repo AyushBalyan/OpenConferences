@@ -122,7 +122,7 @@ export const meDashboardAssignmentSchema = z.object({
   roundNumber: z.number().int(),
 });
 
-export const meDashboardOrganizerConferenceSchema = z.object({
+export const meDashboardConferenceSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
   slug: z.string(),
@@ -130,10 +130,15 @@ export const meDashboardOrganizerConferenceSchema = z.object({
   myRoles: z.array(roleKindSchema),
 });
 
+/** @deprecated Use meDashboardConferenceSchema */
+export const meDashboardOrganizerConferenceSchema = meDashboardConferenceSchema;
+
 export const meDashboardSchema = z.object({
   authoredPapers: z.array(meDashboardPaperSchema),
   reviewerAssignments: z.array(meDashboardAssignmentSchema),
-  organizerConferences: z.array(meDashboardOrganizerConferenceSchema),
+  authorConferences: z.array(meDashboardConferenceSchema),
+  reviewerConferences: z.array(meDashboardConferenceSchema),
+  organizerConferences: z.array(meDashboardConferenceSchema),
   /** True when the user has ORG_ADMIN or PLATFORM_ADMIN on any membership (incl. org-scoped). */
   canCreateConference: z.boolean(),
 });

@@ -179,8 +179,8 @@ export class ConferenceService {
     try {
       const conference = await withTenantContext(
         { userId: actorUserId, organizationId: input.organizationId },
-        async (tx) =>
-          tx.conference.create({
+        async (tx) => {
+          const created = await tx.conference.create({
             data: {
               id: generateId(),
               organizationId: input.organizationId,
@@ -189,7 +189,20 @@ export class ConferenceService {
               authorJoinToken: generateId(),
               blindingMode: input.blindingMode ?? 'DOUBLE',
             },
-          }),
+          });
+
+          await tx.track.create({
+            data: {
+              id: generateId(),
+              conferenceId: created.id,
+              organizationId: input.organizationId,
+              slug: 'main',
+              name: 'Main Track',
+            },
+          });
+
+          return created;
+        },
       );
 
       await withTenantContext(

@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { fetchConferences, fetchMeDashboard } from '@/lib/api-client';
 import { canCreateConference } from '@/lib/roles';
 import type { Conference } from '@/lib/conference-types';
-import { ConferenceSwitcher } from './conference-switcher';
+import { ConferenceSidebarList } from './conference-sidebar-list';
 import { useSidebarOptional } from './sidebar-context';
 
 function SidebarLink({
@@ -78,6 +78,12 @@ export function DashboardSidebar() {
         ) : null}
       </div>
 
+      {conferences.length > 0 && !collapsed ? (
+        <div className="border-b border-slate-200 p-4">
+          <ConferenceSidebarList conferences={conferences} />
+        </div>
+      ) : null}
+
       <nav className={cn('flex-1 space-y-1', collapsed ? 'p-2' : 'p-4')}>
         {!collapsed ? (
           <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
@@ -101,15 +107,6 @@ export function DashboardSidebar() {
           />
         ) : null}
       </nav>
-
-      {conferences.length > 0 && !collapsed ? (
-        <div className="space-y-2 border-t border-slate-200 p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-            Quick switch
-          </p>
-          <ConferenceSwitcher conferences={conferences} />
-        </div>
-      ) : null}
 
       <div className={cn('mt-auto border-t border-slate-200', collapsed ? 'p-2' : 'p-4')}>
         <Link

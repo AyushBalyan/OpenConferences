@@ -69,17 +69,8 @@ export class MeDashboardService {
 
     const { rolesByConferenceId, rolesByOrganizationId } = mergeRolesByConference(orgMemberships);
 
-    const organizerConferences = conferenceMemberships
-      .filter((membership) => {
-        if (!membership.conference) return false;
-        const roles = effectiveRolesForConference(
-          membership.conference.id,
-          membership.conference.organizationId,
-          rolesByConferenceId,
-          rolesByOrganizationId,
-        );
-        return maxRoleRank(roles) >= maxRoleRank(ORGANIZER_SURFACE_ROLES);
-      })
+    const conferenceSummaries = conferenceMemberships
+      .filter((membership) => membership.conference)
       .map((membership) => {
         const conference = membership.conference!;
         const myRoles = effectiveRolesForConference(
@@ -96,6 +87,18 @@ export class MeDashboardService {
           myRoles,
         };
       });
+
+    const organizerConferences = conferenceSummaries.filter(
+      (conference) => maxRoleRank(conference.myRoles) >= maxRoleRank(ORGANIZER_SURFACE_ROLES),
+    );
+
+    const authorConferences = conferenceSummaries.filter((conference) =>
+      conference.myRoles.includes('AUTHOR'),
+    );
+
+    const reviewerConferences = conferenceSummaries.filter((conference) =>
+      conference.myRoles.includes('REVIEWER'),
+    );
 
     const canCreateConference = memberships.some((membership) =>
       membership.roles.some((grant) => CREATE_CONFERENCE_ROLES.includes(grant.role)),
@@ -122,6 +125,8 @@ export class MeDashboardService {
         dueAt: assignment.dueAt?.toISOString() ?? null,
         roundNumber: assignment.round.roundNumber,
       })),
+      authorConferences,
+      reviewerConferences,
       organizerConferences,
       canCreateConference,
     };

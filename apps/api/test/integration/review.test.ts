@@ -720,6 +720,15 @@ describe('Reviewer management & assignment integration', () => {
     expect(res.body.value).toBe('YES');
   });
 
+  it('lists submitted papers for COI declaration dropdown (reviewer view)', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/conflicts-of-interest/declare-targets`)
+      .set('Cookie', reviewerCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.some((paper: { id: string }) => paper.id === paperId)).toBe(true);
+  });
+
   it('blocks assignment when reviewer is paper author (COI authorship)', async () => {
     const res = await request(app.getHttpServer())
       .post(`/api/v1/conferences/${confId}/papers/${authorPaperId}/assignments`)

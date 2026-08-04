@@ -76,10 +76,10 @@ function DashboardShellInner({
   );
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-slate-50">
+    <div className="fixed inset-0 flex h-dvh w-full overflow-hidden bg-slate-50">
       <aside
         className={cn(
-          'hidden h-dvh shrink-0 border-r border-slate-200 bg-white transition-[width] duration-200 lg:block',
+          'hidden h-full min-h-0 shrink-0 border-r border-slate-200 bg-white transition-[width] duration-200 lg:block',
           collapsed ? 'w-16' : 'w-[250px]',
         )}
       >
@@ -143,8 +143,10 @@ function DashboardShellInner({
           }
         />
 
-        <main className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">{children}</div>
+        <main className="min-h-0 min-w-0 flex-1 overscroll-contain overflow-x-hidden overflow-y-auto">
+          <div className="mx-auto w-full min-w-0 max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+            {children}
+          </div>
         </main>
       </div>
     </div>

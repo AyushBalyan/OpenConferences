@@ -189,6 +189,68 @@ describe('Paper submission integration', () => {
     expect(res.body.authorships?.length).toBeGreaterThan(0);
   });
 
+  it('creates a draft paper without trackId by using the conference default track', async () => {
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/papers`)
+      .set('Cookie', authorCookie)
+      .send({
+        title: 'Default Track Paper',
+        abstract: 'An abstract that is long enough.',
+        keywords: ['testing'],
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.trackId).toBe(trackId);
+  });
+
+  it('creates a default Main track when submitting to a legacy conference without tracks', async () => {
+    const legacyConfId = generateId();
+
+    await withTenantContext({}, async (tx) => {
+      await tx.conference.create({
+        data: {
+          id: legacyConfId,
+          organizationId: orgId,
+          slug: `legacy-${legacyConfId.slice(0, 8)}`,
+          name: 'Legacy Conference',
+          status: 'CFP_OPEN',
+          authorJoinToken: generateId(),
+        },
+      });
+
+      await tx.membership.create({
+        data: {
+          id: generateId(),
+          userId: authorUserId,
+          organizationId: orgId,
+          conferenceId: legacyConfId,
+          scope: 'CONFERENCE',
+          roles: { create: { id: generateId(), role: 'AUTHOR' } },
+        },
+      });
+    });
+
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${legacyConfId}/papers`)
+      .set('Cookie', authorCookie)
+      .send({
+        title: 'Legacy Track Paper',
+        abstract: 'An abstract that is long enough.',
+        keywords: ['legacy'],
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.trackId).toBeTruthy();
+
+    const track = await withTenantContext({}, async (tx) =>
+      tx.track.findFirst({
+        where: { conferenceId: legacyConfId, deletedAt: null },
+      }),
+    );
+    expect(track?.slug).toBe('main');
+    expect(track?.name).toBe('Main Track');
+  });
+
   it('rejects oversize upload initiation', async () => {
     const create = await request(app.getHttpServer())
       .post(`/api/v1/conferences/${confId}/papers`)

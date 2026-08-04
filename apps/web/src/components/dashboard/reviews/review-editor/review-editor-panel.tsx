@@ -22,11 +22,29 @@ import { Download } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const SCORE_KEYS = ['originality', 'clarity', 'significance'] as const;
+const AUTOSAVE_MS = 800;
+
+type SaveState = 'idle' | 'saving' | 'saved' | 'conflict';
+
+type DraftSnapshot = {
+  scores: Record<string, number>;
+  recommendation: Recommendation | '';
+  confidence: number | '';
+  commentsToAuthors: string;
+  commentsToChairs: string;
+};
 
 type ReviewEditorPanelProps = {
   conferenceId: string;
   assignmentId: string;
 };
+
+function isVersionConflict(err: unknown): boolean {
+  if (!(err instanceof Error) || (err as Error & { status?: number }).status !== 409) {
+    return false;
+  }
+  return /modified by another request|modified elsewhere/i.test(err.message);
+}
 
 export function ReviewEditorPanel({ conferenceId, assignmentId }: ReviewEditorPanelProps) {
   const [review, setReview] = useState<ReviewDto | null>(null);
@@ -37,12 +55,38 @@ export function ReviewEditorPanel({ conferenceId, assignmentId }: ReviewEditorPa
   const [commentsToChairs, setCommentsToChairs] = useState('');
   const [rebuttalBody, setRebuttalBody] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'conflict'>('idle');
+  const [saveState, setSaveState] = useState<SaveState>('idle');
   const [busy, setBusy] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const versionRef = useRef(0);
+  const dirtyEpochRef = useRef(0);
+  const saveQueuedRef = useRef(false);
+  const flushPromiseRef = useRef<Promise<boolean> | null>(null);
+  const saveStateRef = useRef<SaveState>('idle');
+  const conflictRetryUsedRef = useRef(false);
+  const formRef = useRef<DraftSnapshot>({
+    scores: {},
+    recommendation: '',
+    confidence: '',
+    commentsToAuthors: '',
+    commentsToChairs: '',
+  });
+
+  formRef.current = {
+    scores,
+    recommendation,
+    confidence,
+    commentsToAuthors,
+    commentsToChairs,
+  };
+
+  const setSaveStateSafe = useCallback((next: SaveState) => {
+    saveStateRef.current = next;
+    setSaveState(next);
+  }, []);
 
   const applyReview = useCallback((data: ReviewDto) => {
     setReview(data);
@@ -52,12 +96,28 @@ export function ReviewEditorPanel({ conferenceId, assignmentId }: ReviewEditorPa
     setScores(data.scores ?? {});
     setCommentsToAuthors(data.commentsToAuthors ?? '');
     setCommentsToChairs(data.commentsToChairs ?? '');
+    dirtyEpochRef.current = 0;
     setIsDirty(false);
+  }, []);
+
+  const applyServerMetadata = useCallback((saved: ReviewDto) => {
+    versionRef.current = saved.version;
+    setReview((prev) => ({
+      ...(prev ?? saved),
+      id: saved.id,
+      version: saved.version,
+      updatedAt: saved.updatedAt,
+      submittedAt: saved.submittedAt,
+      visibility: saved.visibility,
+      paperTitle: saved.paperTitle ?? prev?.paperTitle,
+      currentVersionId: saved.currentVersionId ?? prev?.currentVersionId,
+    }));
   }, []);
 
   const load = useCallback(async () => {
     const data = await fetchAssignmentReview(conferenceId, assignmentId);
     applyReview(data);
+    conflictRetryUsedRef.current = false;
 
     if (data.submittedAt && data.paperId) {
       try {
@@ -75,73 +135,147 @@ export function ReviewEditorPanel({ conferenceId, assignmentId }: ReviewEditorPa
     load().catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'));
   }, [load]);
 
-  const persist = useCallback(async () => {
-    setSaveState('saving');
-    try {
-      const saved = await saveReview(conferenceId, assignmentId, {
-        scores,
-        recommendation: recommendation || null,
-        confidence: confidence === '' ? null : confidence,
-        commentsToAuthors: commentsToAuthors || null,
-        commentsToChairs: commentsToChairs || null,
-        version: versionRef.current,
-      });
-      applyReview(saved);
-      setSaveState('saved');
-      setIsDirty(false);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Save failed';
-      if ((err as Error & { status?: number }).status === 409) {
-        setSaveState('conflict');
-        setError('This review was updated elsewhere. Reload to continue.');
-      } else {
-        setSaveState('idle');
-        setError(message);
-      }
+  const markDirty = useCallback(() => {
+    dirtyEpochRef.current += 1;
+    setIsDirty(true);
+    if (saveStateRef.current !== 'conflict') {
+      setSaveStateSafe('idle');
     }
-  }, [
-    applyReview,
-    assignmentId,
-    commentsToAuthors,
-    commentsToChairs,
-    conferenceId,
-    confidence,
-    recommendation,
-    scores,
-  ]);
+  }, [setSaveStateSafe]);
+
+  const persistOnce = useCallback(
+    async (epochAtStart: number, draft: DraftSnapshot, allowConflictRetry: boolean) => {
+      const body = {
+        scores: draft.scores,
+        recommendation: draft.recommendation || null,
+        confidence: draft.confidence === '' ? null : draft.confidence,
+        commentsToAuthors: draft.commentsToAuthors || null,
+        commentsToChairs: draft.commentsToChairs || null,
+        version: versionRef.current,
+      };
+
+      try {
+        const saved = await saveReview(conferenceId, assignmentId, body);
+        applyServerMetadata(saved);
+        conflictRetryUsedRef.current = false;
+
+        if (dirtyEpochRef.current === epochAtStart) {
+          setIsDirty(false);
+          setSaveStateSafe('saved');
+        }
+        return true;
+      } catch (err) {
+        if (
+          isVersionConflict(err) &&
+          allowConflictRetry &&
+          !conflictRetryUsedRef.current &&
+          dirtyEpochRef.current === epochAtStart
+        ) {
+          conflictRetryUsedRef.current = true;
+          const latest = await fetchAssignmentReview(conferenceId, assignmentId);
+          versionRef.current = latest.version;
+          setReview((prev) => ({
+            ...(prev ?? latest),
+            id: latest.id,
+            version: latest.version,
+            updatedAt: latest.updatedAt,
+            submittedAt: latest.submittedAt,
+            visibility: latest.visibility,
+            paperTitle: latest.paperTitle ?? prev?.paperTitle,
+            currentVersionId: latest.currentVersionId ?? prev?.currentVersionId,
+          }));
+          return persistOnce(epochAtStart, draft, false);
+        }
+
+        if (isVersionConflict(err)) {
+          setSaveStateSafe('conflict');
+          setError('This review was updated elsewhere. Reload to continue.');
+          return false;
+        }
+
+        setSaveStateSafe('idle');
+        setError(err instanceof Error ? err.message : 'Save failed');
+        return false;
+      }
+    },
+    [applyServerMetadata, assignmentId, conferenceId, setSaveStateSafe],
+  );
+
+  const flushSaves = useCallback(async (): Promise<boolean> => {
+    if (saveStateRef.current === 'conflict') return false;
+
+    saveQueuedRef.current = true;
+    if (flushPromiseRef.current) {
+      return flushPromiseRef.current;
+    }
+
+    flushPromiseRef.current = (async () => {
+      let ok = true;
+      while (saveQueuedRef.current && saveStateRef.current !== 'conflict') {
+        saveQueuedRef.current = false;
+        setSaveStateSafe('saving');
+        setError(null);
+
+        const epochAtStart = dirtyEpochRef.current;
+        const draft = { ...formRef.current, scores: { ...formRef.current.scores } };
+        ok = await persistOnce(epochAtStart, draft, true);
+
+        if (!ok) break;
+
+        if (dirtyEpochRef.current !== epochAtStart) {
+          saveQueuedRef.current = true;
+        }
+      }
+      return ok && saveStateRef.current !== 'conflict';
+    })().finally(() => {
+      flushPromiseRef.current = null;
+    });
+
+    return flushPromiseRef.current;
+  }, [persistOnce, setSaveStateSafe]);
 
   useEffect(() => {
     if (!review || saveState === 'conflict' || !isDirty) return;
 
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      persist().catch(() => undefined);
-    }, 800);
+      void flushSaves();
+    }, AUTOSAVE_MS);
 
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
   }, [
-    commentsToAuthors,
-    commentsToChairs,
-    confidence,
-    persist,
-    recommendation,
+    flushSaves,
+    isDirty,
     review,
     saveState,
     scores,
-    isDirty,
+    recommendation,
+    confidence,
+    commentsToAuthors,
+    commentsToChairs,
   ]);
 
   async function handleSubmit() {
     setBusy(true);
     setError(null);
     try {
-      await persist();
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+
+      const saved = await flushSaves();
+      if (!saved || saveStateRef.current === 'conflict') {
+        return;
+      }
+
       const result = await submitReview(conferenceId, assignmentId, {
         version: versionRef.current,
       });
       applyReview(result.review);
+      setSaveStateSafe('saved');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Submit failed');
     } finally {
@@ -150,8 +284,9 @@ export function ReviewEditorPanel({ conferenceId, assignmentId }: ReviewEditorPa
   }
 
   async function handleReload() {
-    setSaveState('idle');
+    setSaveStateSafe('idle');
     setError(null);
+    conflictRetryUsedRef.current = false;
     await load();
   }
 
@@ -179,8 +314,7 @@ export function ReviewEditorPanel({ conferenceId, assignmentId }: ReviewEditorPa
 
   function updateScore(key: string, value: number) {
     setScores((prev) => ({ ...prev, [key]: value }));
-    setSaveState('idle');
-    setIsDirty(true);
+    markDirty();
   }
 
   if (error && !review) {
@@ -233,7 +367,7 @@ export function ReviewEditorPanel({ conferenceId, assignmentId }: ReviewEditorPa
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
       {saveState === 'conflict' ? (
-        <Button variant="outline" onClick={handleReload}>
+        <Button variant="outline" onClick={() => void handleReload()}>
           Reload review
         </Button>
       ) : null}
@@ -279,8 +413,7 @@ export function ReviewEditorPanel({ conferenceId, assignmentId }: ReviewEditorPa
             disabled={saveState === 'conflict'}
             onChange={(e) => {
               setRecommendation(e.target.value as Recommendation | '');
-              setSaveState('idle');
-              setIsDirty(true);
+              markDirty();
             }}
           >
             <option value="">Select recommendation</option>
@@ -300,8 +433,7 @@ export function ReviewEditorPanel({ conferenceId, assignmentId }: ReviewEditorPa
               disabled={saveState === 'conflict'}
               onChange={(e) => {
                 setConfidence(e.target.value === '' ? '' : Number(e.target.value));
-                setSaveState('idle');
-                setIsDirty(true);
+                markDirty();
               }}
             >
               <option value="">—</option>
@@ -331,8 +463,7 @@ export function ReviewEditorPanel({ conferenceId, assignmentId }: ReviewEditorPa
             disabled={saveState === 'conflict'}
             onChange={(e) => {
               setCommentsToAuthors(e.target.value);
-              setSaveState('idle');
-              setIsDirty(true);
+              markDirty();
             }}
             placeholder="Constructive feedback visible to authors when reviews are released."
           />
@@ -349,8 +480,7 @@ export function ReviewEditorPanel({ conferenceId, assignmentId }: ReviewEditorPa
             disabled={saveState === 'conflict'}
             onChange={(e) => {
               setCommentsToChairs(e.target.value);
-              setSaveState('idle');
-              setIsDirty(true);
+              markDirty();
             }}
             placeholder="Visible only to chairs and organizers."
           />
@@ -370,7 +500,7 @@ export function ReviewEditorPanel({ conferenceId, assignmentId }: ReviewEditorPa
       ) : null}
 
       <div className="flex gap-3">
-        <Button onClick={handleSubmit} disabled={busy || saveState === 'conflict'}>
+        <Button onClick={() => void handleSubmit()} disabled={busy || saveState === 'conflict'}>
           {submitted ? 'Update submission' : 'Submit review'}
         </Button>
       </div>

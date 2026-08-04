@@ -2,13 +2,19 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { fetchConference, updateConferenceSettings } from '@/lib/api-client';
+import { fromUtcDatetimeLocalValue, toUtcDatetimeLocalValue } from '@/lib/datetime-utc';
 
 export type SettingsForm = {
   blindingMode: string;
   cfpOpensAt: string;
   cfpClosesAt: string;
+  biddingOpensAt: string;
+  biddingClosesAt: string;
   reviewDueAt: string;
+  rebuttalDueAt: string;
   decisionDueAt: string;
+  cameraReadyDueAt: string;
+  registrationDueAt: string;
   currency: string;
   regularEarly: string;
   regularRegular: string;
@@ -37,6 +43,24 @@ export function useSettingsWorkspace() {
   return context;
 }
 
+const EMPTY_FORM: SettingsForm = {
+  blindingMode: 'DOUBLE',
+  cfpOpensAt: '',
+  cfpClosesAt: '',
+  biddingOpensAt: '',
+  biddingClosesAt: '',
+  reviewDueAt: '',
+  rebuttalDueAt: '',
+  decisionDueAt: '',
+  cameraReadyDueAt: '',
+  registrationDueAt: '',
+  currency: 'INR',
+  regularEarly: '500000',
+  regularRegular: '750000',
+  studentEarly: '250000',
+  studentRegular: '400000',
+};
+
 export function SettingsWorkspaceProvider({
   conferenceId,
   children,
@@ -47,27 +71,21 @@ export function SettingsWorkspaceProvider({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const [form, setForm] = useState<SettingsForm>({
-    blindingMode: 'DOUBLE',
-    cfpOpensAt: '',
-    cfpClosesAt: '',
-    reviewDueAt: '',
-    decisionDueAt: '',
-    currency: 'INR',
-    regularEarly: '500000',
-    regularRegular: '750000',
-    studentEarly: '250000',
-    studentRegular: '400000',
-  });
+  const [form, setForm] = useState<SettingsForm>(EMPTY_FORM);
 
   const load = useCallback(async () => {
     const conference = await fetchConference(conferenceId);
     setForm({
       blindingMode: conference.blindingMode,
-      cfpOpensAt: conference.cfpOpensAt?.slice(0, 16) ?? '',
-      cfpClosesAt: conference.cfpClosesAt?.slice(0, 16) ?? '',
-      reviewDueAt: conference.reviewDueAt?.slice(0, 16) ?? '',
-      decisionDueAt: conference.decisionDueAt?.slice(0, 16) ?? '',
+      cfpOpensAt: toUtcDatetimeLocalValue(conference.cfpOpensAt),
+      cfpClosesAt: toUtcDatetimeLocalValue(conference.cfpClosesAt),
+      biddingOpensAt: toUtcDatetimeLocalValue(conference.biddingOpensAt),
+      biddingClosesAt: toUtcDatetimeLocalValue(conference.biddingClosesAt),
+      reviewDueAt: toUtcDatetimeLocalValue(conference.reviewDueAt),
+      rebuttalDueAt: toUtcDatetimeLocalValue(conference.rebuttalDueAt),
+      decisionDueAt: toUtcDatetimeLocalValue(conference.decisionDueAt),
+      cameraReadyDueAt: toUtcDatetimeLocalValue(conference.cameraReadyDueAt),
+      registrationDueAt: toUtcDatetimeLocalValue(conference.registrationDueAt),
       currency: conference.feeSchedule.currency,
       regularEarly: String(conference.feeSchedule.matrix.REGULAR?.EARLY ?? 0),
       regularRegular: String(conference.feeSchedule.matrix.REGULAR?.REGULAR ?? 0),
@@ -89,10 +107,15 @@ export function SettingsWorkspaceProvider({
     try {
       await updateConferenceSettings(conferenceId, {
         blindingMode: form.blindingMode as 'SINGLE' | 'DOUBLE' | 'OPEN',
-        cfpOpensAt: form.cfpOpensAt ? new Date(form.cfpOpensAt).toISOString() : null,
-        cfpClosesAt: form.cfpClosesAt ? new Date(form.cfpClosesAt).toISOString() : null,
-        reviewDueAt: form.reviewDueAt ? new Date(form.reviewDueAt).toISOString() : null,
-        decisionDueAt: form.decisionDueAt ? new Date(form.decisionDueAt).toISOString() : null,
+        cfpOpensAt: fromUtcDatetimeLocalValue(form.cfpOpensAt),
+        cfpClosesAt: fromUtcDatetimeLocalValue(form.cfpClosesAt),
+        biddingOpensAt: fromUtcDatetimeLocalValue(form.biddingOpensAt),
+        biddingClosesAt: fromUtcDatetimeLocalValue(form.biddingClosesAt),
+        reviewDueAt: fromUtcDatetimeLocalValue(form.reviewDueAt),
+        rebuttalDueAt: fromUtcDatetimeLocalValue(form.rebuttalDueAt),
+        decisionDueAt: fromUtcDatetimeLocalValue(form.decisionDueAt),
+        cameraReadyDueAt: fromUtcDatetimeLocalValue(form.cameraReadyDueAt),
+        registrationDueAt: fromUtcDatetimeLocalValue(form.registrationDueAt),
         feeSchedule: {
           currency: form.currency,
           matrix: {
@@ -108,6 +131,7 @@ export function SettingsWorkspaceProvider({
         },
       });
       setSaved(true);
+      await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
     }

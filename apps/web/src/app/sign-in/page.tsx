@@ -7,6 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { signInSchema, type SignInInput } from '@openconferences/schemas';
 import { authClient, refreshSession } from '@/lib/auth-client';
 import { AuthShell, AuthLink } from '@/components/auth/auth-shell';
+import { PasswordInput } from '@/components/auth/password-input';
 import { TurnstileField } from '@/components/auth/turnstile-field';
 import { isTurnstileEnabled, turnstileFetchOptions, withTurnstileBody } from '@/lib/turnstile';
 import { Button } from '@/components/ui/button';
@@ -152,12 +153,7 @@ function SignInContent() {
             <Label htmlFor="password">Password</Label>
             <AuthLink href="/forgot-password">Forgot password?</AuthLink>
           </div>
-          <Input
-            id="password"
-            type="password"
-            autoComplete="current-password"
-            {...register('password')}
-          />
+          <PasswordInput id="password" autoComplete="current-password" {...register('password')} />
           {errors.password ? (
             <p className="text-sm text-destructive">{errors.password.message}</p>
           ) : null}

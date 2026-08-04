@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { fetchCoiList, fetchConference, fetchPapers } from '@/lib/api-client';
+import { fetchCoiDeclareTargets, fetchCoiList, fetchConference } from '@/lib/api-client';
 import type { ConflictOfInterestDto } from '@/lib/review-types';
 
 type CoiWorkspaceValue = {
@@ -44,14 +44,14 @@ export function CoiWorkspaceProvider({
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    const [conference, list, paperList] = await Promise.all([
+    const [conference, list, declareTargets] = await Promise.all([
       fetchConference(conferenceId),
       fetchCoiList(conferenceId),
-      fetchPapers(conferenceId),
+      fetchCoiDeclareTargets(conferenceId),
     ]);
     setConferenceName(conference.name);
     setCois(list);
-    setPapers(paperList.data.map((p) => ({ id: p.id, title: p.title })));
+    setPapers(declareTargets);
     setError(null);
   }, [conferenceId]);
 

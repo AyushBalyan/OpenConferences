@@ -311,6 +311,35 @@ export class CoiService {
     };
   }
 
+  async listDeclareTargets(userId: string, conferenceId: string, roles: RoleKind[]) {
+    const conference = await this.conferences.loadConference(userId, conferenceId, roles);
+    const privileged = isPrivilegedReader(roles);
+
+    if (!privileged && !roles.includes('REVIEWER')) {
+      throw new ForbiddenException('Reviewer or coordinator role required');
+    }
+
+    const papers = await withTenantContext(
+      { userId, conferenceId, organizationId: conference.organizationId },
+      async (tx) =>
+        tx.paper.findMany({
+          where: {
+            conferenceId,
+            ...(privileged
+              ? { status: { in: ['SUBMITTED', 'UNDER_REVIEW', 'DECISION_MADE', 'CAMERA_READY'] } }
+              : {
+                  status: { in: ['SUBMITTED', 'UNDER_REVIEW'] },
+                  NOT: { authorships: { some: { userId } } },
+                }),
+          },
+          select: { id: true, title: true },
+          orderBy: { title: 'asc' },
+        }),
+    );
+
+    return { data: papers };
+  }
+
   async declare(userId: string, conferenceId: string, input: DeclareCoiInput, roles: RoleKind[]) {
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
     const privileged = isPrivilegedReader(roles);

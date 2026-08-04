@@ -153,6 +153,15 @@ export class ReviewController {
     });
   }
 
+  @TsRestHandler(reviewContract.listCoiDeclareTargets)
+  @RequireMembership()
+  listCoiDeclareTargets(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(reviewContract.listCoiDeclareTargets, async ({ params }) => {
+      const result = await this.coi.listDeclareTargets(user.id, params.conferenceId, roles);
+      return { status: 200 as const, body: result };
+    });
+  }
+
   @TsRestHandler(reviewContract.declareCoi)
   @RequireMembership()
   declareCoi(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {

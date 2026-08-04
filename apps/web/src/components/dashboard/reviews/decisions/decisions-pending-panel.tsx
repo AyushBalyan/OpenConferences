@@ -15,13 +15,20 @@ import {
   DataTableRow,
 } from '@/components/dashboard/data-table';
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
-import { bulkDecide, makeDecision } from '@/lib/api-client';
+import { bulkDecide, fetchPaper, makeDecision } from '@/lib/api-client';
 import { paperStatusLabel, paperStatusTone } from '@/lib/paper-status-styles';
 import { DECISION_OPTIONS, type DecisionOutcome } from '@/lib/review-types';
 import { useDecisionsWorkspace, type PaperRow } from './decisions-workspace';
 
 const selectClassName =
   'flex h-9 w-full min-w-[8.5rem] rounded-md border border-slate-200 bg-white px-2 py-1 text-sm';
+
+function isPaperVersionConflict(err: unknown): boolean {
+  if (!(err instanceof Error) || (err as Error & { status?: number }).status !== 409) {
+    return false;
+  }
+  return /Paper was modified by another request/i.test(err.message);
+}
 
 export function DecisionsPendingPanel() {
   const {
@@ -69,6 +76,31 @@ export function DecisionsPendingPanel() {
     setSelected(checked ? new Set(undecidedPapers.map((paper) => paper.id)) : new Set());
   }
 
+  async function recordDecisionWithFreshVersion(
+    paperId: string,
+    body: {
+      roundId: string;
+      outcome: DecisionOutcome;
+      rationale: string | null;
+    },
+  ) {
+    const latest = await fetchPaper(conferenceId, paperId);
+    try {
+      return await makeDecision(conferenceId, paperId, {
+        ...body,
+        version: latest.version,
+      });
+    } catch (err) {
+      if (!isPaperVersionConflict(err)) throw err;
+
+      const retried = await fetchPaper(conferenceId, paperId);
+      return makeDecision(conferenceId, paperId, {
+        ...body,
+        version: retried.version,
+      });
+    }
+  }
+
   async function handleSingleDecision(paper: PaperRow) {
     if (!roundId) return;
     const draft = pending[paper.id] ?? { outcome: 'ACCEPT' as DecisionOutcome, rationale: '' };
@@ -76,16 +108,16 @@ export function DecisionsPendingPanel() {
     setError(null);
     setMessage(null);
     try {
-      const result = await makeDecision(conferenceId, paper.id, {
+      const result = await recordDecisionWithFreshVersion(paper.id, {
         roundId,
         outcome: draft.outcome,
         rationale: draft.rationale || null,
-        version: paper.version,
       });
       setMessage(result.message);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Decision failed');
+      await refresh().catch(() => undefined);
     } finally {
       setBusy(false);
     }

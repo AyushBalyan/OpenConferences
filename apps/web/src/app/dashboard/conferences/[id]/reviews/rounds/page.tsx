@@ -13,7 +13,12 @@ import {
   DataTableRow,
 } from '@/components/dashboard/data-table';
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
-import { fetchReviewRounds, releaseReviews, updateReviewRound } from '@/lib/api-client';
+import {
+  createReviewRound,
+  fetchReviewRounds,
+  releaseReviews,
+  updateReviewRound,
+} from '@/lib/api-client';
 import { roundStatusLabel, type ReviewRoundDto } from '@/lib/review-types';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
@@ -23,6 +28,11 @@ function roundTone(status: ReviewRoundDto['status']) {
   if (status === 'REVIEWING' || status === 'REBUTTAL') return 'pending' as const;
   if (status === 'DECIDING') return 'info' as const;
   return 'success' as const;
+}
+
+function nextRoundNumber(rounds: ReviewRoundDto[]) {
+  if (rounds.length === 0) return 1;
+  return Math.max(...rounds.map((round) => round.roundNumber)) + 1;
 }
 
 export default function ReviewRoundsPage() {
@@ -45,6 +55,25 @@ function ReviewRounds() {
   useEffect(() => {
     load().catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'));
   }, [load]);
+
+  const upcomingRoundNumber = nextRoundNumber(rounds);
+  const hasActiveRound = rounds.some((round) => round.status !== 'CLOSED');
+  const canOpenRound = !hasActiveRound;
+
+  async function handleOpenRound() {
+    if (!canOpenRound) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      await createReviewRound(conferenceId, { roundNumber: upcomingRoundNumber });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to open review round');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleAdvance(round: ReviewRoundDto) {
     const next =
@@ -82,16 +111,33 @@ function ReviewRounds() {
     }
   }
 
+  const openRoundLabel = `Open Round ${upcomingRoundNumber}`;
+
   return (
     <div className="space-y-6">
-      <PageHeader title="Review rounds" description="Open, close, and manage review rounds." />
+      <PageHeader
+        title="Review rounds"
+        description="Open, close, and manage review rounds."
+        actions={
+          canOpenRound && rounds.length > 0 ? (
+            <Button disabled={busy} onClick={() => void handleOpenRound()}>
+              {openRoundLabel}
+            </Button>
+          ) : undefined
+        }
+      />
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
       {rounds.length === 0 ? (
         <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            No review rounds yet. Open Round 1 to begin assignments.
+          <CardContent className="flex flex-col items-center gap-4 py-8 text-center">
+            <p className="text-muted-foreground">
+              No review rounds yet. Open Round 1 to begin assignments.
+            </p>
+            <Button disabled={busy} onClick={() => void handleOpenRound()}>
+              {openRoundLabel}
+            </Button>
           </CardContent>
         </Card>
       ) : (

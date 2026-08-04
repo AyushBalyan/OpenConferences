@@ -7,6 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { signUpSchema, type SignUpInput } from '@openconferences/schemas';
 import { authClient } from '@/lib/auth-client';
 import { AuthShell, AuthLink } from '@/components/auth/auth-shell';
+import { PasswordInput } from '@/components/auth/password-input';
 import { TurnstileField } from '@/components/auth/turnstile-field';
 import { isTurnstileEnabled, turnstileFetchOptions, withTurnstileBody } from '@/lib/turnstile';
 import { resolveReviewerInviteToken } from '@/lib/reviewer-invite-pending';
@@ -149,12 +150,7 @@ function SignUpContent() {
         ) : null}
         <div className="space-y-2">
           <Label htmlFor="password">Password</Label>
-          <Input
-            id="password"
-            type="password"
-            autoComplete="new-password"
-            {...register('password')}
-          />
+          <PasswordInput id="password" autoComplete="new-password" {...register('password')} />
           {errors.password ? (
             <p className="text-sm text-destructive">{errors.password.message}</p>
           ) : null}

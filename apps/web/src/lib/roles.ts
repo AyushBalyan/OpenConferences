@@ -49,3 +49,21 @@ export function roleLabels(roles: string[]): string[] {
   else if (canCoordinateReview(roles)) labels.push('Chair');
   return labels;
 }
+
+export function conferenceWorkspaceHref(conferenceId: string, roles: string[]): string {
+  const base = `/dashboard/conferences/${conferenceId}`;
+
+  if (isOrganizerSurface(roles) || (isAuthor(roles) && isReviewer(roles))) {
+    return base;
+  }
+
+  if (isReviewer(roles)) {
+    return `${base}/reviews/my-assignments`;
+  }
+
+  if (isAuthor(roles)) {
+    return `${base}/submissions`;
+  }
+
+  return base;
+}
