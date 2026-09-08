@@ -1,0 +1,19 @@
+{
+  "key": "registration.deadline_reminder",
+  "kind": "conference",
+  "subject": "Registration deadline approaching",
+  "headline": "Registration deadline approaching",
+  "paragraphs": [
+    "Your accepted paper still requires completed registration and payment.",
+    "Please complete registration before the deadline below."
+  ],
+  "details": [
+    { "label": "Paper", "value": "{{paperTitle}}" },
+    { "label": "Registration deadline", "value": "{{deadlineAt}}" }
+  ],
+  "cta": null,
+  "otp": null,
+  "extraParagraphs": [],
+  "secondaryNote": "Papers with unpaid registration after the deadline may be withdrawn for non-payment.",
+  "variables": ["paperTitle", "deadlineAt", "conferenceName"]
+}

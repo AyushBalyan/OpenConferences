@@ -1,0 +1,25 @@
+{
+  "key": "registration.early_bird_ending",
+  "kind": "conference",
+  "subject": "Early-bird registration ends soon",
+  "headline": "Early-bird registration ending soon",
+  "paragraphs": [
+    "Early-bird registration pricing for your accepted paper will end soon.",
+    "Complete your registration before the early-bird deadline to lock in the reduced rate."
+  ],
+  "details": [
+    {
+      "label": "Paper",
+      "value": "{{paperTitle}}"
+    },
+    {
+      "label": "Early-bird ends",
+      "value": "{{earlyBirdEndsAt}}"
+    }
+  ],
+  "cta": null,
+  "otp": null,
+  "extraParagraphs": [],
+  "secondaryNote": "After this date, standard registration fees will apply.",
+  "variables": ["paperTitle", "earlyBirdEndsAt", "conferenceName"]
+}

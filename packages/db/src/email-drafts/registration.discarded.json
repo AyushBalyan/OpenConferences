@@ -1,0 +1,16 @@
+{
+  "key": "registration.discarded",
+  "kind": "conference",
+  "subject": "Registration discarded — payment not received",
+  "headline": "Registration discarded",
+  "paragraphs": [
+    "Your registration has been discarded because payment was not received by the deadline.",
+    "If you believe this is a mistake, please contact the conference organizers."
+  ],
+  "details": [{ "label": "Paper", "value": "{{paperTitle}}" }],
+  "cta": null,
+  "otp": null,
+  "extraParagraphs": [],
+  "secondaryNote": "This message is from {{conferenceName}}.",
+  "variables": ["paperTitle", "conferenceName"]
+}

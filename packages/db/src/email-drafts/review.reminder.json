@@ -1,0 +1,19 @@
+{
+  "key": "review.reminder",
+  "kind": "conference",
+  "subject": "Review due soon: {{paperTitle}}",
+  "headline": "Review deadline approaching",
+  "paragraphs": [
+    "This is a reminder that your review for {{conferenceName}} is due soon.",
+    "Please submit your review before the due date below."
+  ],
+  "details": [
+    { "label": "Paper", "value": "{{paperTitle}}" },
+    { "label": "Due date", "value": "{{dueAt}}" }
+  ],
+  "cta": null,
+  "otp": null,
+  "extraParagraphs": [],
+  "secondaryNote": "Late reviews may delay editorial decisions for authors.",
+  "variables": ["paperTitle", "dueAt", "conferenceName"]
+}

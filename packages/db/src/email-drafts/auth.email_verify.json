@@ -1,0 +1,19 @@
+{
+  "key": "auth.email_verify",
+  "kind": "auth",
+  "subject": "Your email verification code",
+  "headline": "Verify your email address",
+  "paragraphs": [
+    "Thanks for creating an account.",
+    "Enter this code in the browser window where you signed up. Do not share this code with anyone."
+  ],
+  "details": [],
+  "cta": null,
+  "otp": {
+    "code": "{{otp}}",
+    "expiresLabel": "This code expires in {{expiresMinutes}} minutes."
+  },
+  "extraParagraphs": [],
+  "secondaryNote": "If you did not create an account, you can safely ignore this email. Someone else may have typed your address by mistake.",
+  "variables": ["otp", "expiresMinutes"]
+}

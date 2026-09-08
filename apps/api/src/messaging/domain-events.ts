@@ -44,6 +44,9 @@ export type PaperSubmittedPayload = {
   conferenceId: string;
   organizationId: string;
   authorEmail?: string;
+  authorName?: string;
+  authorAffiliation?: string;
+  authorList?: string;
   idempotencyKey: string;
 };
 

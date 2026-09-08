@@ -1,0 +1,21 @@
+{
+  "key": "review.released",
+  "kind": "conference",
+  "subject": "Reviewer feedback available: {{paperTitle}}",
+  "headline": "Reviewer feedback released",
+  "paragraphs": [
+    "Review feedback for your submission to {{conferenceName}} is now available.",
+    "You may read the released reviews and, if allowed, submit a rebuttal before the deadline."
+  ],
+  "details": [
+    {
+      "label": "Paper",
+      "value": "{{paperTitle}}"
+    }
+  ],
+  "cta": null,
+  "otp": null,
+  "extraParagraphs": [],
+  "secondaryNote": null,
+  "variables": ["paperTitle", "conferenceName"]
+}

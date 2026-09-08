@@ -1,0 +1,18 @@
+{
+  "key": "registration.confirmed",
+  "kind": "conference",
+  "subject": "Registration confirmed — {{paperTitle}}",
+  "headline": "Registration confirmed",
+  "paragraphs": [
+    "Thank you — your registration payment has been received and your participation is confirmed."
+  ],
+  "details": [
+    { "label": "Paper", "value": "{{paperTitle}}" },
+    { "label": "Amount paid", "value": "{{amountFormatted}}" }
+  ],
+  "cta": null,
+  "otp": null,
+  "extraParagraphs": [],
+  "secondaryNote": "Keep this email for your records.",
+  "variables": ["paperTitle", "amountFormatted", "conferenceName"]
+}

@@ -1,0 +1,25 @@
+{
+  "key": "registration.window_open",
+  "kind": "conference",
+  "subject": "Registration now open — {{paperTitle}}",
+  "headline": "Registration is now open",
+  "paragraphs": [
+    "Congratulations — your paper has been accepted to {{conferenceName}}.",
+    "Registration is now open. Please complete registration and payment before the deadline to confirm your participation."
+  ],
+  "details": [
+    {
+      "label": "Paper",
+      "value": "{{paperTitle}}"
+    },
+    {
+      "label": "Registration deadline",
+      "value": "{{deadlineAt}}"
+    }
+  ],
+  "cta": null,
+  "otp": null,
+  "extraParagraphs": [],
+  "secondaryNote": "Papers that remain unpaid after the registration deadline may be withdrawn from the program.",
+  "variables": ["paperTitle", "deadlineAt", "conferenceName"]
+}

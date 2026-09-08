@@ -1,0 +1,19 @@
+{
+  "key": "registration.clarification_requested",
+  "kind": "conference",
+  "subject": "Action needed: student verification",
+  "headline": "Student verification — clarification needed",
+  "paragraphs": [
+    "We need additional documents to complete your student verification.",
+    "Please review the committee note below and upload the requested materials when you sign in."
+  ],
+  "details": [
+    { "label": "Paper", "value": "{{paperTitle}}" },
+    { "label": "Committee note", "value": "{{note}}" }
+  ],
+  "cta": null,
+  "otp": null,
+  "extraParagraphs": [],
+  "secondaryNote": "Your registration may remain on hold until verification is complete.",
+  "variables": ["paperTitle", "note", "conferenceName"]
+}

@@ -1,0 +1,19 @@
+{
+  "key": "reviewer.invitation",
+  "kind": "conference",
+  "subject": "Reviewer invitation for {{conferenceName}}",
+  "headline": "Reviewer invitation",
+  "paragraphs": [
+    "Dear colleague,",
+    "You have been invited to serve as a reviewer for {{conferenceName}}. The program organizers would value your expertise in evaluating submissions for this conference."
+  ],
+  "details": [{ "label": "Expires", "value": "{{expiresAt}}" }],
+  "cta": {
+    "label": "Accept invitation",
+    "url": "{{signupUrl}}"
+  },
+  "otp": null,
+  "extraParagraphs": [],
+  "secondaryNote": "If you were not expecting this invitation, you may safely ignore this email.",
+  "variables": ["conferenceName", "signupUrl", "expiresAt"]
+}

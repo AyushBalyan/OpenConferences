@@ -1,0 +1,19 @@
+{
+  "key": "cameraready.reminder",
+  "kind": "conference",
+  "subject": "Camera-ready due soon: {{paperTitle}}",
+  "headline": "Camera-ready deadline approaching",
+  "paragraphs": [
+    "Your accepted paper requires a camera-ready PDF before it can be included in the {{conferenceName}} proceedings.",
+    "Please upload the final PDF before the deadline below."
+  ],
+  "details": [
+    { "label": "Paper", "value": "{{paperTitle}}" },
+    { "label": "Deadline", "value": "{{deadlineAt}}" }
+  ],
+  "cta": null,
+  "otp": null,
+  "extraParagraphs": [],
+  "secondaryNote": "Missing the camera-ready deadline may affect publication of your paper.",
+  "variables": ["paperTitle", "deadlineAt", "conferenceName"]
+}

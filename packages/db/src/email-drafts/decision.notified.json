@@ -1,0 +1,16 @@
+{
+  "key": "decision.notified",
+  "kind": "conference",
+  "subject": "Editorial decision — {{outcomeLabel}}: {{paperTitle}}",
+  "headline": "Editorial decision: {{outcomeLabel}}",
+  "paragraphs": ["The program committee has reached an editorial decision on your submission."],
+  "details": [
+    { "label": "Paper", "value": "{{paperTitle}}" },
+    { "label": "Decision", "value": "{{outcomeLabel}}" }
+  ],
+  "cta": null,
+  "otp": null,
+  "extraParagraphs": ["{{rationaleBlock}}", "{{acceptBlock}}"],
+  "secondaryNote": null,
+  "variables": ["paperTitle", "outcomeLabel", "rationaleBlock", "acceptBlock", "conferenceName"]
+}

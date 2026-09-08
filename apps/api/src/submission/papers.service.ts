@@ -35,6 +35,15 @@ type LoadedPaper = Paper & {
   versions?: (PaperVersion & { fileAsset: FileAsset })[];
 };
 
+function formatAuthorList(authorships: Authorship[]): string {
+  return authorships
+    .map((author) => {
+      const affiliation = author.affiliation?.trim();
+      return affiliation ? `${author.fullName} (${affiliation})` : author.fullName;
+    })
+    .join('; ');
+}
+
 @Injectable()
 export class PapersService {
   constructor(
@@ -293,6 +302,9 @@ export class PapersService {
         conferenceId,
         organizationId: paper.organizationId,
         authorEmail: corresponding.email,
+        authorName: corresponding.fullName,
+        authorAffiliation: corresponding.affiliation?.trim() || undefined,
+        authorList: formatAuthorList(paper.authorships),
         idempotencyKey: `submission-confirmed-${paperId}`,
       });
     }

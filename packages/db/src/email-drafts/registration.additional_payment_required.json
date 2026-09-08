@@ -1,0 +1,19 @@
+{
+  "key": "registration.additional_payment_required",
+  "kind": "conference",
+  "subject": "Additional registration payment required",
+  "headline": "Additional payment required",
+  "paragraphs": [
+    "Your student verification was not approved at the discounted rate.",
+    "An additional registration payment is required to complete your registration."
+  ],
+  "details": [
+    { "label": "Paper", "value": "{{paperTitle}}" },
+    { "label": "Amount due", "value": "{{amountFormatted}}" }
+  ],
+  "cta": null,
+  "otp": null,
+  "extraParagraphs": [],
+  "secondaryNote": "This message is from {{conferenceName}}.",
+  "variables": ["paperTitle", "amountFormatted", "conferenceName"]
+}

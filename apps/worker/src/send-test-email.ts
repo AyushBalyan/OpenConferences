@@ -90,6 +90,10 @@ function buildSampleContext(templateKey: string, webUrl: string): Record<string,
     'submission.confirmed': {
       paperTitle: 'Deliverability Test Paper',
       conferenceName: 'ICAM Test Conference',
+      authorName: 'Jane Doe',
+      authorEmail: 'jane.doe@example.com',
+      authorAffiliation: 'IIT Delhi',
+      authorList: 'Jane Doe (IIT Delhi); John Smith (IISc Bangalore)',
     },
     'submission.ops_alert': {
       paperTitle: 'Deliverability Test Paper',

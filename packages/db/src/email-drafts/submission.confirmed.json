@@ -1,0 +1,29 @@
+{
+  "key": "submission.confirmed",
+  "kind": "conference",
+  "subject": "Submission received: {{paperTitle}}",
+  "headline": "Submission confirmed",
+  "paragraphs": [
+    "Your paper has been received for {{conferenceName}}.",
+    "Please keep this message as a record of the submission."
+  ],
+  "details": [
+    { "label": "Paper", "value": "{{paperTitle}}" },
+    { "label": "Corresponding author", "value": "{{authorName}}" },
+    { "label": "Email", "value": "{{authorEmail}}" },
+    { "label": "Affiliation", "value": "{{authorAffiliation}}" },
+    { "label": "Authors", "value": "{{authorList}}" }
+  ],
+  "cta": null,
+  "otp": null,
+  "extraParagraphs": [],
+  "secondaryNote": "You will receive further updates by email as this submission moves through review.",
+  "variables": [
+    "paperTitle",
+    "conferenceName",
+    "authorName",
+    "authorEmail",
+    "authorAffiliation",
+    "authorList"
+  ]
+}
