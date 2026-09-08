@@ -38,6 +38,7 @@ describe('NotificationPublisher.publishPaperSubmitted', () => {
     expect(enqueue.mock.calls[0]?.[0]).toMatchObject({
       templateKey: 'submission.confirmed',
       to: 'author@example.com',
+      context: { paperTitle: 'A Study', conferenceName: 'ICAM 2026' },
     });
   });
 

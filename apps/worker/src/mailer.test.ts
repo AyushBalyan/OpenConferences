@@ -24,6 +24,13 @@ describe('parseMailFrom', () => {
     });
   });
 
+  it('uses the address as the display name when none is provided', () => {
+    expect(parseMailFrom('notifications@mail.fresi.org')).toEqual({
+      address: 'notifications@mail.fresi.org',
+      name: 'notifications@mail.fresi.org',
+    });
+  });
+
   it('uses MAIL_FROM_NAME override for bare addresses', () => {
     expect(parseMailFrom('notifications@mail.fresi.org', 'Fresi')).toEqual({
       address: 'notifications@mail.fresi.org',

@@ -71,7 +71,7 @@ export class NotificationPublisher {
     await this.notifications.enqueue({
       templateKey: 'submission.confirmed',
       to: payload.to,
-      context: { paperTitle: payload.paperTitle },
+      context: { paperTitle: payload.paperTitle, conferenceName: payload.conferenceName },
       organizationId: payload.organizationId,
       conferenceId: payload.conferenceId,
       idempotencyKey: payload.idempotencyKey,

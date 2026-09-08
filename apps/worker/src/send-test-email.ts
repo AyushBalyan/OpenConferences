@@ -89,15 +89,16 @@ function buildSampleContext(templateKey: string, webUrl: string): Record<string,
     },
     'submission.confirmed': {
       paperTitle: 'Deliverability Test Paper',
+      conferenceName: 'ICAM Test Conference',
     },
     'submission.ops_alert': {
       paperTitle: 'Deliverability Test Paper',
-      conferenceName: 'OpenConferences Test Conference',
+      conferenceName: 'ICAM Test Conference',
       authorEmail: 'author@example.com',
       paperUrl: `${base}/dashboard/conferences/00000000-0000-4000-8000-000000000001/submissions/00000000-0000-4000-8000-000000000002`,
     },
     'reviewer.invitation': {
-      conferenceName: 'OpenConferences Test Conference',
+      conferenceName: 'ICAM Test Conference',
       signupUrl: `${base}/join/reviewer?token=deliverability-test-token&invitationToken=test-invite`,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleString('en-US', {
         month: 'long',
@@ -163,7 +164,11 @@ function buildSampleContext(templateKey: string, webUrl: string): Record<string,
     },
   };
 
-  return byKey[templateKey] ?? {};
+  const context = byKey[templateKey] ?? {};
+  if (!templateKey.startsWith('auth.') && !context.conferenceName) {
+    context.conferenceName = 'ICAM Test Conference';
+  }
+  return context;
 }
 
 function printHelp(): void {

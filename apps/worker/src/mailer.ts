@@ -28,7 +28,7 @@ export function parseMailFrom(
   const match = from.match(/^(.+?)\s*<([^>]+)>$/);
   const address = (match?.[2] ?? from).trim();
   const parsedName = match?.[1]?.trim();
-  const name = fromNameOverride?.trim() || parsedName || 'OpenConferences';
+  const name = fromNameOverride?.trim() || parsedName || address;
   return { address, name };
 }
 

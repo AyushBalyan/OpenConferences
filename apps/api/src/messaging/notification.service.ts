@@ -98,9 +98,10 @@ export class NotificationService {
       input.templateKey,
     );
 
-    const subject = renderTemplate(template.subject, input.context);
-    const html = renderTemplate(template.bodyHtml, input.context);
-    const text = template.bodyText ? renderTemplate(template.bodyText, input.context) : undefined;
+    const context = await this.withConferenceBrand(input);
+    const subject = renderTemplate(template.subject, context);
+    const html = renderTemplate(template.bodyHtml, context);
+    const text = template.bodyText ? renderTemplate(template.bodyText, context) : undefined;
 
     if (getConfig().isTest) {
       lastTestNotification = {
@@ -144,6 +145,28 @@ export class NotificationService {
       tags: input.tags ?? [input.templateKey],
       idempotencyKey: input.idempotencyKey,
     });
+  }
+
+  private async withConferenceBrand(
+    input: EnqueueNotificationInput,
+  ): Promise<Record<string, unknown>> {
+    const context = { ...input.context };
+    if (!input.conferenceId || String(context.conferenceName ?? '').trim()) {
+      return context;
+    }
+
+    const conference = await withTenantContext({}, async (tx) =>
+      tx.conference.findFirst({
+        where: { id: input.conferenceId },
+        select: { name: true },
+      }),
+    );
+
+    if (conference?.name) {
+      context.conferenceName = conference.name;
+    }
+
+    return context;
   }
 
   async listLogs(

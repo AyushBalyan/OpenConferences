@@ -127,6 +127,7 @@ export async function processReminderSweepJob(
           include: {
             reviewer: { select: { email: true } },
             paper: { select: { title: true } },
+            conference: { select: { name: true } },
             round: { select: { reviewDueAt: true } },
           },
         }),
@@ -142,6 +143,7 @@ export async function processReminderSweepJob(
           context: {
             paperTitle: assignment.paper.title,
             dueAt: dueAt.toISOString(),
+            conferenceName: assignment.conference.name,
           },
           organizationId: assignment.organizationId,
           conferenceId: assignment.conferenceId,
@@ -162,7 +164,7 @@ export async function processReminderSweepJob(
           },
           include: {
             authorships: true,
-            conference: { select: { cameraReadyDueAt: true } },
+            conference: { select: { cameraReadyDueAt: true, name: true } },
           },
         }),
       );
@@ -180,6 +182,7 @@ export async function processReminderSweepJob(
           context: {
             paperTitle: paper.title,
             deadlineAt: deadlineAt.toISOString(),
+            conferenceName: paper.conference.name,
           },
           organizationId: paper.organizationId,
           conferenceId: paper.conferenceId,
@@ -201,6 +204,7 @@ export async function processReminderSweepJob(
           },
           include: {
             paper: { include: { authorships: true } },
+            conference: { select: { name: true } },
           },
         }),
       );
@@ -217,6 +221,7 @@ export async function processReminderSweepJob(
           context: {
             paperTitle: registration.paper.title,
             deadlineAt: registration.deadlineAt.toISOString(),
+            conferenceName: registration.conference.name,
           },
           organizationId: registration.organizationId,
           conferenceId: registration.conferenceId,
@@ -248,7 +253,10 @@ export async function processReminderSweepJob(
               conferenceId: conference.id,
               status: { in: ['PENDING', 'AWAITING_VERIFICATION', 'ADDITIONAL_PAYMENT_REQUIRED'] },
             },
-            include: { paper: { include: { authorships: true } } },
+            include: {
+              paper: { include: { authorships: true } },
+              conference: { select: { name: true } },
+            },
           }),
         );
 
@@ -264,6 +272,7 @@ export async function processReminderSweepJob(
             context: {
               paperTitle: registration.paper.title,
               earlyBirdEndsAt: earlyBirdEndsAt.toISOString(),
+              conferenceName: registration.conference.name,
             },
             organizationId: registration.organizationId,
             conferenceId: registration.conferenceId,

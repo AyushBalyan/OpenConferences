@@ -1097,7 +1097,7 @@ The requested flow had several under-specified or conflicting points; each is re
 
 ### 11.2 Architecture (extensible by design)
 
-- **Templates are data** (`notification_templates`), versioned and org-editable. Rendered with a **logic-less, auto-escaping** engine (variables escaped on output; validated on save) to prevent template injection.
+- **Templates are data** (`notification_templates`), versioned and org-editable. Rendered with a **logic-less, auto-escaping** engine (variables escaped on output; validated on save) to prevent template injection. Conference transactional mail is **white-labeled at send time** via `{{conferenceName}}` (header, footer, and copy). Templates stay platform/org-scoped — not per-conference rows. Auth mail (`auth.*`) has no conference and must not name the product.
 - **Event → enqueue → worker → provider → log.** Domains never call Zoho Zepto Mail directly; they emit events. A subscriber maps event → template + context and enqueues a **`pg-boss`** job (stored in PostgreSQL). The worker renders, sends via the `Mailer` adapter, and writes a `NotificationLog`.
 - **Reliability:** `pg-boss` gives retries with backoff, archive/dead-letter on permanent failure, and survives restarts — all with **transactional enqueue** (a job can be inserted in the same DB transaction as the domain change, so you never send an email for a write that rolled back). Idempotency keys prevent duplicate sends on retry.
 - **Scheduling:** reminders use `pg-boss` scheduled/cron jobs computed from conference deadlines — no extra scheduler service.
