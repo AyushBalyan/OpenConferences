@@ -114,6 +114,7 @@ export const paperSchema = z.object({
   version: z.number().int(),
   authorships: z.array(authorshipSchema).optional(),
   currentVersion: paperVersionSchema.nullable().optional(),
+  latestVersion: paperVersionSchema.nullable().optional(),
   cameraReadyVersion: paperVersionSchema.nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),

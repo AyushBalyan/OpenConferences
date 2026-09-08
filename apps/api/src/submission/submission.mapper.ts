@@ -63,7 +63,9 @@ export function mapAuthorship(authorship: Authorship): AuthorshipDto {
 }
 
 export function mapPaper(paper: PaperWithRelations): PaperDto {
-  const latestCameraReady = paper.versions?.[0] ?? null;
+  const latestVersion = paper.versions?.[0] ?? null;
+  const latestCameraReady =
+    paper.versions?.find((version) => version.kind === 'CAMERA_READY') ?? null;
 
   return {
     id: paper.id,
@@ -79,6 +81,7 @@ export function mapPaper(paper: PaperWithRelations): PaperDto {
     version: paper.version,
     authorships: paper.authorships?.map(mapAuthorship),
     currentVersion: paper.currentVersion ? mapPaperVersion(paper.currentVersion) : null,
+    latestVersion: latestVersion ? mapPaperVersion(latestVersion) : null,
     cameraReadyVersion: latestCameraReady ? mapPaperVersion(latestCameraReady) : null,
     createdAt: paper.createdAt.toISOString(),
     updatedAt: paper.updatedAt.toISOString(),

@@ -23,3 +23,17 @@ export function scanStatusLabel(status: 'PENDING_SCAN' | 'CLEAN' | 'INFECTED'): 
   };
   return labels[status];
 }
+
+export function latestScanStatus(
+  paper: PaperDto,
+): 'PENDING_SCAN' | 'CLEAN' | 'INFECTED' | undefined {
+  return paper.currentVersion?.fileAsset?.scanStatus ?? paper.latestVersion?.fileAsset?.scanStatus;
+}
+
+export function canSubmitDraft(paper: PaperDto): boolean {
+  return (
+    paper.status === 'DRAFT' &&
+    Boolean(paper.currentVersionId) &&
+    paper.currentVersion?.fileAsset?.scanStatus === 'CLEAN'
+  );
+}

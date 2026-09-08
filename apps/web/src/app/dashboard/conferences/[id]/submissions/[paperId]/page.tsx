@@ -29,7 +29,7 @@ import {
   type ReviewDto,
 } from '@/lib/review-types';
 import { paperStatusLabel, paperStatusTone } from '@/lib/paper-status-styles';
-import { scanStatusLabel } from '@/lib/submission-types';
+import { canSubmitDraft, latestScanStatus, scanStatusLabel } from '@/lib/submission-types';
 import { RegistrationCard } from '@/components/billing/registration-card';
 import type { PaperDto } from '@/lib/submission-types';
 import { useParams } from 'next/navigation';
@@ -88,13 +88,6 @@ function resolveNextAction(input: {
   } = input;
 
   if (paper.status === 'DRAFT') {
-    if (!paper.currentVersionId) {
-      return {
-        title: 'Upload your manuscript',
-        detail: 'Add a PDF, wait for the security scan, then submit while the CFP is open.',
-        cta: 'Upload PDF',
-      };
-    }
     if (scanStatus === 'PENDING_SCAN') {
       return {
         title: 'Security scan in progress',
@@ -113,6 +106,13 @@ function resolveNextAction(input: {
         title: 'Ready to submit',
         detail: 'Your PDF is clean. Submit to enter the review pipeline.',
         cta: 'Submit paper',
+      };
+    }
+    if (!paper.currentVersionId) {
+      return {
+        title: 'Upload your manuscript',
+        detail: 'Add a PDF, wait for the security scan, then submit while the CFP is open.',
+        cta: 'Upload PDF',
       };
     }
   }
@@ -327,12 +327,9 @@ function SubmissionDetail() {
   }
 
   const scanStatus =
-    paper.currentVersion?.kind === 'CAMERA_READY'
-      ? undefined
-      : paper.currentVersion?.fileAsset?.scanStatus;
+    paper.currentVersion?.kind === 'CAMERA_READY' ? undefined : latestScanStatus(paper);
   const cameraReadyScanStatus = paper.cameraReadyVersion?.fileAsset?.scanStatus;
-  const canSubmit =
-    paper.status === 'DRAFT' && Boolean(paper.currentVersionId) && scanStatus === 'CLEAN';
+  const canSubmit = canSubmitDraft(paper);
   const canRebut = roundStatus === 'REBUTTAL' && reviews.length > 0;
   const isAccepted = decision?.outcome === 'ACCEPT';
   const cameraReadyDeadlinePassed =

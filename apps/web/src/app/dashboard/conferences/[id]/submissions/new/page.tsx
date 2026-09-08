@@ -13,14 +13,15 @@ import { Label } from '@/components/ui/label';
 import {
   addAuthorship,
   createPaper,
+  fetchPaper,
   submitPaper,
   updatePaper,
   uploadPaperPdf,
 } from '@/lib/api-client';
 import { getStoredAuthorAffiliation } from '@/lib/author-join-pending';
-import type { PaperDto } from '@/lib/submission-types';
+import { canSubmitDraft, latestScanStatus, type PaperDto } from '@/lib/submission-types';
 import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 type Step = 'details' | 'authors' | 'upload';
 
@@ -45,8 +46,49 @@ function SubmissionWizard() {
   const [authorAffiliation, setAuthorAffiliation] = useState('');
 
   const [file, setFile] = useState<File | null>(null);
-  const [uploadProgress, setUploadProgress] = useState<UploadProgressStep | null>(null);
+  const [pdfUploaded, setPdfUploaded] = useState(false);
+  const [busy, setBusy] = useState<'uploading' | 'submitting' | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const scanStatus = paper ? latestScanStatus(paper) : undefined;
+  const scanReady = Boolean(paper && pdfUploaded && canSubmitDraft(paper));
+  const scanFailed = pdfUploaded && scanStatus === 'INFECTED';
+  const scanning = pdfUploaded && !scanReady && !scanFailed && busy !== 'uploading';
+
+  const uploadProgress: UploadProgressStep | null =
+    busy === 'uploading' ? 'uploading' : scanning ? 'scanning' : scanReady ? 'ready' : null;
+
+  useEffect(() => {
+    if (!paper?.id || !pdfUploaded || scanReady || scanFailed || busy === 'uploading') {
+      return;
+    }
+
+    const paperId = paper.id;
+    let cancelled = false;
+
+    async function refreshScan() {
+      try {
+        const latest = await fetchPaper(conferenceId, paperId);
+        if (!cancelled) {
+          setPaper(latest);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to check scan status');
+        }
+      }
+    }
+
+    void refreshScan();
+    const timer = window.setInterval(() => {
+      void refreshScan();
+    }, 1500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [busy, conferenceId, paper?.id, pdfUploaded, scanFailed, scanReady]);
 
   async function saveDetails(event: React.FormEvent) {
     event.preventDefault();
@@ -98,21 +140,33 @@ function SubmissionWizard() {
     }
   }
 
-  async function uploadAndSubmit(event: React.FormEvent) {
-    event.preventDefault();
+  async function uploadPdf() {
     if (!paper || !file) return;
     setError(null);
-    setUploadProgress('uploading');
+    setBusy('uploading');
     try {
       await uploadPaperPdf(conferenceId, paper.id, file);
-      setUploadProgress('scanning');
-      await new Promise((r) => setTimeout(r, 300));
-      setUploadProgress('submitting');
+      const latest = await fetchPaper(conferenceId, paper.id);
+      setPaper(latest);
+      setPdfUploaded(true);
+    } catch (err) {
+      setPdfUploaded(false);
+      setError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function submitDraft() {
+    if (!paper || !scanReady) return;
+    setError(null);
+    setBusy('submitting');
+    try {
       await submitPaper(conferenceId, paper.id);
       router.push(`/dashboard/conferences/${conferenceId}/submissions/${paper.id}`);
     } catch (err) {
-      setUploadProgress(null);
-      setError(err instanceof Error ? err.message : 'Upload or submit failed');
+      setError(err instanceof Error ? err.message : 'Submit failed');
+      setBusy(null);
     }
   }
 
@@ -218,43 +272,65 @@ function SubmissionWizard() {
           <CardHeader>
             <CardTitle>Upload PDF</CardTitle>
             <CardDescription>
-              Add your manuscript as a PDF. It will be scanned for security before submission is
-              finalized.
+              Upload your manuscript first. Submit stays disabled until the security scan reports
+              clean.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <form className="space-y-5" onSubmit={uploadAndSubmit}>
-              <PdfUploadField
-                file={file}
-                onFileChange={setFile}
-                disabled={Boolean(uploadProgress)}
-              />
+          <CardContent className="space-y-5">
+            <PdfUploadField
+              file={file}
+              onFileChange={(next) => {
+                setFile(next);
+                setPdfUploaded(false);
+              }}
+              disabled={busy !== null}
+            />
 
-              {uploadProgress ? <UploadProgressSteps current={uploadProgress} /> : null}
+            {uploadProgress ? <UploadProgressSteps current={uploadProgress} /> : null}
 
-              {error ? (
-                <p
-                  className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
-                  role="alert"
-                >
-                  {error}
-                </p>
-              ) : null}
+            {scanFailed ? (
+              <p
+                className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
+                role="alert"
+              >
+                The uploaded PDF failed security scanning. Choose a different file and upload again.
+              </p>
+            ) : null}
 
-              <div className="flex flex-wrap gap-2 pt-1">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setStep('authors')}
-                  disabled={Boolean(uploadProgress)}
-                >
-                  Back
-                </Button>
-                <Button type="submit" disabled={!file || Boolean(uploadProgress)}>
-                  {uploadProgress ? 'Working…' : 'Upload & submit'}
-                </Button>
-              </div>
-            </form>
+            {error ? (
+              <p
+                className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
+                role="alert"
+              >
+                {error}
+              </p>
+            ) : null}
+
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setStep('authors')}
+                disabled={busy !== null}
+              >
+                Back
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void uploadPdf()}
+                disabled={!file || busy !== null}
+              >
+                {busy === 'uploading' ? 'Uploading…' : pdfUploaded ? 'Replace PDF' : 'Upload PDF'}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void submitDraft()}
+                disabled={!scanReady || busy !== null}
+              >
+                {busy === 'submitting' ? 'Submitting…' : 'Submit paper'}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       ) : null}

@@ -509,6 +509,14 @@ describe('Paper submission integration', () => {
       .post(`/api/v1/conferences/${confId}/papers/${paperId}/submit`)
       .set('Cookie', authorCookie);
 
+    const pendingPaper = await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/papers/${paperId}`)
+      .set('Cookie', authorCookie);
+
+    expect(pendingPaper.status).toBe(200);
+    expect(pendingPaper.body.currentVersionId).toBeNull();
+    expect(pendingPaper.body.latestVersion?.fileAsset?.scanStatus).toBe('PENDING_SCAN');
+
     expect(submit.status).toBe(409);
     expect(submit.body.detail).toMatch(/still being scanned/i);
   });

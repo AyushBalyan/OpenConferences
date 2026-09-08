@@ -162,6 +162,7 @@ export const submissionContract = c.router({
       401: problemEnvelopeSchema,
       403: problemEnvelopeSchema,
       404: problemEnvelopeSchema,
+      409: problemEnvelopeSchema,
     },
     summary: 'Finalize upload and enqueue AV scan',
   },

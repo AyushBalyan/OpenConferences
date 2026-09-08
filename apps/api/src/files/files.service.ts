@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -10,7 +11,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileTypeFromBuffer } from 'file-type';
 import { getConfig } from '@openconferences/config/env';
-import { generateId, withTenantContext } from '@openconferences/db';
+import { generateId, Prisma, withTenantContext } from '@openconferences/db';
 import type { FileAsset, PaperVersion, VersionKind } from '@openconferences/db';
 import { applyScanResult } from '@openconferences/db';
 import type { FileScanJobPayload } from '@openconferences/schemas';
@@ -176,44 +177,58 @@ export class FilesService {
     const paperVersionId = generateId();
     const bucket = getS3Bucket();
 
-    const result = await withTenantContext(
-      {
-        userId: input.userId,
-        organizationId: input.organizationId,
-        conferenceId: input.conferenceId,
-      },
-      async (tx) => {
-        const fileAsset = await tx.fileAsset.create({
-          data: {
-            id: fileAssetId,
-            organizationId: input.organizationId,
-            uploadedById: input.userId,
-            bucket,
-            objectKey: input.objectKey,
-            sizeBytes: BigInt(sizeBytes),
-            checksumSha256,
-            mimeType: sniffedMime,
-            originalFilename,
-            scanStatus: 'PENDING_SCAN',
-          },
-        });
+    let result: { fileAsset: FileAsset; version: PaperVersionWithAsset };
+    try {
+      result = await withTenantContext(
+        {
+          userId: input.userId,
+          organizationId: input.organizationId,
+          conferenceId: input.conferenceId,
+        },
+        async (tx) => {
+          const fileAsset = await tx.fileAsset.create({
+            data: {
+              id: fileAssetId,
+              organizationId: input.organizationId,
+              uploadedById: input.userId,
+              bucket,
+              objectKey: input.objectKey,
+              sizeBytes: BigInt(sizeBytes),
+              checksumSha256,
+              mimeType: sniffedMime,
+              originalFilename,
+              scanStatus: 'PENDING_SCAN',
+            },
+          });
 
-        const version = await tx.paperVersion.create({
-          data: {
-            id: paperVersionId,
-            paperId: input.paperId,
-            fileAssetId: fileAsset.id,
-            uploadedById: input.userId,
-            kind: input.kind,
-            versionNumber: pending.versionNumber,
-            note: input.note ?? null,
-          },
-          include: { fileAsset: true },
-        });
+          const latest = await tx.paperVersion.findFirst({
+            where: { paperId: input.paperId, kind: input.kind },
+            orderBy: { versionNumber: 'desc' },
+            select: { versionNumber: true },
+          });
 
-        return { fileAsset, version };
-      },
-    );
+          const version = await tx.paperVersion.create({
+            data: {
+              id: paperVersionId,
+              paperId: input.paperId,
+              fileAssetId: fileAsset.id,
+              uploadedById: input.userId,
+              kind: input.kind,
+              versionNumber: (latest?.versionNumber ?? 0) + 1,
+              note: input.note ?? null,
+            },
+            include: { fileAsset: true },
+          });
+
+          return { fileAsset, version };
+        },
+      );
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException('This upload could not be finalized. Retry the upload.');
+      }
+      throw err;
+    }
 
     const scanPayload: FileScanJobPayload = {
       fileAssetId: result.fileAsset.id,

@@ -413,8 +413,37 @@ export async function completeVersionUpload(
     body,
   });
   if (result.status === 201) return result.body;
-  if (result.status === 400) throw new Error(result.body.detail ?? 'Upload finalize failed');
+  if (result.status === 400 || result.status === 409) {
+    throw new Error(result.body.detail ?? 'Upload finalize failed');
+  }
   throw new Error('Failed to complete upload');
+}
+
+export async function waitForCleanPaperScan(
+  conferenceId: string,
+  paperId: string,
+  options?: { timeoutMs?: number; intervalMs?: number },
+): Promise<void> {
+  const timeoutMs = options?.timeoutMs ?? 60_000;
+  const intervalMs = options?.intervalMs ?? 1_000;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const paper = await fetchPaper(conferenceId, paperId);
+    const scanStatus =
+      paper.currentVersion?.fileAsset?.scanStatus ?? paper.latestVersion?.fileAsset?.scanStatus;
+    if (paper.currentVersionId && scanStatus === 'CLEAN') {
+      return;
+    }
+    if (scanStatus === 'INFECTED') {
+      throw new Error('The uploaded PDF failed security scanning. Please upload a different file.');
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  throw new Error(
+    'Security scan is taking longer than expected. Your PDF was uploaded — wait a moment and try again.',
+  );
 }
 
 export async function submitPaper(conferenceId: string, paperId: string) {

@@ -179,16 +179,16 @@ export function PdfUploadField({
   );
 }
 
-export type UploadProgressStep = 'uploading' | 'scanning' | 'submitting';
+export type UploadProgressStep = 'uploading' | 'scanning' | 'ready';
 
 const UPLOAD_STEP_LABELS: Record<UploadProgressStep, string> = {
   uploading: 'Uploading PDF',
   scanning: 'Scanning for security',
-  submitting: 'Submitting paper',
+  ready: 'Scan complete — ready to submit',
 };
 
 export function UploadProgressSteps({ current }: { current: UploadProgressStep }) {
-  const steps: UploadProgressStep[] = ['uploading', 'scanning', 'submitting'];
+  const steps: UploadProgressStep[] = ['uploading', 'scanning', 'ready'];
   const currentIndex = steps.indexOf(current);
 
   return (
@@ -197,8 +197,8 @@ export function UploadProgressSteps({ current }: { current: UploadProgressStep }
       aria-live="polite"
     >
       {steps.map((step, index) => {
-        const done = index < currentIndex;
-        const active = index === currentIndex;
+        const done = index < currentIndex || current === 'ready';
+        const active = index === currentIndex && current !== 'ready';
 
         return (
           <li key={step} className="flex items-center gap-3 text-sm">

@@ -5,7 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import type { RoleKind, VersionKind } from '@openconferences/db';
+import type { RoleKind, TenantContext, VersionKind } from '@openconferences/db';
 import { withTenantContext } from '@openconferences/db';
 import type { CompleteVersionInput, InitiateVersionInput } from '@openconferences/schemas';
 import { FilesService } from '../files/files.service';
@@ -40,7 +40,11 @@ export class VersionsService {
     const paper = await this.papers.loadPaper(userId, conferenceId, paperId, roles);
     await this.assertCanUploadVersion(userId, conferenceId, paper, input.kind, roles);
 
-    const versionNumber = await this.nextVersionNumber(paperId, input.kind);
+    const versionNumber = await this.nextVersionNumber(paperId, input.kind, {
+      userId,
+      conferenceId,
+      organizationId: paper.organizationId,
+    });
 
     const presigned = await this.files.presignUpload({
       organizationId: paper.organizationId,
@@ -250,8 +254,12 @@ export class VersionsService {
     }
   }
 
-  private async nextVersionNumber(paperId: string, kind: VersionKind): Promise<number> {
-    const latest = await withTenantContext({}, async (tx) =>
+  private async nextVersionNumber(
+    paperId: string,
+    kind: VersionKind,
+    ctx: TenantContext,
+  ): Promise<number> {
+    const latest = await withTenantContext(ctx, async (tx) =>
       tx.paperVersion.findFirst({
         where: { paperId, kind },
         orderBy: { versionNumber: 'desc' },

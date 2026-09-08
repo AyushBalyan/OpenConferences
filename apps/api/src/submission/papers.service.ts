@@ -23,9 +23,8 @@ const paperInclude = {
   authorships: { orderBy: { order: 'asc' as const } },
   currentVersion: { include: { fileAsset: true } },
   versions: {
-    where: { kind: 'CAMERA_READY' as const },
-    orderBy: { versionNumber: 'desc' as const },
-    take: 1,
+    orderBy: { createdAt: 'desc' as const },
+    take: 20,
     include: { fileAsset: true },
   },
 };
