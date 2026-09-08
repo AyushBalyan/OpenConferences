@@ -7,6 +7,7 @@ import {
   Literata,
   Manrope,
 } from 'next/font/google';
+import Script from 'next/script';
 import { ConditionalAppHeader } from '@/components/layout/conditional-header';
 import './globals.css';
 
@@ -60,6 +61,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${literata.variable} ${manrope.variable} ${ibmPlexSans.variable} ${atkinsonHyperlegible.variable} ${barlowCondensed.variable}`}
     >
       <body className={inter.className}>
+        <Script
+          src="https://cloud.umami.is/script.js"
+          data-website-id="1923e42b-ae25-40f8-bf3a-dabe4cf20e4b"
+          strategy="afterInteractive"
+        />
         <ConditionalAppHeader />
         {children}
       </body>
