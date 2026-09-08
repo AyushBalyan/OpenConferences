@@ -139,6 +139,8 @@ API_PORT=3001
 BETTER_AUTH_URL=https://api.fresi.org
 WEB_URL=https://app.fresi.org
 CORS_ORIGINS=https://app.fresi.org
+# Optional: email a copy of every paper submission
+# SUBMISSION_ALERT_EMAIL=you@example.com
 ```
 
 #### Step 5 — Deploy and verify (commands)
@@ -290,7 +292,7 @@ Open **Environment Variables** / **Secrets** for `fresi-worker`.
 | `LOG_LEVEL`           | `info` (or `debug` while debugging)                                      |
 | `SENTRY_DSN`          | Optional                                                                 |
 
-Optional (match API if used): `ZEPTO_WEBHOOK_SECRET`, `CLAMAV_*`, `RAZORPAY_*`, `NOTIFICATION_RETENTION_DAYS`, Turnstile keys, etc.
+Optional (match API if used): `ZEPTO_WEBHOOK_SECRET`, `CLAMAV_*`, `RAZORPAY_*`, `NOTIFICATION_RETENTION_DAYS`, `SUBMISSION_ALERT_EMAIL` (ops copy of every paper submission), Turnstile keys, etc.
 
 ##### Must differ from API
 
@@ -414,19 +416,20 @@ sudo docker logs -f --tail 100 "$WORKER_CTR"
 
 ## Secrets (Coolify / Vercel — never in git or image layers)
 
-| Variable                | Source / value                                                                                                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`          | **API:** session pooler as `openconferences_api` (NOBYPASSRLS). **Worker:** session pooler as `openconferences_worker`. **Migrate job only:** owner/`postgres` URL. |
-| `REDIS_URL`             | Upstash or Redis container                                                                                                                                          |
-| `S3_*`                  | Cloudflare R2 credentials                                                                                                                                           |
-| `SENTRY_DSN`            | Sentry project DSN                                                                                                                                                  |
-| `WEB_URL`               | `https://app.fresi.org`                                                                                                                                             |
-| `CORS_ORIGINS`          | `https://app.fresi.org`                                                                                                                                             |
-| `BETTER_AUTH_URL`       | `https://api.fresi.org`                                                                                                                                             |
-| `BETTER_AUTH_SECRET`    | Strong random secret (≥32 chars)                                                                                                                                    |
-| `NEXT_PUBLIC_API_URL`   | `https://api.fresi.org/api/v1` (Vercel)                                                                                                                             |
-| `NODE_ENV`              | `production`                                                                                                                                                        |
-| `API_HOST` / `API_PORT` | `0.0.0.0` / `3001`                                                                                                                                                  |
+| Variable                 | Source / value                                                                                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`           | **API:** session pooler as `openconferences_api` (NOBYPASSRLS). **Worker:** session pooler as `openconferences_worker`. **Migrate job only:** owner/`postgres` URL. |
+| `REDIS_URL`              | Upstash or Redis container                                                                                                                                          |
+| `S3_*`                   | Cloudflare R2 credentials                                                                                                                                           |
+| `SENTRY_DSN`             | Sentry project DSN                                                                                                                                                  |
+| `WEB_URL`                | `https://app.fresi.org`                                                                                                                                             |
+| `CORS_ORIGINS`           | `https://app.fresi.org`                                                                                                                                             |
+| `BETTER_AUTH_URL`        | `https://api.fresi.org`                                                                                                                                             |
+| `BETTER_AUTH_SECRET`     | Strong random secret (≥32 chars)                                                                                                                                    |
+| `NEXT_PUBLIC_API_URL`    | `https://api.fresi.org/api/v1` (Vercel)                                                                                                                             |
+| `NODE_ENV`               | `production`                                                                                                                                                        |
+| `API_HOST` / `API_PORT`  | `0.0.0.0` / `3001`                                                                                                                                                  |
+| `SUBMISSION_ALERT_EMAIL` | Optional ops inbox; every paper submission also emails this address via `submission.ops_alert`                                                                      |
 
 Session cookies must work across `app.fresi.org` and `api.fresi.org` (Secure, domain `.fresi.org` where applicable).
 

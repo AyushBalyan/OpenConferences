@@ -235,6 +235,28 @@ export class PapersService {
     }
 
     if (!paper.currentVersionId) {
+      const latestVersion = await withTenantContext(
+        { userId, conferenceId, organizationId: paper.organizationId },
+        async (tx) =>
+          tx.paperVersion.findFirst({
+            where: { paperId, kind: { in: ['SUBMISSION', 'REVISION'] } },
+            orderBy: { versionNumber: 'desc' },
+            include: { fileAsset: true },
+          }),
+      );
+
+      if (latestVersion?.fileAsset.scanStatus === 'PENDING_SCAN') {
+        throw new ConflictException(
+          'PDF is still being scanned. Please wait a moment and try again.',
+        );
+      }
+
+      if (latestVersion?.fileAsset.scanStatus === 'INFECTED') {
+        throw new ConflictException(
+          'The uploaded PDF failed security scanning. Please upload a different file.',
+        );
+      }
+
       throw new ConflictException('A scanned PDF version is required before submission');
     }
 
@@ -268,8 +290,10 @@ export class PapersService {
         to: corresponding.email,
         paperId,
         paperTitle: paper.title,
+        conferenceName: conference.name,
         conferenceId,
         organizationId: paper.organizationId,
+        authorEmail: corresponding.email,
         idempotencyKey: `submission-confirmed-${paperId}`,
       });
     }

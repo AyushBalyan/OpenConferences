@@ -5,7 +5,10 @@ import { LoggerModule } from 'nestjs-pino';
 import request from 'supertest';
 import { getConfig } from '@openconferences/config/env';
 import { prisma, generateId, withTenantContext } from '@openconferences/db';
-import { resetLastTestNotification } from '../../src/messaging/notification.service.ts';
+import {
+  lastTestNotifications,
+  resetLastTestNotification,
+} from '../../src/messaging/notification.service.ts';
 import { ensureNotificationTemplates } from '../helpers/notifications.ts';
 import { AppModule } from '../../src/app.module.ts';
 import { APP_FILTER } from '@nestjs/core';
@@ -341,12 +344,24 @@ describe('Paper submission integration', () => {
     expect(afterScan.body.currentVersionId).toBeTruthy();
     expect(afterScan.body.currentVersion?.fileAsset?.scanStatus).toBe('CLEAN');
 
+    resetLastTestNotification();
     const submit = await request(app.getHttpServer())
       .post(`/api/v1/conferences/${confId}/papers/${paperId}/submit`)
       .set('Cookie', authorCookie);
 
     expect(submit.status).toBe(200);
     expect(submit.body.paper.status).toBe('SUBMITTED');
+    expect(lastTestNotifications[0]?.templateKey).toBe('submission.confirmed');
+    expect(lastTestNotifications[0]?.to).toBe(authorEmail.toLowerCase());
+    if (config.mail.submissionAlertEmail) {
+      expect(
+        lastTestNotifications.some((item) => item.templateKey === 'submission.ops_alert'),
+      ).toBe(true);
+    } else {
+      expect(lastTestNotifications.map((item) => item.templateKey)).toEqual([
+        'submission.confirmed',
+      ]);
+    }
   });
 
   it('blocks currentVersion when infected file is detected', async () => {
@@ -390,6 +405,112 @@ describe('Paper submission integration', () => {
       .set('Cookie', authorCookie);
 
     expect(submit.status).toBe(409);
+    expect(submit.body.detail).toMatch(/failed security scanning/i);
+  });
+
+  it('allows a second draft PDF upload after the first version is finalized', async () => {
+    const create = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/papers`)
+      .set('Cookie', authorCookie)
+      .send({
+        trackId,
+        title: 'Retry Upload Paper',
+        abstract: 'Second complete must allocate the next version number.',
+        keywords: [],
+      });
+
+    const paperId = create.body.id as string;
+
+    const firstInitiate = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/papers/${paperId}/versions/initiate`)
+      .set('Cookie', authorCookie)
+      .send({
+        originalFilename: 'first.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 4096,
+      });
+
+    expect(firstInitiate.status).toBe(200);
+
+    const firstComplete = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/papers/${paperId}/versions/complete`)
+      .set('Cookie', authorCookie)
+      .send({ objectKey: firstInitiate.body.objectKey, kind: 'SUBMISSION' });
+
+    expect(firstComplete.status).toBe(201);
+    expect(firstComplete.body.versionNumber).toBe(1);
+
+    const secondInitiate = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/papers/${paperId}/versions/initiate`)
+      .set('Cookie', authorCookie)
+      .send({
+        originalFilename: 'second.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 4096,
+      });
+
+    expect(secondInitiate.status).toBe(200);
+
+    const secondComplete = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/papers/${paperId}/versions/complete`)
+      .set('Cookie', authorCookie)
+      .send({ objectKey: secondInitiate.body.objectKey, kind: 'SUBMISSION' });
+
+    expect(secondComplete.status).toBe(201);
+    expect(secondComplete.body.versionNumber).toBe(2);
+  });
+
+  it('rejects submit while the latest PDF is still pending scan', async () => {
+    const create = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/papers`)
+      .set('Cookie', authorCookie)
+      .send({
+        trackId,
+        title: 'Pending Scan Paper',
+        abstract: 'Submit should wait for AV scan.',
+        keywords: [],
+      });
+
+    const paperId = create.body.id as string;
+    const fileAssetId = generateId();
+    const versionId = generateId();
+
+    await withTenantContext(
+      { userId: authorUserId, conferenceId: confId, organizationId: orgId },
+      async (tx) => {
+        await tx.fileAsset.create({
+          data: {
+            id: fileAssetId,
+            organizationId: orgId,
+            uploadedById: authorUserId,
+            bucket: 'test-bucket',
+            objectKey: `test/${fileAssetId}.pdf`,
+            sizeBytes: 1024n,
+            checksumSha256: 'c'.repeat(64),
+            mimeType: 'application/pdf',
+            originalFilename: 'pending.pdf',
+            scanStatus: 'PENDING_SCAN',
+          },
+        });
+        await tx.paperVersion.create({
+          data: {
+            id: versionId,
+            paperId,
+            fileAssetId,
+            uploadedById: authorUserId,
+            kind: 'SUBMISSION',
+            versionNumber: 1,
+          },
+        });
+      },
+    );
+
+    const submit = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/papers/${paperId}/submit`)
+      .set('Cookie', authorCookie);
+
+    expect(submit.status).toBe(409);
+    expect(submit.body.detail).toMatch(/still being scanned/i);
   });
 
   it('reorders authorships', async () => {

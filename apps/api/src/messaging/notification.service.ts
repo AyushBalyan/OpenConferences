@@ -17,9 +17,11 @@ export type TestNotificationCapture = {
 
 /** Captures the last enqueued notification in test for integration assertions */
 export let lastTestNotification: TestNotificationCapture | null = null;
+export const lastTestNotifications: TestNotificationCapture[] = [];
 
 export function resetLastTestNotification(): void {
   lastTestNotification = null;
+  lastTestNotifications.length = 0;
 }
 
 export type EnqueueNotificationInput = {
@@ -108,6 +110,7 @@ export class NotificationService {
         templateKey: input.templateKey,
         tags: input.tags ?? [input.templateKey],
       };
+      lastTestNotifications.push(lastTestNotification);
     }
 
     const logId = generateId();

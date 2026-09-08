@@ -40,8 +40,10 @@ export type PaperSubmittedPayload = {
   to: string;
   paperId: string;
   paperTitle: string;
+  conferenceName: string;
   conferenceId: string;
   organizationId: string;
+  authorEmail?: string;
   idempotencyKey: string;
 };
 

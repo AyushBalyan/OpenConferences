@@ -256,6 +256,38 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
     variables: ['paperTitle'],
   },
   {
+    key: 'submission.ops_alert',
+    subject: 'New submission: {{paperTitle}} ({{conferenceName}})',
+    bodyHtml: buildEmailHtml({
+      preheader: 'A paper was submitted to {{conferenceName}}.',
+      headline: 'New paper submission',
+      paragraphs: ['A paper was submitted to {{conferenceName}}.'],
+      details: [
+        { label: 'Conference', value: '{{conferenceName}}' },
+        { label: 'Paper title', value: '{{paperTitle}}' },
+        { label: 'Corresponding author', value: '{{authorEmail}}' },
+      ],
+      cta: { label: 'View submission', url: '{{paperUrl}}' },
+      secondaryNote: 'This is an operations alert for every new submission.',
+    }),
+    bodyText: [
+      'New paper submission',
+      '',
+      'A paper was submitted to {{conferenceName}}.',
+      '',
+      'Conference: {{conferenceName}}',
+      'Paper title: {{paperTitle}}',
+      'Corresponding author: {{authorEmail}}',
+      '',
+      'View submission: {{paperUrl}}',
+      '',
+      'This is an operations alert for every new submission.',
+      '',
+      `— ${BRAND}`,
+    ].join('\n'),
+    variables: ['paperTitle', 'conferenceName', 'authorEmail', 'paperUrl'],
+  },
+  {
     key: 'reviewer.invitation',
     subject: 'Reviewer invitation for {{conferenceName}}',
     bodyHtml: buildPlainInvitationEmail({

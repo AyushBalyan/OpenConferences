@@ -90,6 +90,12 @@ function buildSampleContext(templateKey: string, webUrl: string): Record<string,
     'submission.confirmed': {
       paperTitle: 'Deliverability Test Paper',
     },
+    'submission.ops_alert': {
+      paperTitle: 'Deliverability Test Paper',
+      conferenceName: 'OpenConferences Test Conference',
+      authorEmail: 'author@example.com',
+      paperUrl: `${base}/dashboard/conferences/00000000-0000-4000-8000-000000000001/submissions/00000000-0000-4000-8000-000000000002`,
+    },
     'reviewer.invitation': {
       conferenceName: 'OpenConferences Test Conference',
       signupUrl: `${base}/join/reviewer?token=deliverability-test-token&invitationToken=test-invite`,

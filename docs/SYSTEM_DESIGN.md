@@ -1077,22 +1077,23 @@ The requested flow had several under-specified or conflicting points; each is re
 
 ### 11.1 Catalogue of notifications (MVP)
 
-| Key                                        | Trigger (event)                           | To                      |
-| ------------------------------------------ | ----------------------------------------- | ----------------------- |
-| `submission.confirmed`                     | `PaperSubmitted`                          | corresponding author    |
-| `reviewer.invitation`                      | invitation created                        | invitee                 |
-| `assignment.notified`                      | `ReviewerAssigned`                        | reviewer                |
-| `review.reminder`                          | scheduled (due soon / overdue)            | reviewer                |
-| `decision.notified`                        | `DecisionMade`                            | authors                 |
-| `cameraready.reminder`                     | scheduled before CR deadline              | accepted authors        |
-| `registration.window_open`                 | `PaperAccepted` (acceptance notified)     | accepted author         |
-| `registration.early_bird_ending`           | scheduled before `earlyBirdEndsAt`        | unpaid accepted authors |
-| `registration.confirmed`                   | `PaymentCaptured` (registration `PAID`)   | payer                   |
-| `registration.verification_approved`       | student verification `APPROVED`           | payer                   |
-| `registration.clarification_requested`     | verification `CLARIFICATION_REQUESTED`    | payer                   |
-| `registration.additional_payment_required` | verification `REJECTED` → difference owed | payer                   |
-| `registration.deadline_reminder`           | scheduled before `registrationDeadlineAt` | unpaid accepted authors |
-| `registration.discarded`                   | discard sweep → `WITHDRAWN_NONPAYMENT`    | author                  |
+| Key                                        | Trigger (event)                           | To                                         |
+| ------------------------------------------ | ----------------------------------------- | ------------------------------------------ |
+| `submission.confirmed`                     | `PaperSubmitted`                          | corresponding author                       |
+| `submission.ops_alert`                     | `PaperSubmitted`                          | ops env address (`SUBMISSION_ALERT_EMAIL`) |
+| `reviewer.invitation`                      | invitation created                        | invitee                                    |
+| `assignment.notified`                      | `ReviewerAssigned`                        | reviewer                                   |
+| `review.reminder`                          | scheduled (due soon / overdue)            | reviewer                                   |
+| `decision.notified`                        | `DecisionMade`                            | authors                                    |
+| `cameraready.reminder`                     | scheduled before CR deadline              | accepted authors                           |
+| `registration.window_open`                 | `PaperAccepted` (acceptance notified)     | accepted author                            |
+| `registration.early_bird_ending`           | scheduled before `earlyBirdEndsAt`        | unpaid accepted authors                    |
+| `registration.confirmed`                   | `PaymentCaptured` (registration `PAID`)   | payer                                      |
+| `registration.verification_approved`       | student verification `APPROVED`           | payer                                      |
+| `registration.clarification_requested`     | verification `CLARIFICATION_REQUESTED`    | payer                                      |
+| `registration.additional_payment_required` | verification `REJECTED` → difference owed | payer                                      |
+| `registration.deadline_reminder`           | scheduled before `registrationDeadlineAt` | unpaid accepted authors                    |
+| `registration.discarded`                   | discard sweep → `WITHDRAWN_NONPAYMENT`    | author                                     |
 
 ### 11.2 Architecture (extensible by design)
 

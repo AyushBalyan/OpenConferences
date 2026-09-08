@@ -73,6 +73,10 @@ const baseEnvSchema = z.object({
   ZEPTO_MAIL_API_URL: z.string().url().default('https://api.zeptomail.in/v1.1/email'),
   ZEPTO_WEBHOOK_SECRET: z.string().optional(),
   NOTIFICATION_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
+  SUBMISSION_ALERT_EMAIL: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.string().email().optional(),
+  ),
   TURNSTILE_SECRET_KEY: z.string().optional(),
   CLAMAV_ENABLED: z
     .string()
@@ -123,6 +127,7 @@ export type AppConfig = {
     zeptoApiUrl: string;
     zeptoWebhookSecret?: string;
     retentionDays: number;
+    submissionAlertEmail?: string;
   };
   turnstileSecretKey?: string;
   clamav: {
@@ -211,6 +216,7 @@ function parseEnv(env: Record<string, string | undefined> = process.env): AppCon
       zeptoApiUrl: data.ZEPTO_MAIL_API_URL,
       zeptoWebhookSecret: data.ZEPTO_WEBHOOK_SECRET,
       retentionDays: data.NOTIFICATION_RETENTION_DAYS,
+      submissionAlertEmail: data.SUBMISSION_ALERT_EMAIL,
     },
     turnstileSecretKey: data.TURNSTILE_SECRET_KEY,
     clamav: {

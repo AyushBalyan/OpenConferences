@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { getConfig } from '@openconferences/config/env';
 import {
   type AuthEmailVerifyPayload,
   type AuthMfaOtpPayload,
@@ -75,6 +76,32 @@ export class NotificationPublisher {
       conferenceId: payload.conferenceId,
       idempotencyKey: payload.idempotencyKey,
       tags: ['submission.confirmed'],
+      relatedEntity: 'Paper',
+      relatedEntityId: payload.paperId,
+    });
+
+    const config = getConfig();
+    const alertEmail = config.mail.submissionAlertEmail?.trim().toLowerCase();
+    const authorEmail = (payload.authorEmail ?? payload.to).trim().toLowerCase();
+    if (!alertEmail || alertEmail === authorEmail) {
+      return;
+    }
+
+    const paperUrl = `${config.webUrl.replace(/\/$/, '')}/dashboard/conferences/${payload.conferenceId}/submissions/${payload.paperId}`;
+
+    await this.notifications.enqueue({
+      templateKey: 'submission.ops_alert',
+      to: alertEmail,
+      context: {
+        paperTitle: payload.paperTitle,
+        conferenceName: payload.conferenceName,
+        authorEmail,
+        paperUrl,
+      },
+      organizationId: payload.organizationId,
+      conferenceId: payload.conferenceId,
+      idempotencyKey: `submission-ops-alert-${payload.paperId}`,
+      tags: ['submission.ops_alert'],
       relatedEntity: 'Paper',
       relatedEntityId: payload.paperId,
     });
