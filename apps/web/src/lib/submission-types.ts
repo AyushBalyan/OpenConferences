@@ -37,3 +37,7 @@ export function canSubmitDraft(paper: PaperDto): boolean {
     paper.currentVersion?.fileAsset?.scanStatus === 'CLEAN'
   );
 }
+
+export function paperHasCleanDownload(paper: PaperDto): boolean {
+  return Boolean(paper.currentVersionId) && latestScanStatus(paper) === 'CLEAN';
+}

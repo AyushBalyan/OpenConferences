@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { useConferenceWorkspace } from '@/components/dashboard/conference-workspace';
+import { DownloadPaperButton } from '@/components/dashboard/download-paper-button';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { PdfUploadField } from '@/components/dashboard/pdf-upload-field';
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
@@ -29,6 +31,7 @@ import {
   type ReviewDto,
 } from '@/lib/review-types';
 import { paperStatusLabel, paperStatusTone } from '@/lib/paper-status-styles';
+import { canDownloadConferencePapers } from '@/lib/roles';
 import { canSubmitDraft, latestScanStatus, scanStatusLabel } from '@/lib/submission-types';
 import { RegistrationCard } from '@/components/billing/registration-card';
 import type { PaperDto } from '@/lib/submission-types';
@@ -150,8 +153,10 @@ export default function SubmissionDetailPage() {
 
 function SubmissionDetail() {
   const params = useParams<{ id: string; paperId: string }>();
+  const { conference } = useConferenceWorkspace();
   const conferenceId = params.id;
   const paperId = params.paperId;
+  const canDownloadPapers = canDownloadConferencePapers(conference?.myRoles ?? []);
 
   const [paper, setPaper] = useState<PaperDto | null>(null);
   const [reviews, setReviews] = useState<ReviewDto[]>([]);
@@ -365,6 +370,9 @@ function SubmissionDetail() {
                 All submissions
               </Link>
             </Button>
+            {canDownloadPapers ? (
+              <DownloadPaperButton conferenceId={conferenceId} paper={paper} />
+            ) : null}
             {canSubmit ? (
               <Button size="sm" disabled={busy} onClick={() => void onSubmit()}>
                 Submit paper

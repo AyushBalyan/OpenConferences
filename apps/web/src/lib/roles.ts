@@ -8,6 +8,7 @@ const ORGANIZER_SURFACE_ROLES: RoleKind[] = ['CHAIR', 'ORGANIZER', 'ORG_ADMIN', 
 const REVIEW_COORDINATION_ROLES: RoleKind[] = ['CHAIR', 'ORGANIZER', 'ORG_ADMIN', 'PLATFORM_ADMIN'];
 const CONFERENCE_ADMIN_ROLES: RoleKind[] = ['ORGANIZER', 'ORG_ADMIN', 'PLATFORM_ADMIN'];
 const CREATE_CONFERENCE_ROLES: RoleKind[] = ['ORG_ADMIN', 'PLATFORM_ADMIN'];
+const PAPER_DOWNLOAD_ADMIN_ROLES: RoleKind[] = ['ORG_ADMIN', 'PLATFORM_ADMIN'];
 
 export function hasRole(roles: string[], role: RoleKind): boolean {
   return roles.includes(role);
@@ -39,6 +40,10 @@ export function canManageConference(roles: string[]): boolean {
 
 export function canCreateConference(roles: string[]): boolean {
   return hasAnyRole(roles, CREATE_CONFERENCE_ROLES);
+}
+
+export function canDownloadConferencePapers(roles: string[]): boolean {
+  return hasAnyRole(roles, PAPER_DOWNLOAD_ADMIN_ROLES);
 }
 
 export function roleLabels(roles: string[]): string[] {

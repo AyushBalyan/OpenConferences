@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { MoreHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { DownloadPaperButton } from '@/components/dashboard/download-paper-button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -23,7 +23,7 @@ import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
 import { useConferenceWorkspace } from '@/components/dashboard/conference-workspace';
 import { fetchPapers } from '@/lib/api-client';
 import { paperStatusLabel, paperStatusTone } from '@/lib/paper-status-styles';
-import { canCoordinateReview } from '@/lib/roles';
+import { canCoordinateReview, canDownloadConferencePapers } from '@/lib/roles';
 import type { PaperDto } from '@/lib/submission-types';
 import { useSavedFilter } from '@/lib/use-saved-filter';
 import { useCursorList } from '@/hooks/dashboard/use-cursor-list';
@@ -51,6 +51,7 @@ export default function SubmissionsListPage() {
   const { conferenceId, conference } = useConferenceWorkspace();
   const roles = conference?.myRoles ?? [];
   const showAllPapers = canCoordinateReview(roles);
+  const canDownloadPapers = canDownloadConferencePapers(roles);
   const [filter, setFilter] = useSavedFilter(conferenceId, 'submissions', DEFAULT_FILTER);
   const [debouncedQ, setDebouncedQ] = useState(filter.q);
 
@@ -192,21 +193,23 @@ export default function SubmissionsListPage() {
                     {new Date(paper.updatedAt).toLocaleDateString()}
                   </DataTableCell>
                   <DataTableCell className="text-right">
-                    <div className="inline-flex items-center gap-1">
+                    <div className="inline-flex items-center justify-end gap-1">
+                      {canDownloadPapers ? (
+                        <DownloadPaperButton
+                          conferenceId={conferenceId}
+                          paper={paper}
+                          size="sm"
+                          variant="ghost"
+                          label="Download"
+                          hideWhenUnavailable
+                        />
+                      ) : null}
                       <Button asChild size="sm" variant="ghost">
                         <Link
                           href={`/dashboard/conferences/${conferenceId}/submissions/${paper.id}`}
                         >
                           View
                         </Link>
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 w-8 p-0"
-                        aria-label="More actions"
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
                       </Button>
                     </div>
                   </DataTableCell>

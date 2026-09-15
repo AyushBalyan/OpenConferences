@@ -620,6 +620,69 @@ describe('Paper submission integration', () => {
     expect(res.body.data.length).toBeGreaterThan(0);
   });
 
+  it('allows organisation admin to download a CLEAN paper version', async () => {
+    const paperId = generateId();
+    const fileAssetId = generateId();
+    const versionId = generateId();
+
+    await withTenantContext({}, async (tx) => {
+      await tx.paper.create({
+        data: {
+          id: paperId,
+          organizationId: orgId,
+          conferenceId: confId,
+          trackId,
+          submittedById: authorUserId,
+          title: 'Downloadable Paper',
+          abstract: 'Organisation admins can download this manuscript.',
+          keywords: [],
+          status: 'SUBMITTED',
+        },
+      });
+      await tx.fileAsset.create({
+        data: {
+          id: fileAssetId,
+          organizationId: orgId,
+          uploadedById: authorUserId,
+          bucket: 'test-bucket',
+          objectKey: `test/${fileAssetId}.pdf`,
+          sizeBytes: 1024n,
+          checksumSha256: 'c'.repeat(64),
+          mimeType: 'application/pdf',
+          originalFilename: 'downloadable.pdf',
+          scanStatus: 'CLEAN',
+        },
+      });
+      await tx.paperVersion.create({
+        data: {
+          id: versionId,
+          paperId,
+          fileAssetId,
+          uploadedById: authorUserId,
+          kind: 'SUBMISSION',
+          versionNumber: 1,
+        },
+      });
+      await tx.paper.update({
+        where: { id: paperId },
+        data: { currentVersionId: versionId },
+      });
+    });
+
+    const ok = await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/papers/${paperId}/versions/${versionId}/download`)
+      .set('Cookie', organizerCookie);
+
+    expect(ok.status).toBe(200);
+    expect(ok.body.downloadUrl).toBeTruthy();
+    expect(ok.body.expiresInSeconds).toBeGreaterThan(0);
+
+    const denied = await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/papers/${paperId}/versions/${versionId}/download`)
+      .set('Cookie', outsiderCookie);
+    expect([403, 404]).toContain(denied.status);
+  });
+
   describe('Phase 7 — camera-ready', () => {
     let acceptedPaperId = '';
     let unnotifiedPaperId = '';
