@@ -66,6 +66,7 @@ export type ReviewerAssignedPayload = {
   to: string;
   conferenceId: string;
   organizationId: string;
+  reviewerName: string;
   paperTitle: string;
   roundNumber: number;
   dueAt: string;

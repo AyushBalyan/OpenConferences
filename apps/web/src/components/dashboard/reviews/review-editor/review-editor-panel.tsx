@@ -466,7 +466,9 @@ export function ReviewEditorPanel({ conferenceId, assignmentId }: ReviewEditorPa
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-2 text-xs text-slate-500" aria-live="polite">
             <span className={`size-2 rounded-full ${saveIndicator.dot}`} />
-            {saveIndicator.text}
+            {review.hasPendingEdit
+              ? 'Saved privately. Chairs still see the last submission until you update it.'
+              : saveIndicator.text}
           </span>
           <div
             role="tablist"
@@ -733,7 +735,17 @@ export function ReviewEditorPanel({ conferenceId, assignmentId }: ReviewEditorPa
           </div>
         </div>
       ) : (
-        <section aria-label="Author response" className="mx-auto max-w-3xl">
+        <section aria-label="Author response" className="mx-auto max-w-3xl space-y-4">
+          {review.revisionResponse ? (
+            <article className="rounded-2xl border border-slate-200 bg-white p-8">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Revision response
+              </p>
+              <div className="mt-4 whitespace-pre-wrap break-words font-serif text-[17px] leading-8 text-slate-800">
+                {review.revisionResponse}
+              </div>
+            </article>
+          ) : null}
           {rebuttalError ? (
             <p
               role="alert"

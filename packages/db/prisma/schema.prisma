@@ -682,6 +682,7 @@ model Review {
   commentsToChairs   String?
   visibility         ReviewVisibility @default(HIDDEN)
   submittedAt        DateTime?
+  pendingEdit        Json?
   version            Int              @default(0)
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt

@@ -30,7 +30,7 @@ const paperInclude = {
   reviewRounds: {
     orderBy: { roundNumber: 'desc' as const },
     take: 1,
-    select: { revisionDueAt: true },
+    select: { id: true, revisionDueAt: true },
   },
 };
 
@@ -38,7 +38,7 @@ type LoadedPaper = Paper & {
   authorships: Authorship[];
   currentVersion: (PaperVersion & { fileAsset: FileAsset }) | null;
   versions?: (PaperVersion & { fileAsset: FileAsset })[];
-  reviewRounds?: { revisionDueAt: Date | null }[];
+  reviewRounds?: { id: string; revisionDueAt: Date | null }[];
 };
 
 function formatAuthorList(authorships: Authorship[]): string {

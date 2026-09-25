@@ -69,7 +69,13 @@ export default function ReviewProgressPage() {
       />
       {error ? <p className="mb-4 text-sm text-red-600">{error}</p> : null}
       {message ? <p className="mb-4 text-sm text-emerald-700">{message}</p> : null}
-      <DataTable>
+      <DataTable
+        footer={
+          <DataTableFooter>
+            {rows.length === 0 ? 'No submitted papers yet.' : `${rows.length} papers`}
+          </DataTableFooter>
+        }
+      >
         <DataTableHeader>
           <DataTableRow>
             <DataTableHead>Paper</DataTableHead>
@@ -114,13 +120,6 @@ export default function ReviewProgressPage() {
             </DataTableRow>
           ))}
         </DataTableBody>
-        <DataTableFooter>
-          <DataTableRow>
-            <DataTableCell colSpan={5}>
-              {rows.length === 0 ? 'No submitted papers yet.' : `${rows.length} papers`}
-            </DataTableCell>
-          </DataTableRow>
-        </DataTableFooter>
       </DataTable>
     </div>
   );

@@ -1100,17 +1100,11 @@ describe('Paper submission integration', () => {
       expect(paper?.currentVersionId).toBeTruthy();
     });
 
-    it('replaces the revised PDF without opening a third cycle before assignment', async () => {
+    it('rejects another revision once the next cycle is open', async () => {
       const { paperId } = await seedRevisionPaper({});
       expect((await uploadRevision(paperId, authorCookie, 'revision-v1.pdf')).status).toBe(201);
-      expect((await uploadRevision(paperId, authorCookie, 'revision-v2.pdf')).status).toBe(201);
+      expect((await uploadRevision(paperId, authorCookie, 'revision-v2.pdf')).status).toBe(409);
       expect(await prisma.reviewRound.count({ where: { paperId } })).toBe(2);
-
-      const current = await prisma.paper.findUnique({
-        where: { id: paperId },
-        include: { currentVersion: true },
-      });
-      expect(current?.currentVersion?.versionNumber).toBe(2);
     });
 
     it('rejects another revision after the next cycle has an assignment', async () => {
@@ -1144,9 +1138,9 @@ describe('Paper submission integration', () => {
       expect(res.status).toBe(404);
     });
 
-    it('rejects a missing or passed revision deadline', async () => {
+    it('allows a revision when no deadline is set and rejects a passed deadline', async () => {
       const missing = await seedRevisionPaper({ revisionDueAt: null });
-      expect((await uploadRevision(missing.paperId, authorCookie)).status).toBe(422);
+      expect((await uploadRevision(missing.paperId, authorCookie)).status).toBe(201);
 
       const passed = await seedRevisionPaper({
         revisionDueAt: new Date(Date.now() - 86_400_000),

@@ -26,6 +26,7 @@ const {
 }));
 vi.mock('@openconferences/db', () => ({
   generateId: () => 'test-id',
+  Prisma: { DbNull: 'DbNull' },
   withTenantContext: (_context: unknown, callback: (tx: unknown) => unknown) =>
     callback({
       $queryRaw: lockRound,
@@ -126,6 +127,75 @@ describe('review phase capabilities', () => {
       ]),
     ).rejects.toMatchObject({ status: 409 });
     expect(updateReview).not.toHaveBeenCalled();
+  });
+
+  it('stores edits after submit without changing the review chairs already see', async () => {
+    assignmentLookup.mockResolvedValue({
+      ...assignment,
+      review: {
+        id: 'review',
+        version: 2,
+        submittedAt: new Date('2026-09-01T00:00:00.000Z'),
+        recommendation: 'REJECT',
+        commentsToAuthors: 'Original',
+        commentsToChairs: null,
+        confidence: 3,
+        scores: { originality: 2 },
+        pendingEdit: null,
+        visibility: 'HIDDEN',
+        organizationId: 'org',
+        conferenceId: 'conf',
+        assignmentId: 'assignment',
+        roundId: 'round',
+        paperId: 'paper',
+        reviewerUserId: 'reviewer',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+    updateReview.mockResolvedValue({ count: 1 });
+    readReview.mockResolvedValue({
+      id: 'review',
+      version: 3,
+      submittedAt: new Date('2026-09-01T00:00:00.000Z'),
+      recommendation: 'REJECT',
+      commentsToAuthors: 'Original',
+      commentsToChairs: null,
+      confidence: 3,
+      scores: { originality: 2 },
+      pendingEdit: { commentsToAuthors: 'Changed' },
+      visibility: 'HIDDEN',
+      organizationId: 'org',
+      conferenceId: 'conf',
+      assignmentId: 'assignment',
+      roundId: 'round',
+      paperId: 'paper',
+      reviewerUserId: 'reviewer',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const saved = await service('REVIEWING').saveReview(
+      'reviewer',
+      'conf',
+      'assignment',
+      {
+        scores: { originality: 5 },
+        recommendation: 'ACCEPT',
+        commentsToAuthors: 'Changed',
+        version: 2,
+      },
+      ['REVIEWER'],
+    );
+
+    const data = updateReview.mock.calls.at(-1)?.[0].data;
+    expect(data.pendingEdit).toMatchObject({
+      commentsToAuthors: 'Changed',
+      recommendation: 'ACCEPT',
+    });
+    expect(data.commentsToAuthors).toBeUndefined();
+    expect(saved.hasPendingEdit).toBe(true);
+    expect(saved.commentsToAuthors).toBe('Changed');
   });
 
   it.each(['save', 'submit'])(

@@ -18,7 +18,9 @@ const NEUTRAL_COLORS = new Set([
 describe('platform notification templates', () => {
   it('never names the product', () => {
     for (const template of PLATFORM_NOTIFICATION_TEMPLATES) {
-      const haystack = [template.subject, template.bodyHtml, template.bodyText].join('\n');
+      const haystack = [template.subject, template.bodyHtml, template.bodyText]
+        .join('\n')
+        .replaceAll('icamcds2026@fresi.org', '');
       expect(haystack, template.key).not.toMatch(PRODUCT_NAMES);
     }
   });
@@ -38,7 +40,9 @@ describe('platform notification templates', () => {
       expect(template.bodyHtml, template.key).toContain('max-width:600px');
       expect(template.bodyHtml, template.key).toContain('border-radius:10px');
       expect(template.bodyHtml, template.key).toContain('width=device-width');
-      expect(template.bodyHtml, template.key).toContain('<h1');
+      expect(template.bodyHtml, template.key).toContain(
+        'This is a system generated mail. For any queries contact: icamcds2026@fresi.org',
+      );
     }
   });
 

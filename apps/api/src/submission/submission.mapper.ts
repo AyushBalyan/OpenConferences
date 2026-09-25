@@ -15,7 +15,7 @@ type PaperWithRelations = Paper & {
       })
     | null;
   versions?: (PaperVersion & { fileAsset?: FileAsset })[];
-  reviewRounds?: { revisionDueAt: Date | null }[];
+  reviewRounds?: { id: string; revisionDueAt: Date | null }[];
 };
 
 export function mapFileAsset(asset: FileAsset): FileAssetDto {
@@ -88,6 +88,7 @@ export function mapPaper(paper: PaperWithRelations): PaperDto {
     cameraReadyVersion: latestCameraReady ? mapPaperVersion(latestCameraReady) : null,
     revisionVersion: latestRevision ? mapPaperVersion(latestRevision) : null,
     revisionDueAt: paper.reviewRounds?.[0]?.revisionDueAt?.toISOString() ?? null,
+    latestCycleId: paper.reviewRounds?.[0]?.id ?? null,
     createdAt: paper.createdAt.toISOString(),
     updatedAt: paper.updatedAt.toISOString(),
   };

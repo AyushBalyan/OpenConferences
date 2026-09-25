@@ -141,6 +141,7 @@ export class NotificationPublisher {
       templateKey: 'assignment.notified',
       to: payload.to,
       context: {
+        reviewerName: payload.reviewerName,
         paperTitle: payload.paperTitle,
         roundNumber: payload.roundNumber,
         dueAt: payload.dueAt,

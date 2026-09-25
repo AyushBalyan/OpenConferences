@@ -1,4 +1,8 @@
-import { rollupOutreachCampaignCounts, withTenantContext } from '@openconferences/db';
+import {
+  rollupOutreachCampaignCounts,
+  withMailDisclaimer,
+  withTenantContext,
+} from '@openconferences/db';
 import { renderOutreachTemplate, type OutreachSendJobPayload } from '@openconferences/schemas';
 import { remainingQuotaForTest } from './outreach-quota.js';
 import { formatMailError } from './mail-error.js';
@@ -110,7 +114,7 @@ export async function processOutreachCampaignJob(
 
     const context = { name: recipient.name, topic: recipient.topic, paper: recipient.paper };
     const subject = renderOutreachTemplate(subjectTemplate, context);
-    const html = renderOutreachTemplate(bodyTemplate, context);
+    const html = withMailDisclaimer(renderOutreachTemplate(bodyTemplate, context), 'html');
 
     try {
       await withTenantContext({}, async (tx) =>

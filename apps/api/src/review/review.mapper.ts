@@ -145,6 +145,9 @@ export function mapReviewForAuthor(review: Review): ReviewDto {
   const mapped = mapReview(review, { hideReviewer: true });
   return {
     ...mapped,
+    scores: {},
+    recommendation: null,
+    confidence: null,
     commentsToChairs: undefined,
   };
 }

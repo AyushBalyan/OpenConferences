@@ -115,6 +115,7 @@ function buildSampleContext(templateKey: string, webUrl: string): Record<string,
       }),
     },
     'assignment.notified': {
+      reviewerName: 'Ada Lovelace',
       paperTitle: 'Deliverability Test Paper',
       roundNumber: '1',
       dueAt: deadline,

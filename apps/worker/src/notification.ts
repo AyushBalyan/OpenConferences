@@ -1,4 +1,4 @@
-import { withTenantContext } from '@openconferences/db';
+import { withMailDisclaimer, withTenantContext } from '@openconferences/db';
 import type { NotificationJobPayload } from '@openconferences/schemas';
 import { formatMailError } from './mail-error.js';
 import { createMailerAdapter } from './mailer.js';
@@ -10,8 +10,8 @@ export async function processNotificationJob(payload: NotificationJobPayload): P
     const result = await mailer.send({
       to: payload.to,
       subject: payload.subject,
-      html: payload.html,
-      text: payload.text,
+      html: withMailDisclaimer(payload.html, 'html'),
+      text: payload.text ? withMailDisclaimer(payload.text, 'text') : undefined,
       replyTo: payload.replyTo,
       tags: payload.tags,
     });

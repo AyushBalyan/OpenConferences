@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { fetchPaperReviews, fetchRebuttal } from '@/lib/api-client';
+import { fetchPaper, fetchPaperReviews, fetchRebuttal } from '@/lib/api-client';
 import {
   RECOMMENDATION_OPTIONS,
   recommendationLabel,
@@ -231,6 +231,7 @@ export function ReviewDossier({
 }) {
   const [reviews, setReviews] = useState<ReviewDto[]>([]);
   const [response, setResponse] = useState<string | null>(null);
+  const [revisionResponse, setRevisionResponse] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -240,6 +241,7 @@ export function ReviewDossier({
     setError(null);
     setReviews([]);
     setResponse(null);
+    setRevisionResponse(null);
     async function load() {
       const rows: ReviewDto[] = [];
       let cursor: string | undefined;
@@ -250,9 +252,12 @@ export function ReviewDossier({
         cursor = page.nextCursor ?? undefined;
       } while (cursor);
       const rebuttal = await fetchRebuttal(conferenceId, paperId, roundId);
+      const paper = await fetchPaper(conferenceId, paperId).catch(() => null);
       if (!cancelled) {
         setReviews(rows);
         setResponse(rebuttal?.body ?? null);
+        const note = paper?.revisionVersion?.note?.trim();
+        setRevisionResponse(note ? note : null);
       }
     }
     void load()
@@ -316,6 +321,16 @@ export function ReviewDossier({
           ))}
         </>
       )}
+      {revisionResponse ? (
+        <article className="rounded-xl border border-slate-200 bg-white px-5 py-4">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+            Revision response
+          </h3>
+          <p className="mt-1.5 whitespace-pre-wrap break-words text-[15px] leading-relaxed text-slate-800">
+            {revisionResponse}
+          </p>
+        </article>
+      ) : null}
       <article className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-4">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
           Author rebuttal

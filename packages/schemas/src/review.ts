@@ -342,6 +342,22 @@ export const recommendationSchema = z.enum([
 
 export type Recommendation = z.infer<typeof recommendationSchema>;
 
+/** A reviewer must finish within 7 days of assignment, and not after the conference review deadline. */
+export const REVIEW_ASSIGNMENT_WINDOW_DAYS = 7;
+
+export function reviewerAssignmentDueAt(
+  assignedAt: Date,
+  finalReviewDueAt: Date | null | undefined,
+): Date {
+  const windowEnd = new Date(
+    assignedAt.getTime() + REVIEW_ASSIGNMENT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+  );
+  if (finalReviewDueAt && finalReviewDueAt.getTime() < windowEnd.getTime()) {
+    return finalReviewDueAt;
+  }
+  return windowEnd;
+}
+
 export const reviewVisibilitySchema = z.enum(['HIDDEN', 'AUTHOR_VISIBLE', 'PUBLIC']);
 
 export type ReviewVisibility = z.infer<typeof reviewVisibilitySchema>;
@@ -352,6 +368,7 @@ export const reviewSchema = z.object({
   conferenceId: z.string().uuid(),
   assignmentId: z.string().uuid(),
   roundId: z.string().uuid(),
+  roundNumber: z.number().int().positive().optional(),
   paperId: z.string().uuid(),
   reviewerUserId: z.string().uuid().optional(),
   /** Present on assignment review payloads so reviewers can download the assigned PDF. */
@@ -366,6 +383,8 @@ export const reviewSchema = z.object({
   commentsToChairs: z.string().nullable().optional(),
   visibility: reviewVisibilitySchema,
   submittedAt: z.string().datetime().nullable(),
+  hasPendingEdit: z.boolean().optional(),
+  revisionResponse: z.string().nullable().optional(),
   version: z.number().int(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),

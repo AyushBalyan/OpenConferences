@@ -5,8 +5,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { Prisma, Review, RoleKind } from '@openconferences/db';
-import { generateId, withTenantContext } from '@openconferences/db';
+import { generateId, Prisma, withTenantContext } from '@openconferences/db';
+import type { Review, RoleKind } from '@openconferences/db';
 import type {
   MyAssignmentItemDto,
   ReleaseReviewsInput,
@@ -15,6 +15,7 @@ import type {
   SaveReviewInput,
   SubmitReviewInput,
 } from '@openconferences/schemas';
+import { reviewerAssignmentDueAt } from '@openconferences/schemas';
 import {
   paginateItems,
   prismaCursorArgs,
@@ -41,6 +42,45 @@ type ReviewConfig = {
   scoreDimensions?: Array<{ key: string; label?: string; min?: number; max?: number }>;
   requireConfidence?: boolean;
 };
+
+type PendingEdit = {
+  scores: Prisma.InputJsonValue;
+  recommendation: Review['recommendation'];
+  confidence: number | null;
+  commentsToAuthors: string | null;
+  commentsToChairs: string | null;
+};
+
+function pendingEditPayload(input: SaveReviewInput): Prisma.InputJsonValue {
+  return {
+    scores: input.scores,
+    recommendation: input.recommendation ?? null,
+    confidence: input.confidence ?? null,
+    commentsToAuthors: input.commentsToAuthors ?? null,
+    commentsToChairs: input.commentsToChairs ?? null,
+  };
+}
+
+/** Chairs and authors read the last submission. The reviewer keeps later autosaves aside. */
+function reviewVisibleToOwner(review: Review): Review {
+  if (
+    !review.submittedAt ||
+    !review.pendingEdit ||
+    typeof review.pendingEdit !== 'object' ||
+    Array.isArray(review.pendingEdit)
+  ) {
+    return review;
+  }
+  const pending = review.pendingEdit as PendingEdit;
+  return {
+    ...review,
+    scores: pending.scores ?? review.scores,
+    recommendation: pending.recommendation ?? null,
+    confidence: pending.confidence ?? null,
+    commentsToAuthors: pending.commentsToAuthors ?? null,
+    commentsToChairs: pending.commentsToChairs ?? null,
+  };
+}
 
 @Injectable()
 export class ReviewsService {
@@ -94,6 +134,7 @@ export class ReviewsService {
     return {
       data: page.data.map((a) => ({
         ...mapReviewerAssignment(a),
+        dueAt: reviewerAssignmentDueAt(a.createdAt, conference.reviewDueAt).toISOString(),
         paperTitle: a.paper.title,
         currentVersionId: a.paper.currentVersionId,
         roundNumber: a.round.roundNumber,
@@ -102,7 +143,12 @@ export class ReviewsService {
           decisionOutcome: a.round.decisions[0]?.outcome ?? null,
           hasNewerCycle: false,
         }),
-        review: a.review ? mapReview(a.review) : null,
+        review: a.review
+          ? {
+              ...mapReview(reviewVisibleToOwner(a.review)),
+              hasPendingEdit: Boolean(a.review.submittedAt && a.review.pendingEdit),
+            }
+          : null,
       })),
       nextCursor: page.nextCursor,
     };
@@ -137,10 +183,29 @@ export class ReviewsService {
     };
 
     if (review) {
-      return { ...mapReview(review), ...paperMeta, ...capabilities };
+      return {
+        ...mapReview(reviewVisibleToOwner(review)),
+        hasPendingEdit: Boolean(review.submittedAt && review.pendingEdit),
+        ...paperMeta,
+        revisionResponse: await this.revisionResponseForPaper(
+          userId,
+          conferenceId,
+          paper.currentVersionId,
+        ),
+        ...capabilities,
+      };
     }
 
-    return { ...this.buildDraftReview(assignment), ...paperMeta, ...capabilities };
+    return {
+      ...this.buildDraftReview(assignment),
+      ...paperMeta,
+      revisionResponse: await this.revisionResponseForPaper(
+        userId,
+        conferenceId,
+        paper.currentVersionId,
+      ),
+      ...capabilities,
+    };
   }
 
   async saveReview(
@@ -187,16 +252,23 @@ export class ReviewsService {
             });
           }
 
+          const editingSubmitted = Boolean(review.submittedAt);
           const updated = await tx.review.updateMany({
             where: { id: review.id, conferenceId, reviewerUserId: userId, version: input.version },
-            data: {
-              scores: input.scores as Prisma.InputJsonValue,
-              recommendation: input.recommendation ?? null,
-              confidence: input.confidence ?? null,
-              commentsToAuthors: input.commentsToAuthors ?? null,
-              commentsToChairs: input.commentsToChairs ?? null,
-              version: { increment: 1 },
-            },
+            data: editingSubmitted
+              ? {
+                  pendingEdit: pendingEditPayload(input),
+                  version: { increment: 1 },
+                }
+              : {
+                  scores: input.scores as Prisma.InputJsonValue,
+                  recommendation: input.recommendation ?? null,
+                  confidence: input.confidence ?? null,
+                  commentsToAuthors: input.commentsToAuthors ?? null,
+                  commentsToChairs: input.commentsToChairs ?? null,
+                  pendingEdit: Prisma.DbNull,
+                  version: { increment: 1 },
+                },
           });
 
           if (updated.count !== 1) {
@@ -239,7 +311,8 @@ export class ReviewsService {
     );
 
     return {
-      ...mapReview(saved),
+      ...mapReview(reviewVisibleToOwner(saved)),
+      hasPendingEdit: Boolean(saved.submittedAt && saved.pendingEdit),
       paperTitle: paper.title,
       currentVersionId: paper.currentVersionId,
     };
@@ -276,7 +349,10 @@ export class ReviewsService {
       });
     }
 
-    this.validateReviewForSubmit(review, conference.reviewConfig as ReviewConfig);
+    this.validateReviewForSubmit(
+      reviewVisibleToOwner(review),
+      conference.reviewConfig as ReviewConfig,
+    );
 
     const submitted = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
@@ -294,10 +370,17 @@ export class ReviewsService {
           throw new ConflictException('Conflict of interest prevents review submission');
         }
 
+        const publishing = reviewVisibleToOwner(review);
         const updated = await tx.review.updateMany({
           where: { id: review.id, conferenceId, reviewerUserId: userId, version: input.version },
           data: {
-            submittedAt: review.submittedAt ?? new Date(),
+            scores: publishing.scores as Prisma.InputJsonValue,
+            recommendation: publishing.recommendation,
+            confidence: publishing.confidence,
+            commentsToAuthors: publishing.commentsToAuthors,
+            commentsToChairs: publishing.commentsToChairs,
+            pendingEdit: Prisma.DbNull,
+            submittedAt: new Date(),
             version: { increment: 1 },
           },
         });
@@ -328,6 +411,7 @@ export class ReviewsService {
     return {
       review: {
         ...mapReview(submitted),
+        hasPendingEdit: false,
         paperTitle: paper.title,
         currentVersionId: paper.currentVersionId,
       },
@@ -378,7 +462,8 @@ export class ReviewsService {
             ...(roundId ? { roundId } : {}),
             ...(privileged ? {} : { visibility: 'AUTHOR_VISIBLE' }),
           },
-          orderBy: { createdAt: 'desc' },
+          orderBy: [{ round: { roundNumber: 'asc' } }, { createdAt: 'asc' }],
+          include: { round: { select: { roundNumber: true } } },
           ...prismaCursorArgs(options, limit),
         }),
     );
@@ -404,9 +489,10 @@ export class ReviewsService {
       }
     }
 
-    const data = privileged
-      ? page.data.map((r) => mapReview(r))
-      : page.data.map((r) => mapReviewForAuthor(r));
+    const data = page.data.map((review) => ({
+      ...(privileged ? mapReview(review) : mapReviewForAuthor(review)),
+      roundNumber: review.round.roundNumber,
+    }));
 
     return {
       data,
@@ -540,6 +626,22 @@ export class ReviewsService {
       ),
       message: 'Reviews released to authors',
     };
+  }
+
+  private async revisionResponseForPaper(
+    userId: string,
+    conferenceId: string,
+    currentVersionId: string | null,
+  ): Promise<string | null> {
+    if (!currentVersionId) return null;
+    const version = await withTenantContext({ userId, conferenceId }, async (tx) =>
+      tx.paperVersion.findFirst({
+        where: { id: currentVersionId, kind: 'REVISION' },
+        select: { note: true },
+      }),
+    );
+    const note = version?.note?.trim();
+    return note ? note : null;
   }
 
   private versionConflict() {

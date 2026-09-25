@@ -414,7 +414,11 @@ export async function initiateVersionUpload(
 export async function completeVersionUpload(
   conferenceId: string,
   paperId: string,
-  body: { objectKey: string; kind?: 'SUBMISSION' | 'REVISION' | 'CAMERA_READY' | 'SUPPLEMENTARY' },
+  body: {
+    objectKey: string;
+    kind?: 'SUBMISSION' | 'REVISION' | 'CAMERA_READY' | 'SUPPLEMENTARY';
+    note?: string;
+  },
 ) {
   const result = await apiClient.submission.completeVersion({
     params: { conferenceId, paperId },
@@ -517,6 +521,7 @@ export async function uploadRevisionPdf(
   conferenceId: string,
   paperId: string,
   file: File,
+  response: string,
 ): Promise<void> {
   const presigned = await initiateVersionUpload(conferenceId, paperId, {
     originalFilename: file.name,
@@ -538,6 +543,7 @@ export async function uploadRevisionPdf(
   await completeVersionUpload(conferenceId, paperId, {
     objectKey: presigned.objectKey,
     kind: 'REVISION',
+    note: response.trim(),
   });
   await waitForRevisionScan(conferenceId, paperId);
 }

@@ -118,6 +118,7 @@ export const paperSchema = z.object({
   cameraReadyVersion: paperVersionSchema.nullable().optional(),
   revisionVersion: paperVersionSchema.nullable().optional(),
   revisionDueAt: z.string().datetime().nullable().optional(),
+  latestCycleId: z.string().uuid().nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -156,7 +157,7 @@ export type InitiateVersionResponse = z.infer<typeof initiateVersionResponseSche
 export const completeVersionSchema = z.object({
   objectKey: z.string().min(1),
   kind: versionKindSchema.default('SUBMISSION'),
-  note: z.string().max(1000).optional(),
+  note: z.string().max(10000).optional(),
 });
 
 export type CompleteVersionInput = z.infer<typeof completeVersionSchema>;

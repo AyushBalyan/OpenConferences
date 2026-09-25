@@ -12,6 +12,7 @@ import type {
   CreateAssignmentInput,
   ReviewerAssignmentDto,
 } from '@openconferences/schemas';
+import { reviewerAssignmentDueAt } from '@openconferences/schemas';
 import {
   paginateItems,
   prismaCursorArgs,
@@ -66,7 +67,7 @@ export class AssignmentsService {
     }
 
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-    const round = await this.rounds.loadRound(userId, conferenceId, roundId, roles);
+    await this.rounds.loadRound(userId, conferenceId, roundId, roles);
     const limit = resolveLimit(options.limit);
 
     const rows = await withTenantContext(
@@ -103,7 +104,7 @@ export class AssignmentsService {
     return {
       data: page.data.map((a) => ({
         ...mapReviewerAssignment(a),
-        dueAt: (a.dueAt ?? round.reviewDueAt)?.toISOString() ?? null,
+        dueAt: reviewerAssignmentDueAt(a.createdAt, conference.reviewDueAt).toISOString(),
         reviewProgress: a.review?.submittedAt
           ? ('SUBMITTED' as const)
           : a.review
@@ -187,7 +188,7 @@ export class AssignmentsService {
         targetRound,
         source.paperId,
         source.reviewerUserId,
-        source.dueAt ?? undefined,
+        conference.reviewDueAt,
       );
 
       if (outcome.kind === 'created') {
@@ -208,15 +209,12 @@ export class AssignmentsService {
         });
         await this.notifications.publishReviewerAssigned({
           to: outcome.reviewerEmail,
+          reviewerName: outcome.reviewerName,
           conferenceId,
           organizationId: conference.organizationId,
           paperTitle: outcome.paperTitle,
           roundNumber: targetRound.roundNumber,
-          dueAt:
-            (outcome.assignment.dueAt
-              ? new Date(outcome.assignment.dueAt)
-              : targetRound.reviewDueAt
-            )?.toISOString() ?? 'TBD',
+          dueAt: outcome.assignment.dueAt ?? 'TBD',
           assignmentId: outcome.assignment.id,
           idempotencyKey: `reviewer-assignment-${outcome.assignment.id}`,
         });
@@ -307,7 +305,7 @@ export class AssignmentsService {
       round,
       paperId,
       input.reviewerUserId,
-      input.dueAt ? new Date(input.dueAt) : undefined,
+      conference.reviewDueAt,
     );
 
     if (outcome.kind === 'skipped') {
@@ -340,15 +338,12 @@ export class AssignmentsService {
 
     await this.notifications.publishReviewerAssigned({
       to: outcome.reviewerEmail,
+      reviewerName: outcome.reviewerName,
       conferenceId,
       organizationId: conference.organizationId,
       paperTitle: outcome.paperTitle,
       roundNumber: round.roundNumber,
-      dueAt:
-        (outcome.assignment.dueAt
-          ? new Date(outcome.assignment.dueAt)
-          : round.reviewDueAt
-        )?.toISOString() ?? 'TBD',
+      dueAt: outcome.assignment.dueAt ?? 'TBD',
       assignmentId: outcome.assignment.id,
       idempotencyKey: `reviewer-assignment-${outcome.assignment.id}`,
     });
@@ -399,12 +394,13 @@ export class AssignmentsService {
     round: ReviewRound,
     paperId: string,
     reviewerUserId: string,
-    dueAt?: Date,
+    finalReviewDueAt: Date | null,
   ): Promise<
     | {
         kind: 'created';
         assignment: CreatedAssignment['assignment'];
         reviewerEmail: string;
+        reviewerName: string;
         paperTitle: string;
       }
     | { kind: 'skipped'; reason: string }
@@ -486,7 +482,7 @@ export class AssignmentsService {
               paperId,
               reviewerUserId,
               status: 'ASSIGNED',
-              dueAt: dueAt ?? round.reviewDueAt,
+              dueAt: reviewerAssignmentDueAt(new Date(), finalReviewDueAt),
             },
           });
 
@@ -505,6 +501,7 @@ export class AssignmentsService {
         kind: 'created',
         assignment: mapReviewerAssignment(created),
         reviewerEmail: reviewerMembership.user.email,
+        reviewerName: reviewerMembership.user.name,
         paperTitle: paper.title,
       };
     } catch (error) {

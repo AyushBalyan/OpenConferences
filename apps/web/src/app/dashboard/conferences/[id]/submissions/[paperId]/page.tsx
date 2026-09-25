@@ -25,7 +25,6 @@ import {
 } from '@/lib/api-client';
 import {
   decisionOutcomeLabel,
-  recommendationLabel,
   reviewStageLabel,
   type DecisionDto,
   type DecisionOutcome,
@@ -52,6 +51,20 @@ function decisionTone(outcome: DecisionOutcome) {
   if (outcome === 'ACCEPT') return 'success' as const;
   if (outcome === 'REJECT') return 'danger' as const;
   return 'pending' as const;
+}
+
+function groupReviewsByCycle(reviews: ReviewDto[]) {
+  const groups: { roundId: string; roundNumber: number; reviews: ReviewDto[] }[] = [];
+  for (const review of reviews) {
+    const roundNumber = review.roundNumber ?? 1;
+    const existing = groups.find((group) => group.roundId === review.roundId);
+    if (existing) {
+      existing.reviews.push(review);
+    } else {
+      groups.push({ roundId: review.roundId, roundNumber, reviews: [review] });
+    }
+  }
+  return groups.sort((a, b) => a.roundNumber - b.roundNumber);
 }
 
 function resolveNextAction(input: {
@@ -196,6 +209,7 @@ function SubmissionDetail() {
   const [draftFile, setDraftFile] = useState<File | null>(null);
   const [cameraReadyFile, setCameraReadyFile] = useState<File | null>(null);
   const [revisionFile, setRevisionFile] = useState<File | null>(null);
+  const [revisionResponse, setRevisionResponse] = useState('');
   const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
   const [rebuttalDirty, setRebuttalDirty] = useState(false);
   const rebuttalDirtyRef = useRef(false);
@@ -216,6 +230,7 @@ function SubmissionDetail() {
     const warnings: string[] = [];
     const submission = await fetchPaper(conferenceId, paperId);
     setPaper(submission);
+    setRevisionResponse(submission.revisionVersion?.note ?? '');
 
     try {
       const reviewData = await fetchPaperReviews(conferenceId, paperId, selectedRound);
@@ -342,7 +357,7 @@ function SubmissionDetail() {
     setBusy(true);
     setActionError(null);
     try {
-      await uploadRevisionPdf(conferenceId, paperId, revisionFile);
+      await uploadRevisionPdf(conferenceId, paperId, revisionFile, revisionResponse);
       setRevisionFile(null);
       await load();
     } catch (err) {
@@ -442,8 +457,13 @@ function SubmissionDetail() {
   const revisionScanStatus = paper.revisionVersion?.fileAsset?.scanStatus;
   const revisionDeadlinePassed =
     paper.revisionDueAt != null && new Date(paper.revisionDueAt) < new Date();
+  const revisionSubmitted =
+    isRevisionRequested && paper.latestCycleId != null && decision?.roundId !== paper.latestCycleId;
   const canUploadRevision =
-    isRevisionRequested && !revisionDeadlinePassed && paper.status === 'UNDER_REVIEW';
+    isRevisionRequested &&
+    !revisionSubmitted &&
+    !revisionDeadlinePassed &&
+    paper.status === 'UNDER_REVIEW';
   const cameraReadyDeadlinePassed =
     cameraReadyDueAt !== null && new Date(cameraReadyDueAt) < new Date();
   const canUploadCameraReady =
@@ -802,9 +822,14 @@ function SubmissionDetail() {
                   </p>
                 ) : (
                   <p className="text-sm text-slate-500">
-                    The revision deadline has not been configured yet.
+                    No revision deadline is set. You can upload the revised PDF now.
                   </p>
                 )}
+                {revisionSubmitted ? (
+                  <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                    Your revised PDF and response were submitted. The next review cycle is open.
+                  </p>
+                ) : null}
                 {canUploadRevision ? (
                   <div className="space-y-3">
                     <p className="text-sm font-medium text-slate-900">
@@ -815,12 +840,35 @@ function SubmissionDetail() {
                       onFileChange={setRevisionFile}
                       disabled={busy}
                     />
+                    <div className="space-y-2">
+                      <Label htmlFor="revision-response">Response to reviewers</Label>
+                      <Textarea
+                        id="revision-response"
+                        value={revisionResponse}
+                        maxLength={10000}
+                        disabled={busy}
+                        onChange={(event) => setRevisionResponse(event.target.value)}
+                        placeholder="Explain how the revised manuscript addresses the reviews."
+                        className="min-h-32"
+                      />
+                      <p className="text-xs text-slate-500">
+                        This response is sent with the revised PDF and is only collected for a
+                        revision.
+                      </p>
+                    </div>
                     <Button
-                      disabled={busy || !revisionFile}
+                      disabled={busy || !revisionFile || revisionResponse.trim().length === 0}
                       onClick={() => void onUploadRevision()}
                     >
                       {busy && revisionFile ? 'Uploading…' : 'Upload revised PDF'}
                     </Button>
+                  </div>
+                ) : paper.revisionVersion?.note ? (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-slate-900">Response to reviewers</p>
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                      {paper.revisionVersion.note}
+                    </p>
                   </div>
                 ) : null}
                 {revisionScanStatus === 'PENDING_SCAN' ? (
@@ -855,26 +903,25 @@ function SubmissionDetail() {
               {reviewStage ? ` · ${reviewStageLabel(reviewStage as 'FEEDBACK_RELEASED')}` : ''}
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-0 divide-y divide-slate-100 border border-slate-200">
-            {reviews.map((review, index) => (
-              <article key={review.id} className="space-y-2 px-3 py-4">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <p className="text-sm font-medium text-slate-900">
-                    Reviewer {index + 1}
-                    {review.recommendation
-                      ? ` · ${recommendationLabel(review.recommendation)}`
-                      : ''}
-                  </p>
-                  {review.confidence ? (
-                    <p className="font-mono text-xs text-slate-500">
-                      Confidence {review.confidence}/5
-                    </p>
-                  ) : null}
+          <CardContent className="space-y-6">
+            {groupReviewsByCycle(reviews).map((cycle) => (
+              <section key={cycle.roundId} className="space-y-3">
+                <h3 className="text-sm font-semibold text-slate-900">Cycle {cycle.roundNumber}</h3>
+                <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+                  {cycle.reviews.map((review, index) => (
+                    <article key={review.id} className="px-3 py-4">
+                      {cycle.reviews.length > 1 ? (
+                        <p className="mb-2 text-sm font-medium text-slate-900">
+                          Reviewer {index + 1}
+                        </p>
+                      ) : null}
+                      <p className="max-w-prose whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                        {review.commentsToAuthors || 'No comments to authors were provided.'}
+                      </p>
+                    </article>
+                  ))}
                 </div>
-                <p className="max-w-prose whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-                  {review.commentsToAuthors || 'No comments to authors were provided.'}
-                </p>
-              </article>
+              </section>
             ))}
           </CardContent>
         </Card>

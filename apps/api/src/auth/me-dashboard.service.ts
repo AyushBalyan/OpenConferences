@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { RoleKind } from '@openconferences/db';
 import { withTenantContext } from '@openconferences/db';
 import type { MeDashboard } from '@openconferences/schemas';
+import { reviewerAssignmentDueAt } from '@openconferences/schemas';
 import { effectiveRolesForConference, mergeRolesByConference } from '../tenancy/membership-roles';
 import { maxRoleRank } from '../tenancy/role-hierarchy';
 
@@ -31,7 +32,7 @@ export class MeDashboardService {
           include: {
             paper: { select: { title: true } },
             round: { select: { roundNumber: true } },
-            conference: { select: { id: true, name: true, slug: true } },
+            conference: { select: { id: true, name: true, slug: true, reviewDueAt: true } },
           },
           orderBy: [{ dueAt: 'asc' }, { createdAt: 'desc' }],
           take: 50,
@@ -122,7 +123,10 @@ export class MeDashboardService {
         paperId: assignment.paperId,
         paperTitle: assignment.paper.title,
         status: assignment.status,
-        dueAt: assignment.dueAt?.toISOString() ?? null,
+        dueAt: reviewerAssignmentDueAt(
+          assignment.createdAt,
+          assignment.conference.reviewDueAt,
+        ).toISOString(),
         roundNumber: assignment.round.roundNumber,
       })),
       authorConferences,

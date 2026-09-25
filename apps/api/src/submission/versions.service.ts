@@ -311,48 +311,21 @@ export class VersionsService {
           return { decision: latest.decisions[0]!, deadline: latest.revisionDueAt };
         }
 
-        const previous = await tx.reviewRound.findFirst({
-          where: { paperId: paper.id, conferenceId, roundNumber: latest.roundNumber - 1 },
-          include: { decisions: { take: 1 } },
-        });
-        const previousOutcome = previous?.decisions[0]?.outcome;
-        if (
-          !previous ||
-          (previousOutcome !== 'MINOR_REVISION' && previousOutcome !== 'MAJOR_REVISION')
-        ) {
-          return null;
-        }
-
-        const assignmentCount = await tx.reviewerAssignment.count({
-          where: { roundId: latest.id, conferenceId },
-        });
-        if (assignmentCount > 0) {
-          return { blocked: true as const };
-        }
-
-        return { decision: previous.decisions[0]!, deadline: previous.revisionDueAt };
+        return null;
       },
     );
 
-    if (gate && 'blocked' in gate) {
-      throw new ConflictException(
-        'A revised PDF can no longer be replaced after reviewers are assigned to the next cycle',
-      );
-    }
-
     if (!gate) {
-      throw new ConflictException('A revision decision is required before uploading a revision');
+      throw new ConflictException(
+        'This revision has already been submitted. The next review cycle is open.',
+      );
     }
 
     if (!gate.decision.notifiedAt) {
       throw new NotFoundException('Paper not found');
     }
 
-    if (!gate.deadline) {
-      throw new UnprocessableEntityException('Revision deadline is not configured for this paper');
-    }
-
-    if (new Date() > gate.deadline) {
+    if (gate.deadline && new Date() > gate.deadline) {
       throw new UnprocessableEntityException('Revision deadline has passed');
     }
   }

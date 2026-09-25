@@ -42,6 +42,8 @@ const SURFACE = '#fafafa';
 const PAGE = '#f4f4f5';
 const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 const MONO = 'ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace';
+const MAIL_DISCLAIMER =
+  'This is a system generated mail. For any queries contact: icamcds2026@fresi.org';
 
 function p(inner: string): string {
   return `<p style="margin:0 0 16px;font-size:15px;line-height:1.65;color:${BODY};">${inner}</p>`;
@@ -145,6 +147,7 @@ ${noteHtml}
 </td></tr>
 </table>
 <p style="margin:20px 0 0;font-size:12px;line-height:1.6;color:${FAINT};text-align:center;">${footer}</p>
+<p style="margin:8px 0 0;font-size:12px;line-height:1.6;color:${FAINT};text-align:center;">${MAIL_DISCLAIMER}</p>
 </td></tr>
 </table>
 </body>
@@ -188,6 +191,7 @@ function plainText(parts: LayoutOptions): string {
   } else {
     lines.push('This is an automated message. Please do not reply.');
   }
+  lines.push('', MAIL_DISCLAIMER);
   return lines.join('\n').trim();
 }
 
@@ -320,20 +324,17 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
   }),
   letter({
     key: 'assignment.notified',
-    subject: 'New review assignment: {{paperTitle}}',
-    headline: 'New review assignment',
+    subject: 'Review request: {{paperTitle}}',
+    headline: 'Dear Prof. {{reviewerName}}',
     paragraphs: [
-      'You have been assigned a paper to review.',
-      'Please submit your review before the due date below.',
+      'Thank you for serving as a member of the Technical Programme Committee of the conference {{conferenceName}}.',
+      'We would be grateful if you could review the assigned conference paper "{{paperTitle}}".',
+      'You are kindly requested to complete the review and submit your comments/recommendations within 7 days of receiving this email.',
+      'Your valuable feedback will help us ensure the quality of the conference programme and assist the authors in improving their work.',
+      'Thank you for your time and valuable contribution to the conference.',
     ],
-    details: [
-      { label: 'Paper', value: '{{paperTitle}}' },
-      { label: 'Review round', value: '{{roundNumber}}' },
-      { label: 'Due date', value: '{{dueAt}}' },
-    ],
-    secondaryNote:
-      'If you have a conflict of interest with this submission, please declare it before starting your review.',
-    variables: ['paperTitle', 'roundNumber', 'dueAt', 'conferenceName'],
+    extraParagraphs: ['With regards,', 'Organizing Committee', '({{conferenceName}})'],
+    variables: ['reviewerName', 'paperTitle', 'conferenceName'],
   }),
   letter({
     key: 'review.reminder',

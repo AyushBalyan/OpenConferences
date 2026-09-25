@@ -1,7 +1,7 @@
 import type PgBoss from 'pg-boss';
 import { generateId, withTenantContext } from '@openconferences/db';
 import type { ReminderSweepJobPayload } from '@openconferences/schemas';
-import { NOTIFICATION_SEND_JOB_NAME } from '@openconferences/schemas';
+import { NOTIFICATION_SEND_JOB_NAME, reviewerAssignmentDueAt } from '@openconferences/schemas';
 
 function escapeHtml(value: unknown): string {
   return String(value ?? '')
@@ -127,14 +127,17 @@ export async function processReminderSweepJob(
           include: {
             reviewer: { select: { email: true } },
             paper: { select: { title: true } },
-            conference: { select: { name: true } },
+            conference: { select: { name: true, reviewDueAt: true } },
             round: { select: { reviewDueAt: true } },
           },
         }),
       );
 
       for (const assignment of assignments) {
-        const dueAt = assignment.dueAt ?? assignment.round.reviewDueAt;
+        const dueAt = reviewerAssignmentDueAt(
+          assignment.createdAt,
+          assignment.conference.reviewDueAt,
+        );
         if (!dueAt || dueAt > inThreeDays || dueAt < now) continue;
 
         const sent = await enqueueDirect(boss, {

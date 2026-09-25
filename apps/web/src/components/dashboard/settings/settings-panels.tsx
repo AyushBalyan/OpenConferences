@@ -126,13 +126,14 @@ export function SettingsPhasesPanel() {
             <div>
               <h3 className="text-sm font-medium text-slate-900">Review cycle</h3>
               <p className="text-xs text-slate-500">
-                Review, rebuttal, and decision deadlines for the program committee.
+                Each review is due 7 days after the reviewer is assigned. Review due is the last day
+                any review may run.
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <PhaseField
                 id="reviewDueAt"
-                label="Review due"
+                label="Final review deadline"
                 value={form.reviewDueAt}
                 onChange={(value) => updateField('reviewDueAt', value)}
               />
