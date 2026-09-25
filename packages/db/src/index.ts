@@ -102,9 +102,13 @@ export async function withTenantContext<T>(
 
 export { PrismaClient, Prisma };
 export { generateId } from './id.js';
+export { rollupOutreachCampaignCounts } from './outreach-rollup.js';
 export { syncPlatformNotificationTemplates } from './sync-notification-templates.js';
 export { PLATFORM_NOTIFICATION_TEMPLATES } from './notification-templates.js';
 export type { PlatformNotificationTemplate } from './notification-templates.js';
+export { syncPlatformOutreachTemplates } from './sync-outreach-templates.js';
+export { PLATFORM_OUTREACH_TEMPLATES } from './outreach-templates.js';
+export type { PlatformOutreachTemplate } from './outreach-templates.js';
 export { applyScanResult } from './scan.js';
 export type { ApplyScanResultInput } from './scan.js';
 export type {
@@ -154,4 +158,11 @@ export type {
   NotificationTemplate,
   NotificationLog,
   EmailSuppression,
+  OutreachCampaignType,
+  OutreachCampaignStatus,
+  OutreachRecipientStatus,
+  OutreachTemplate,
+  OutreachCampaign,
+  OutreachRecipient,
+  OutreachWebhookEvent,
 } from '@prisma/client';

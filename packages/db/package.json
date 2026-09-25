@@ -27,6 +27,7 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@openconferences/schemas": "workspace:*",
     "@prisma/client": "^6.1.0",
     "uuid": "^11.0.3"
   },

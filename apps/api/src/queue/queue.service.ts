@@ -9,6 +9,7 @@ import {
   PAYMENT_RECONCILE_JOB_NAME,
   NOTIFICATION_SEND_JOB_NAME,
   REMINDER_SWEEP_JOB_NAME,
+  OUTREACH_SEND_JOB_NAME,
   type EmailJobPayload,
   type FileScanJobPayload,
   type InvoiceGenerateJobPayload,
@@ -16,6 +17,7 @@ import {
   type PaymentReconcileJobPayload,
   type NotificationJobPayload,
   type ReminderSweepJobPayload,
+  type OutreachSendJobPayload,
 } from '@openconferences/schemas';
 
 @Injectable()
@@ -43,6 +45,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     await this.boss.createQueue(INVOICE_GENERATE_JOB_NAME);
     await this.boss.createQueue(DISCARD_SWEEP_JOB_NAME);
     await this.boss.createQueue(PAYMENT_RECONCILE_JOB_NAME);
+    await this.boss.createQueue(OUTREACH_SEND_JOB_NAME);
     this.logger.log('pg-boss queues ready');
   }
 
@@ -134,6 +137,19 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
 
     return this.boss.send(PAYMENT_RECONCILE_JOB_NAME, input, {
       singletonKey: input.paymentId ?? 'global-reconcile',
+    });
+  }
+
+  async enqueueOutreachSend(input: OutreachSendJobPayload): Promise<string | null> {
+    if (!this.boss) {
+      throw new Error('Queue is not initialized');
+    }
+
+    return this.boss.send(OUTREACH_SEND_JOB_NAME, input, {
+      singletonKey: input.campaignId,
+      retryLimit: 3,
+      retryDelay: 60,
+      retryBackoff: true,
     });
   }
 }

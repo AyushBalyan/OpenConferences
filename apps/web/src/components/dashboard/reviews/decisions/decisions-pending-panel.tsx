@@ -78,7 +78,6 @@ export function DecisionsPendingPanel() {
   const searchParams = useSearchParams();
   const {
     conferenceId,
-    roundId,
     papers,
     decisions,
     undecidedPapers,
@@ -436,12 +435,14 @@ export function DecisionsPendingPanel() {
                   </Button>
                 </div>
               </header>
-              <ReviewDossier
-                key={`${roundId}:${active.id}`}
-                conferenceId={conferenceId}
-                paperId={active.id}
-                roundId={roundId}
-              />
+              {active.cycleId && (
+                <ReviewDossier
+                  key={`${active.cycleId}:${active.id}`}
+                  conferenceId={conferenceId}
+                  paperId={active.id}
+                  roundId={active.cycleId}
+                />
+              )}
             </div>
 
             <aside

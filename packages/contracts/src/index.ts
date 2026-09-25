@@ -23,6 +23,7 @@ import { reviewContract } from './review.js';
 import { billingContract, webhookContract } from './billing.js';
 import { messagingContract } from './messaging.js';
 import { analyticsContract } from './analytics.js';
+import { outreachContract, outreachWebhookContract } from './outreach.js';
 
 const c = initContract();
 
@@ -188,6 +189,8 @@ export const apiContract = c.router({
   webhooks: webhookContract,
   messaging: messagingContract,
   analytics: analyticsContract,
+  outreach: outreachContract,
+  outreachWebhooks: outreachWebhookContract,
 });
 
 export type ApiContract = typeof apiContract;
@@ -204,3 +207,5 @@ export { messagingContract } from './messaging.js';
 export type { MessagingContract } from './messaging.js';
 export { analyticsContract } from './analytics.js';
 export type { AnalyticsContract } from './analytics.js';
+export { outreachContract, outreachWebhookContract } from './outreach.js';
+export type { OutreachContract, OutreachWebhookContract } from './outreach.js';

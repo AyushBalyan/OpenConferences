@@ -22,6 +22,8 @@ describe('getConfig', () => {
     expect(config.isTest).toBe(true);
     expect(config.mail.from).toBe('noreply@example.com');
     expect(config.mail.submissionAlertEmail).toBeUndefined();
+    expect(config.outreach.fromEmail).toBe('outreach@example.com');
+    expect(config.outreach.provider).toBe('log');
   });
 
   it('accepts an optional SUBMISSION_ALERT_EMAIL', () => {
@@ -50,6 +52,62 @@ describe('getConfig', () => {
         SUBMISSION_ALERT_EMAIL: 'not-an-email',
       }),
     ).toThrow(/SUBMISSION_ALERT_EMAIL/);
+  });
+
+  it('selects SES from legacy OUTREACH_SES_ENABLED when provider is unset', () => {
+    resetConfig();
+    const config = getConfig({
+      ...baseEnv,
+      OUTREACH_SES_ENABLED: 'true',
+      SES_ACCESS_KEY_ID: 'AKIAEXAMPLE',
+      SES_SECRET_ACCESS_KEY: 'secret',
+    });
+    expect(config.outreach.provider).toBe('ses');
+  });
+
+  it('selects SES from credentials when provider is unset', () => {
+    resetConfig();
+    const config = getConfig({
+      ...baseEnv,
+      SES_ACCESS_KEY_ID: 'AKIAEXAMPLE',
+      SES_SECRET_ACCESS_KEY: 'secret',
+    });
+    expect(config.outreach.provider).toBe('ses');
+  });
+
+  it('honors explicit OUTREACH_MAIL_PROVIDER over legacy SES flags', () => {
+    resetConfig();
+    const config = getConfig({
+      ...baseEnv,
+      OUTREACH_MAIL_PROVIDER: 'log',
+      OUTREACH_SES_ENABLED: 'true',
+      SES_ACCESS_KEY_ID: 'AKIAEXAMPLE',
+      SES_SECRET_ACCESS_KEY: 'secret',
+    });
+    expect(config.outreach.provider).toBe('log');
+  });
+
+  it('requires a Resend API key when provider is resend', () => {
+    resetConfig();
+    expect(() =>
+      getConfig({
+        ...baseEnv,
+        OUTREACH_MAIL_PROVIDER: 'resend',
+      }),
+    ).toThrow(/OUTREACH_RESEND_API_KEY/);
+  });
+
+  it('accepts resend when an API key is present', () => {
+    resetConfig();
+    const config = getConfig({
+      ...baseEnv,
+      OUTREACH_MAIL_PROVIDER: 'resend',
+      OUTREACH_RESEND_API_KEY: 're_test_key',
+      OUTREACH_RESEND_WEBHOOK_SECRET: 'whsec_test',
+    });
+    expect(config.outreach.provider).toBe('resend');
+    expect(config.outreach.resend.apiKey).toBe('re_test_key');
+    expect(config.outreach.resend.ratePerSecond).toBe(10);
   });
 
   it('throws on missing required variables', () => {

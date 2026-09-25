@@ -15,7 +15,7 @@ import {
   fetchReviewProgress,
   fetchReviewRounds,
 } from '@/lib/api-client';
-import { resolveDecisionRound } from '@/lib/review-rounds';
+import { currentCycleDecisions, resolveDecisionRound } from '@/lib/review-rounds';
 import type { PaperDto } from '@/lib/submission-types';
 import type { DecisionDto, DecisionOutcome, ReviewRoundDto } from '@/lib/review-types';
 
@@ -82,6 +82,9 @@ export function DecisionsWorkspaceProvider({
   const [decisions, setDecisions] = useState<
     (DecisionDto & { paperTitle?: string; roundNumber?: number })[]
   >([]);
+  const [allDecisions, setAllDecisions] = useState<
+    (DecisionDto & { paperTitle?: string; roundNumber?: number })[]
+  >([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Record<string, PendingDecision>>({});
   const [bulkOutcome, setBulkOutcome] = useState<DecisionOutcome | ''>('');
@@ -90,7 +93,10 @@ export function DecisionsWorkspaceProvider({
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const decisionByPaper = useMemo(() => new Map(decisions.map((d) => [d.paperId, d])), [decisions]);
+  const decisionByPaper = useMemo(
+    () => currentCycleDecisions(papers, allDecisions),
+    [papers, allDecisions],
+  );
 
   const undecidedPapers = useMemo(
     () => papers.filter((p) => !decisionByPaper.has(p.id) && p.status === 'UNDER_REVIEW'),
@@ -125,9 +131,11 @@ export function DecisionsWorkspaceProvider({
       setRoundId(activeRound.id);
       roundRef.current = activeRound.id;
       const decisionList = await fetchDecisions(conferenceId);
+      setAllDecisions(decisionList.data);
       setDecisions(decisionList.data);
     } else {
       setRoundId('');
+      setAllDecisions([]);
       setDecisions([]);
     }
     setError(null);
@@ -143,10 +151,9 @@ export function DecisionsWorkspaceProvider({
         setDecisions([]);
         return;
       }
-      const decisionList = await fetchDecisions(conferenceId, nextRoundId);
-      setDecisions(decisionList.data);
+      setDecisions(allDecisions.filter((decision) => decision.roundId === nextRoundId));
     },
-    [conferenceId],
+    [allDecisions],
   );
 
   useEffect(() => {

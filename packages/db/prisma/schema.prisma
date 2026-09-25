@@ -169,6 +169,32 @@ enum NotificationStatus {
   BOUNCED
 }
 
+enum OutreachCampaignType {
+  TPC_INVITATION
+  PAPER_SUBMISSION_INVITATION
+  GENERAL_OUTREACH
+}
+
+enum OutreachCampaignStatus {
+  DRAFT
+  READY
+  SENDING
+  SENT
+  PARTIAL
+  FAILED
+}
+
+enum OutreachRecipientStatus {
+  PENDING
+  SKIPPED
+  QUEUED
+  SENT
+  FAILED
+  BOUNCED
+  COMPLAINED
+  SUPPRESSED
+}
+
 model Organization {
   inboxReadStates InboxReadState[]
   id        String    @id @db.Uuid
@@ -198,6 +224,9 @@ model Organization {
   studentVerifications StudentVerification[]
   notificationTemplates NotificationTemplate[]
   notificationLogs      NotificationLog[]
+  outreachTemplates     OutreachTemplate[]
+  outreachCampaigns     OutreachCampaign[]
+  outreachRecipients    OutreachRecipient[]
 
   @@map("organizations")
 }
@@ -236,6 +265,7 @@ model User {
   decisionsMade       Decision[]           @relation("DecidedDecisions")
   registrationsPaid   Registration[]       @relation("RegistrationPayer")
   studentVerificationsReviewed StudentVerification[] @relation("VerificationReviewer")
+  outreachCampaignsCreated     OutreachCampaign[]    @relation("OutreachCampaignCreator")
 
   @@index([email], map: "users_email_idx")
   @@map("users")
@@ -340,6 +370,9 @@ model Conference {
   rebuttals           Rebuttal[]
   decisions           Decision[]
   registrations       Registration[]
+  outreachCampaigns   OutreachCampaign[]
+  outreachTemplates   OutreachTemplate[]
+  outreachRecipients  OutreachRecipient[]
 
   @@index([organizationId, status])
   @@map("conferences")
@@ -892,4 +925,105 @@ model InboxReadState {
   @@unique([userId, conferenceId, kind, sourceId])
   @@index([conferenceId, userId])
   @@map("inbox_read_states")
+}
+
+model OutreachTemplate {
+  id             String   @id @db.Uuid
+  organizationId String?  @db.Uuid
+  conferenceId   String?  @db.Uuid
+  key            String
+  name           String
+  version        Int
+  subject        String
+  bodyHtml       String
+  bodyText       String?
+  variables      Json     @default("[]")
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization?     @relation(fields: [organizationId], references: [id])
+  conference   Conference?       @relation(fields: [conferenceId], references: [id])
+  campaigns    OutreachCampaign[]
+
+  @@index([key, isActive])
+  @@index([conferenceId, key])
+  @@map("outreach_templates")
+}
+
+model OutreachCampaign {
+  id               String                 @id @db.Uuid
+  organizationId   String                 @db.Uuid
+  conferenceId     String                 @db.Uuid
+  createdById      String                 @db.Uuid
+  templateId       String?                @db.Uuid
+  name             String
+  type             OutreachCampaignType
+  status           OutreachCampaignStatus @default(DRAFT)
+  templateKey      String?
+  templateName     String?
+  subject          String?
+  bodyHtml         String?
+  fromName         String?
+  fromEmail        String?
+  replyToEmail     String?
+  recipientCount   Int                    @default(0)
+  sentCount        Int                    @default(0)
+  failedCount      Int                    @default(0)
+  skippedCount     Int                    @default(0)
+  version          Int                    @default(0)
+  confirmedAt      DateTime?
+  sentAt           DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id])
+  conference   Conference          @relation(fields: [conferenceId], references: [id])
+  createdBy    User                @relation("OutreachCampaignCreator", fields: [createdById], references: [id])
+  template     OutreachTemplate?   @relation(fields: [templateId], references: [id])
+  recipients   OutreachRecipient[]
+
+  @@index([conferenceId, createdAt])
+  @@index([conferenceId, status])
+  @@map("outreach_campaigns")
+}
+
+model OutreachRecipient {
+  id                String                   @id @db.Uuid
+  organizationId    String                   @db.Uuid
+  conferenceId      String                   @db.Uuid
+  campaignId        String                   @db.Uuid
+  name              String
+  email             String
+  topic             String
+  paper             String
+  status            OutreachRecipientStatus  @default(PENDING)
+  providerMessageId String?
+  error             String?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  conference   Conference       @relation(fields: [conferenceId], references: [id])
+  campaign     OutreachCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, email])
+  @@index([conferenceId, email])
+  @@index([campaignId, status])
+  @@index([providerMessageId])
+  @@map("outreach_recipients")
+}
+
+model OutreachWebhookEvent {
+  id          String   @id @db.Uuid
+  svixId      String   @unique
+  eventType   String
+  emailId     String?
+  recipientId String?  @db.Uuid
+  processedAt DateTime @default(now())
+
+  @@index([emailId])
+  @@map("outreach_webhook_events")
 }

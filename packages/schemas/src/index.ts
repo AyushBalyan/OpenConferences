@@ -8,6 +8,7 @@ export * from './submission.js';
 export * from './review.js';
 export * from './billing.js';
 export * from './messaging.js';
+export * from './outreach.js';
 
 export const problemEnvelopeSchema = z.object({
   type: z.string().url().or(z.string().startsWith('https://')),

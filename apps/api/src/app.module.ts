@@ -15,6 +15,7 @@ import { BillingModule } from './billing/billing.module';
 import { AuditModule } from './audit/audit.module';
 import { MailerModule } from './mailer/mailer.module';
 import { MessagingModule } from './messaging/messaging.module';
+import { OutreachModule } from './outreach/outreach.module';
 import { TurnstileModule } from './turnstile/turnstile.module';
 import { AuthRateLimitMiddleware } from './common/middleware/auth-rate-limit.middleware';
 import { APP_FILTER } from '@nestjs/core';
@@ -55,6 +56,7 @@ const config = getConfig();
     ReviewModule,
     BillingModule,
     AnalyticsModule,
+    OutreachModule,
     HealthModule,
     ...(config.isDev ? [DebugModule] : []),
   ],

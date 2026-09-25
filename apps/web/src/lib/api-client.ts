@@ -599,9 +599,18 @@ export async function uploadCameraReadyPdf(
 // --- Review (Phase 4) ---
 
 export async function fetchReviewRounds(conferenceId: string) {
-  const result = await apiClient.review.listRounds({ params: { conferenceId } });
-  if (result.status === 200) return result.body.data;
-  throw new Error('Failed to load review rounds');
+  const rounds: import('./review-types').ReviewRoundDto[] = [];
+  let cursor: string | undefined;
+  do {
+    const result = await apiClient.review.listRounds({
+      params: { conferenceId },
+      query: { ...(cursor ? { cursor } : {}) },
+    });
+    if (result.status !== 200) throw new Error('Failed to load review rounds');
+    rounds.push(...result.body.data);
+    cursor = result.body.nextCursor ?? undefined;
+  } while (cursor);
+  return rounds;
 }
 
 export async function fetchReviewProgress(conferenceId: string) {
@@ -918,12 +927,21 @@ export async function submitRebuttal(
 // --- Decisions (Phase 6) ---
 
 export async function fetchDecisions(conferenceId: string, roundId?: string) {
-  const result = await apiClient.review.listDecisions({
-    params: { conferenceId },
-    query: roundId ? { roundId } : {},
-  });
-  if (result.status === 200) return result.body;
-  throw new Error('Failed to load decisions');
+  const decisions: (import('./review-types').DecisionDto & {
+    paperTitle?: string;
+    roundNumber?: number;
+  })[] = [];
+  let cursor: string | undefined;
+  do {
+    const result = await apiClient.review.listDecisions({
+      params: { conferenceId },
+      query: { ...(roundId ? { roundId } : {}), ...(cursor ? { cursor } : {}) },
+    });
+    if (result.status !== 200) throw new Error('Failed to load decisions');
+    decisions.push(...result.body.data);
+    cursor = result.body.nextCursor ?? undefined;
+  } while (cursor);
+  return { data: decisions, nextCursor: null };
 }
 
 export async function fetchPaperDecision(conferenceId: string, paperId: string, roundId?: string) {
@@ -1100,4 +1118,196 @@ export async function refundRegistration(
   });
   if (result.status === 200) return result.body;
   throw new Error('Failed to process refund');
+}
+
+function throwOutreachError(
+  result: { status: number; body: { detail?: string } },
+  fallback: string,
+): never {
+  const detail = result.body.detail ?? fallback;
+  if (result.status === 403 && detail.includes(MFA_REQUIRED_DETAIL)) {
+    throw new MfaRequiredError(detail);
+  }
+  throw new Error(detail);
+}
+
+export async function fetchOutreachCampaigns(
+  conferenceId: string,
+  query?: {
+    cursor?: string;
+    limit?: number;
+    status?: 'DRAFT' | 'READY' | 'SENDING' | 'SENT' | 'PARTIAL' | 'FAILED';
+    type?: 'TPC_INVITATION' | 'PAPER_SUBMISSION_INVITATION' | 'GENERAL_OUTREACH';
+  },
+) {
+  const result = await apiClient.outreach.listCampaigns({
+    params: { conferenceId },
+    query: query ?? {},
+  });
+  if (result.status === 200) return result.body;
+  if (result.status === 401 || result.status === 403 || result.status === 404) {
+    throwOutreachError(result, 'Failed to load outreach campaigns');
+  }
+  throw new Error('Failed to load outreach campaigns');
+}
+
+export async function createOutreachCampaign(
+  conferenceId: string,
+  body: {
+    name: string;
+    type: 'TPC_INVITATION' | 'PAPER_SUBMISSION_INVITATION' | 'GENERAL_OUTREACH';
+  },
+) {
+  const result = await apiClient.outreach.createCampaign({
+    params: { conferenceId },
+    body,
+  });
+  if (result.status === 201) return result.body;
+  if (
+    result.status === 400 ||
+    result.status === 401 ||
+    result.status === 403 ||
+    result.status === 404
+  ) {
+    throwOutreachError(result, 'Failed to create campaign');
+  }
+  throw new Error('Failed to create campaign');
+}
+
+export async function fetchOutreachCampaign(conferenceId: string, campaignId: string) {
+  const result = await apiClient.outreach.getCampaign({
+    params: { conferenceId, campaignId },
+  });
+  if (result.status === 200) return result.body;
+  if (result.status === 401 || result.status === 403 || result.status === 404) {
+    throwOutreachError(result, 'Failed to load campaign');
+  }
+  throw new Error('Failed to load campaign');
+}
+
+export async function importOutreachRecipients(
+  conferenceId: string,
+  campaignId: string,
+  rows: Array<{ name?: string; email?: string; topic?: string; paper?: string; rowNumber: number }>,
+) {
+  const result = await apiClient.outreach.importRecipients({
+    params: { conferenceId, campaignId },
+    body: { rows },
+  });
+  if (result.status === 200) return result.body;
+  if (
+    result.status === 400 ||
+    result.status === 401 ||
+    result.status === 403 ||
+    result.status === 404 ||
+    result.status === 409 ||
+    result.status === 422
+  ) {
+    throwOutreachError(result, 'Failed to import recipients');
+  }
+  throw new Error('Failed to import recipients');
+}
+
+export async function fetchOutreachRecipients(
+  conferenceId: string,
+  campaignId: string,
+  query?: {
+    cursor?: string;
+    limit?: number;
+    status?: 'PENDING' | 'SKIPPED' | 'QUEUED' | 'SENT' | 'FAILED';
+  },
+) {
+  const result = await apiClient.outreach.listRecipients({
+    params: { conferenceId, campaignId },
+    query: query ?? {},
+  });
+  if (result.status === 200) return result.body;
+  if (result.status === 401 || result.status === 403 || result.status === 404) {
+    throwOutreachError(result, 'Failed to load recipients');
+  }
+  throw new Error('Failed to load recipients');
+}
+
+export async function fetchOutreachTemplates(conferenceId: string) {
+  const result = await apiClient.outreach.listTemplates({ params: { conferenceId } });
+  if (result.status === 200) return result.body.data;
+  if (result.status === 401 || result.status === 403 || result.status === 404) {
+    throwOutreachError(result, 'Failed to load templates');
+  }
+  throw new Error('Failed to load templates');
+}
+
+export async function selectOutreachTemplate(
+  conferenceId: string,
+  campaignId: string,
+  templateId: string,
+) {
+  const result = await apiClient.outreach.selectTemplate({
+    params: { conferenceId, campaignId },
+    body: { templateId },
+  });
+  if (result.status === 200) return result.body;
+  if (
+    result.status === 400 ||
+    result.status === 401 ||
+    result.status === 403 ||
+    result.status === 404 ||
+    result.status === 409
+  ) {
+    throwOutreachError(result, 'Failed to select template');
+  }
+  throw new Error('Failed to select template');
+}
+
+export async function previewOutreachCampaign(
+  conferenceId: string,
+  campaignId: string,
+  recipientId?: string,
+) {
+  const result = await apiClient.outreach.previewCampaign({
+    params: { conferenceId, campaignId },
+    query: recipientId ? { recipientId } : {},
+  });
+  if (result.status === 200) return result.body;
+  if (
+    result.status === 400 ||
+    result.status === 401 ||
+    result.status === 403 ||
+    result.status === 404
+  ) {
+    throwOutreachError(result, 'Failed to preview email');
+  }
+  throw new Error('Failed to preview email');
+}
+
+export async function sendOutreachCampaign(
+  conferenceId: string,
+  campaignId: string,
+  body: { confirm: true; version: number },
+) {
+  const result = await apiClient.outreach.sendCampaign({
+    params: { conferenceId, campaignId },
+    body,
+  });
+  if (result.status === 200) return result.body;
+  if (
+    result.status === 400 ||
+    result.status === 401 ||
+    result.status === 403 ||
+    result.status === 404 ||
+    result.status === 409 ||
+    result.status === 422
+  ) {
+    throwOutreachError(result, 'Failed to send campaign');
+  }
+  throw new Error('Failed to send campaign');
+}
+
+export async function fetchOutreachSender(conferenceId: string) {
+  const result = await apiClient.outreach.getSender({ params: { conferenceId } });
+  if (result.status === 200) return result.body;
+  if (result.status === 401 || result.status === 403 || result.status === 404) {
+    throwOutreachError(result, 'Failed to load sender');
+  }
+  throw new Error('Failed to load sender');
 }

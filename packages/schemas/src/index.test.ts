@@ -23,6 +23,62 @@ describe('schemas', () => {
   });
 });
 
+describe('outreach template rendering', () => {
+  it('personalizes and escapes merge fields including paper title', async () => {
+    const { renderOutreachTemplate } = await import('./outreach.js');
+    expect(
+      renderOutreachTemplate('Dear {{name}} — {{paper title}}', {
+        name: 'Dr. <X>',
+        paper: 'Q & A',
+      }),
+    ).toBe('Dear Dr. &lt;X&gt; — Q &amp; A');
+  });
+});
+
+describe('outreach campaign rollup', () => {
+  it('keeps SENDING while the worker is in flight', async () => {
+    const { outreachCampaignRollup } = await import('./outreach.js');
+    expect(
+      outreachCampaignRollup({
+        currentStatus: 'SENDING',
+        recipientStatuses: ['SENT', 'BOUNCED', 'QUEUED'],
+      }),
+    ).toEqual({ sentCount: 1, failedCount: 1, skippedCount: 0, status: 'SENDING' });
+  });
+
+  it('finalizes from authoritative recipient rows including late webhooks', async () => {
+    const { outreachCampaignRollup } = await import('./outreach.js');
+    expect(
+      outreachCampaignRollup({
+        currentStatus: 'SENDING',
+        recipientStatuses: ['SENT', 'BOUNCED', 'SKIPPED', 'SUPPRESSED'],
+        finalize: true,
+      }),
+    ).toEqual({ sentCount: 1, failedCount: 1, skippedCount: 2, status: 'PARTIAL' });
+  });
+
+  it('recomputes a terminal campaign after a late bounce', async () => {
+    const { outreachCampaignRollup } = await import('./outreach.js');
+    expect(
+      outreachCampaignRollup({
+        currentStatus: 'SENT',
+        recipientStatuses: ['SENT', 'BOUNCED'],
+      }),
+    ).toEqual({ sentCount: 1, failedCount: 1, skippedCount: 0, status: 'PARTIAL' });
+  });
+
+  it('normalizes array and object Resend tags', async () => {
+    const { normalizeOutreachTags } = await import('./outreach.js');
+    expect(normalizeOutreachTags([{ name: 'channel', value: 'outreach' }])).toEqual({
+      channel: 'outreach',
+    });
+    expect(normalizeOutreachTags({ channel: 'outreach', recipientId: 'abc' })).toEqual({
+      channel: 'outreach',
+      recipientId: 'abc',
+    });
+  });
+});
+
 describe('queryBooleanSchema', () => {
   it('parses string false as false', async () => {
     const { queryBooleanSchema } = await import('./pagination.js');

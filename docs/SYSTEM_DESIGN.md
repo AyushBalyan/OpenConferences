@@ -176,7 +176,8 @@ We group entities into contexts that map 1:1 to backend modules. Boundaries are 
 | **Submission** | `Paper`, `Authorship`, `PaperVersion`, `FileAsset`                                                                       | A paper always belongs to one track; authorship order is stable; the "current" version is unambiguous                                                                       |
 | **Review**     | `ReviewRound`, `ReviewerInvitation`, `Bid`, `ConflictOfInterest`, `ReviewerAssignment`, `Review`, `Rebuttal`, `Decision` | A reviewer cannot review their own paper or a declared conflict; one decision per paper per cycle; a cycle belongs to one paper; identity visibility follows `blindingMode` |
 | **Billing**    | `Registration`, `Payment`, `Invoice`                                                                                     | Money state transitions are append-only and idempotent                                                                                                                      |
-| **Messaging**  | `NotificationTemplate`, `NotificationLog`                                                                                | Every outbound email is recorded; templates are data, not code                                                                                                              |
+| **Messaging**  | `NotificationTemplate`, `NotificationLog`                                                                                | Every outbound **transactional** email is recorded; templates are data, not code                                                                                            |
+| **Outreach**   | `OutreachCampaign`, `OutreachRecipient`, `OutreachTemplate`, `OutreachWebhookEvent`                                      | Organizer-initiated academic outreach is conference-scoped, explicitly confirmed, and delivered through a replaceable mailer adapter                                        |
 
 ### 3.2 Entity-relationship diagram
 
@@ -229,6 +230,10 @@ erDiagram
   MEMBERSHIP ||--o{ ROLE_GRANT : "has roles"
 
   NOTIFICATION_TEMPLATE ||--o{ NOTIFICATION_LOG : "instantiated as"
+
+  CONFERENCE ||--o{ OUTREACH_CAMPAIGN : "runs"
+  OUTREACH_CAMPAIGN ||--o{ OUTREACH_RECIPIENT : "targets"
+  OUTREACH_TEMPLATE ||--o{ OUTREACH_CAMPAIGN : "selected for"
 ```
 
 ### 3.3 Entity catalogue and relationships
@@ -281,7 +286,13 @@ erDiagram
 
 **NotificationTemplate** — a named, versioned email template (subject + body with variables). Data, not code, so organizers can edit copy without a deploy.
 
-**NotificationLog** — a record of every email queued/sent (recipient, template, status, provider id). Enables resend, audit, and "did the reviewer get the reminder?" support.
+**NotificationLog** — a record of every transactional email queued/sent (recipient, template, status, provider id). Enables resend, audit, and "did the reviewer get the reminder?" support.
+
+**OutreachCampaign** — a conference-scoped academic outreach send (TPC invitation, paper-submission invitation, or general conference outreach). Holds campaign name/type, selected template snapshot, recipient counts, and sending status. Sender name, From, and Reply-To are copied from backend environment at send time.
+
+**OutreachRecipient** — one uploaded contact on a campaign (`name`, `email`, `topic`, `paper`). Emails are normalized; duplicates and invalid addresses are rejected before send. Delivery status and provider message id are recorded per recipient.
+
+**OutreachTemplate** — named outreach copy (subject + body) with allowlisted merge fields `{{name}}`, `{{topic}}`, `{{paper}}` / `{{paper title}}`. Platform-seeded keys make new templates additive.
 
 ### 3.4 Relationship rules that matter
 
@@ -332,6 +343,9 @@ CREATE TYPE coi_type            AS ENUM ('CO_AUTHOR','INSTITUTION','ADVISOR_STUD
 CREATE TYPE coi_source          AS ENUM ('SELF','CHAIR','SYSTEM');
 CREATE TYPE review_visibility   AS ENUM ('HIDDEN','AUTHOR_VISIBLE','PUBLIC');
 CREATE TYPE file_scan_status    AS ENUM ('PENDING_SCAN','CLEAN','INFECTED');
+CREATE TYPE outreach_campaign_type   AS ENUM ('TPC_INVITATION','PAPER_SUBMISSION_INVITATION','GENERAL_OUTREACH');
+CREATE TYPE outreach_campaign_status AS ENUM ('DRAFT','READY','SENDING','SENT','PARTIAL','FAILED');
+CREATE TYPE outreach_recipient_status AS ENUM ('PENDING','SKIPPED','QUEUED','SENT','FAILED','BOUNCED','COMPLAINED','SUPPRESSED');
 ```
 
 Peer-review table details: §19.
@@ -496,6 +510,32 @@ Below, each table lists **purpose / PK / FKs / indexes / constraints**. Represen
 - **PK:** `id`. **FKs:** `templateId`, `organizationId`, nullable `userId`, nullable `conferenceId`.
 - **Columns:** `toEmail`, `status notification_status`, `providerMessageId`, `error text`, `sentAt`.
 - **Indexes:** `(conferenceId)`, `(toEmail)`, `(status)`.
+
+#### `outreach_templates`
+
+- **Purpose:** versioned academic outreach email copy (platform defaults when `organizationId`/`conferenceId` are null).
+- **PK:** `id`. **FKs:** nullable `organizationId`, nullable `conferenceId`.
+- **Columns:** `key`, `name`, `version`, `subject`, `bodyHtml`, `bodyText`, `variables jsonb`, `isActive`.
+- **Indexes:** unique `(organizationId, conferenceId, key, version)`.
+
+#### `outreach_campaigns`
+
+- **Purpose:** organizer-initiated outreach send for one conference.
+- **PK:** `id`. **FKs:** `organizationId`, `conferenceId`, nullable `templateId`, `createdById → users.id`.
+- **Columns:** `name`, `type outreach_campaign_type`, `status outreach_campaign_status`, template snapshots (`templateKey`, `templateName`, `subject`, `bodyHtml`), sender snapshots (`fromName`, `fromEmail`, `replyToEmail`), counts, `version int`, `confirmedAt`, `sentAt`.
+- **Indexes:** `(conferenceId, createdAt)`, `(conferenceId, status)`.
+
+#### `outreach_recipients`
+
+- **Purpose:** uploaded contacts for one campaign.
+- **PK:** `id`. **FKs:** `campaignId`, `organizationId`, `conferenceId`.
+- **Columns:** `name`, `email` (normalized lowercase), `topic`, `paper`, `status outreach_recipient_status`, `providerMessageId`, `error`, `sentAt`, `deliveredAt`.
+- **Indexes:** unique `(campaignId, email)`; `(conferenceId, email)` for unsubscribe/suppression joins; `(providerMessageId)` for delivery webhooks.
+
+#### `outreach_webhook_events`
+
+- **Purpose:** replay protection for provider delivery webhooks (`svix-id` uniqueness).
+- **PK:** `id`. **Columns:** `svixId` (unique), `eventType`, `emailId`, `recipientId`, `processedAt`.
 
 #### `audit_logs` (cross-cutting)
 
@@ -785,21 +825,25 @@ graph TD
   Dashboard --> Reviews
   Dashboard --> Payments
   Analytics --> Dashboard
+  Outreach --> Tenancy
+  Outreach -.queue.-> WorkerOutreach[Worker outreach mailer]
+  Outreach -.webhook.-> ResendOutreach[Resend outreach webhook]
 ```
 
-| Module            | Responsibilities                                                                                                                                   | Key public methods                                                                                                                   | Depends on                |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------- |
-| **Auth**          | Session validation, guards, COI helpers                                                                                                            | `getUser(req)`, `requireRole()`                                                                                                      | Better Auth               |
-| **Users**         | Profiles, account linking, claim co-author records                                                                                                 | `findById`, `claimAuthorship`                                                                                                        | Auth                      |
-| **Tenancy**       | Orgs, conferences, tracks, memberships, role grants, lifecycle transitions                                                                         | `createConference`, `transitionStatus`, `addMember`, `rolesFor(user, scope)`                                                         | Users                     |
-| **Papers**        | Submission CRUD, versions, authorships                                                                                                             | `createPaper`, `addVersion`, `submit`, `withdraw`                                                                                    | Tenancy, Files            |
-| **Files**         | Presign upload/download, FileAsset lifecycle, AV scan gating                                                                                       | `presignUpload`, `finalize`, `scanAsset`, `presignDownload`                                                                          | (storage adapter), Queue  |
-| **Reviews**       | Per-paper cycles, invitations, bids, COI, assignments, reviews, rebuttals                                                                          | `assign`, `invite`, `recordBid`, `declareCoi`, `releaseReviews`, `submitRebuttal`, `submitReview`, `coiCheck`                        | Papers, Tenancy           |
-| **Decisions**     | Editorial outcomes per paper cycle                                                                                                                 | `decide`, `bulkDecide`                                                                                                               | Reviews                   |
-| **Payments**      | Registrations (per accepted paper), fee-matrix resolution, student verification, provider orchestration, invoices, refunds, deadline discard sweep | `openRegistration`, `resolveAmountDue`, `initiatePayment`, `handleWebhook`, `reviewStudentVerification`, `runDiscardSweep`, `refund` | Tenancy, Files, Papers    |
-| **Notifications** | Templates, queue, send, log                                                                                                                        | `enqueue(templateKey, ctx)`, `resend`                                                                                                | (mailer adapter), Queue   |
-| **Dashboard**     | Read-optimized aggregates per role                                                                                                                 | `authorView`, `reviewerView`, `organizerView`                                                                                        | Papers, Reviews, Payments |
-| **Analytics**     | Counts, funnels, time-series                                                                                                                       | `conferenceStats`, `reviewProgress`                                                                                                  | Dashboard                 |
+| Module            | Responsibilities                                                                                                                                   | Key public methods                                                                                                                   | Depends on                       |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
+| **Auth**          | Session validation, guards, COI helpers                                                                                                            | `getUser(req)`, `requireRole()`                                                                                                      | Better Auth                      |
+| **Users**         | Profiles, account linking, claim co-author records                                                                                                 | `findById`, `claimAuthorship`                                                                                                        | Auth                             |
+| **Tenancy**       | Orgs, conferences, tracks, memberships, role grants, lifecycle transitions                                                                         | `createConference`, `transitionStatus`, `addMember`, `rolesFor(user, scope)`                                                         | Users                            |
+| **Papers**        | Submission CRUD, versions, authorships                                                                                                             | `createPaper`, `addVersion`, `submit`, `withdraw`                                                                                    | Tenancy, Files                   |
+| **Files**         | Presign upload/download, FileAsset lifecycle, AV scan gating                                                                                       | `presignUpload`, `finalize`, `scanAsset`, `presignDownload`                                                                          | (storage adapter), Queue         |
+| **Reviews**       | Per-paper cycles, invitations, bids, COI, assignments, reviews, rebuttals                                                                          | `assign`, `invite`, `recordBid`, `declareCoi`, `releaseReviews`, `submitRebuttal`, `submitReview`, `coiCheck`                        | Papers, Tenancy                  |
+| **Decisions**     | Editorial outcomes per paper cycle                                                                                                                 | `decide`, `bulkDecide`                                                                                                               | Reviews                          |
+| **Payments**      | Registrations (per accepted paper), fee-matrix resolution, student verification, provider orchestration, invoices, refunds, deadline discard sweep | `openRegistration`, `resolveAmountDue`, `initiatePayment`, `handleWebhook`, `reviewStudentVerification`, `runDiscardSweep`, `refund` | Tenancy, Files, Papers           |
+| **Notifications** | Transactional templates, queue, send, log                                                                                                          | `enqueue(templateKey, ctx)`, `resend`                                                                                                | (Zepto mailer adapter), Queue    |
+| **Outreach**      | Academic outreach campaigns, recipient import, template selection, confirmed sends via replaceable mailer adapters                                 | `createCampaign`, `importRecipients`, `selectTemplate`, `preview`, `send`                                                            | Tenancy, Queue, (mailer adapter) |
+| **Dashboard**     | Read-optimized aggregates per role                                                                                                                 | `authorView`, `reviewerView`, `organizerView`                                                                                        | Papers, Reviews, Payments        |
+| **Analytics**     | Counts, funnels, time-series                                                                                                                       | `conferenceStats`, `reviewProgress`                                                                                                  | Dashboard                        |
 
 **Eventing.** Domains emit in-process domain events (`PaperSubmitted`, `DecisionMade`, `PaymentCaptured`). `Notifications` and `Analytics` subscribe. This decouples side effects from core transactions and is the seam along which an event bus (e.g., Postgres LISTEN/NOTIFY → later a broker) can be introduced without touching emitters.
 
@@ -827,7 +871,7 @@ graph TD
 - **Pagination:** cursor-based (`?limit=&cursor=`) returning `{ data, nextCursor }`.
 - **Idempotency:** mutating endpoints accept `Idempotency-Key` (payments, submission, assignment, decision).
 - **Rate limiting:** Cloudflare edge (global/per-IP) + Redis app limits (per-user/per-endpoint). See §18.2.
-- **Webhooks:** dedicated raw-body routes for Razorpay/Zepto; HMAC verified before JSON parse; timestamp window against replay.
+- **Webhooks:** dedicated raw-body routes for Razorpay/Zepto/Resend outreach; HMAC/Svix verified before JSON parse; timestamp window against replay.
 
 ### 8.2 Representative endpoints
 
@@ -854,6 +898,10 @@ graph TD
 | `POST`  | `/conferences/:id/papers/:pid/decision`                          | `CHAIR`/`ORGANIZER`          | record decision                                               |
 | `POST`  | `/webhooks/razorpay`                                             | provider (raw body + signed) | payment truth                                                 |
 | `POST`  | `/webhooks/zeptomail`                                            | provider (signed)            | bounce/complaint                                              |
+| `POST`  | `/webhooks/resend/outreach`                                      | provider (Svix signed)       | outreach delivery events                                      |
+| `GET`   | `/conferences/:id/outreach/campaigns`                            | `ORGANIZER`                  | list academic outreach campaigns                              |
+| `POST`  | `/conferences/:id/outreach/campaigns`                            | `ORGANIZER`                  | create outreach campaign                                      |
+| `POST`  | `/conferences/:id/outreach/campaigns/:cid/send`                  | `ORGANIZER`                  | confirm and enqueue outreach send                             |
 | `GET`   | `/me/dashboard`                                                  | any                          | aggregated cross-conference view                              |
 
 ### 8.3 Example payloads
@@ -1119,6 +1167,16 @@ graph LR
 - **Provider message id:** persist Zepto's `message_id` in `notification_logs.providerMessageId` for delivery tracking and support.
 - **Bounces/complaints:** Zepto webhooks (`/webhooks/zeptomail`) mark `notification_logs.status=BOUNCED`; maintain a **suppression list**; alert on spike (deliverability is H1, not H2).
 
+### 11.4 Academic outreach (replaceable mailer adapters)
+
+Organizer-initiated academic outreach (TPC invitations, paper-submission invitations, general conference outreach) is a **separate bounded context** from transactional Messaging.
+
+- **Mailer seam:** worker `OutreachMailer` with replaceable adapters selected by `OUTREACH_MAIL_PROVIDER` (`log`, `ses`, `resend`). Transactional mail remains on Zoho Zepto Mail.
+- **Adapters:** `LogOutreachMailer` (dev/test); `SesOutreachMailer` (`@aws-sdk/client-sesv2`, `GetAccount` quota/rate); `ResendOutreachMailer` (`resend` SDK, configured send rate, idempotency keys, provider email id).
+- **Sender:** `OUTREACH_FROM_NAME`, `OUTREACH_FROM_EMAIL`, and `OUTREACH_REPLY_TO_EMAIL` come from backend environment only. Provider credentials never leave the API/worker.
+- **Flow:** organizer creates a campaign, uploads recipients, selects a template, previews personalization, then explicitly confirms send → `pg-boss` job `outreach.campaign.send` → worker checks adapter send limits → per-recipient `send` → recipient/campaign status.
+- **Safety:** duplicate emails, invalid addresses, `email_suppressions`, failed sends, and provider rate/quota limits are enforced. Resend delivery webhooks (`POST /webhooks/resend/outreach`) are Svix-verified, replay-protected by `svix-id`, correlated by provider message id plus outreach tags, and write only outreach tables plus the shared suppression list.
+
 ## 12. Dashboard Design
 
 ### Participant inbox (September 2026)
@@ -1168,6 +1226,7 @@ A single app with a **conference switcher**; the visible nav adapts to the user'
 - _Registrations & payments_ — list per accepted paper, paid/unpaid/at-risk status, reconcile, refund, export; configure `feeSchedule` (matrix, early-bird date, deadline); extend an individual registration's deadline.
 - _Student verification queue_ — pending student-tier registrations with the uploaded document; approve / request clarification / reject (reject triggers the additional-payment flow).
 - _Members & roles_ — grant/revoke roles within the conference.
+- _Academic outreach_ — campaign list, CSV/Excel recipient import, template selection, personalized preview, confirmed send through the configured mailer adapter.
 - _Email log_ — sent notifications, resend.
 
 **Actions:** create/configure conference, set fee matrix & dates, transition lifecycle, manage tracks, invite/assign reviewers, make decisions, notify, review student documents (approve/clarify/reject), refund, extend a registration deadline, grant roles, export CSV, resend emails.
@@ -1320,20 +1379,20 @@ The committed stack. Type-safe end-to-end; hardened for a money-handling interna
 
 ### 16.1 Committed stack
 
-| Concern                 | Choice                                          | Why                                                                                                                                |
-| ----------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Frontend                | **Next.js + TypeScript + Tailwind + shadcn/ui** | SSR dashboards; component ownership enables future white-label theming via CSS variables                                           |
-| Backend                 | **NestJS + TypeScript (modular monolith)**      | DI + module boundaries map 1:1 to the bounded contexts (§3, §7); keeps a clean UI→API→domain split and future API clients possible |
-| Database                | **PostgreSQL (managed, PITR)**                  | System of record; off-box; RLS enabled                                                                                             |
-| Cache / rate limit      | **Redis**                                       | Session cache, app cache, per-user/per-endpoint rate limits                                                                        |
-| Background jobs / queue | **pg-boss** (in Postgres)                       | Transactional enqueue; separate schema from OLTP tables                                                                            |
-| Edge / WAF              | **Cloudflare**                                  | WAF, edge rate limits, Turnstile, CDN (pairs with R2)                                                                              |
-| ORM                     | **Prisma**                                      | Migrations + DX; UUIDv7/ULID generated in app                                                                                      |
-| Auth                    | **Better Auth**                                 | Self-hosted; MFA for privileged roles; password reset + lockout                                                                    |
-| Object storage          | **Cloudflare R2** (MinIO locally)               | S3-compatible, zero egress                                                                                                         |
-| Payments                | **Razorpay** (primary), **Stripe** (future)     | Behind a `PaymentProvider` interface                                                                                               |
-| Email                   | **Zoho Zepto Mail**                             | Transactional mail behind a `Mailer` interface                                                                                     |
-| Deployment              | **Vercel (web) + Coolify/EC2 (api, worker)**    | `app.fresi.org` / `api.fresi.org`; hardened baseline (~$60–110/mo, §20); no Kubernetes                                             |
+| Concern                 | Choice                                                                     | Why                                                                                                                                |
+| ----------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend                | **Next.js + TypeScript + Tailwind + shadcn/ui**                            | SSR dashboards; component ownership enables future white-label theming via CSS variables                                           |
+| Backend                 | **NestJS + TypeScript (modular monolith)**                                 | DI + module boundaries map 1:1 to the bounded contexts (§3, §7); keeps a clean UI→API→domain split and future API clients possible |
+| Database                | **PostgreSQL (managed, PITR)**                                             | System of record; off-box; RLS enabled                                                                                             |
+| Cache / rate limit      | **Redis**                                                                  | Session cache, app cache, per-user/per-endpoint rate limits                                                                        |
+| Background jobs / queue | **pg-boss** (in Postgres)                                                  | Transactional enqueue; separate schema from OLTP tables                                                                            |
+| Edge / WAF              | **Cloudflare**                                                             | WAF, edge rate limits, Turnstile, CDN (pairs with R2)                                                                              |
+| ORM                     | **Prisma**                                                                 | Migrations + DX; UUIDv7/ULID generated in app                                                                                      |
+| Auth                    | **Better Auth**                                                            | Self-hosted; MFA for privileged roles; password reset + lockout                                                                    |
+| Object storage          | **Cloudflare R2** (MinIO locally)                                          | S3-compatible, zero egress                                                                                                         |
+| Payments                | **Razorpay** (primary), **Stripe** (future)                                | Behind a `PaymentProvider` interface                                                                                               |
+| Email                   | **Zoho Zepto Mail** (transactional) + **SES / Resend** (academic outreach) | Zepto behind the transactional `Mailer`; SES/Resend/log behind `OutreachMailer`                                                    |
+| Deployment              | **Vercel (web) + Coolify/EC2 (api, worker)**                               | `app.fresi.org` / `api.fresi.org`; hardened baseline (~$60–110/mo, §20); no Kubernetes                                             |
 
 ### 16.2 The glue layer (monorepo + end-to-end types)
 

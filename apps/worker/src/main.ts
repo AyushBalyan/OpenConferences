@@ -10,6 +10,7 @@ import {
   PAYMENT_RECONCILE_JOB_NAME,
   NOTIFICATION_SEND_JOB_NAME,
   REMINDER_SWEEP_JOB_NAME,
+  OUTREACH_SEND_JOB_NAME,
   emailJobPayloadSchema,
   fileScanJobPayloadSchema,
   invoiceGenerateJobPayloadSchema,
@@ -17,12 +18,14 @@ import {
   paymentReconcileJobPayloadSchema,
   notificationJobPayloadSchema,
   reminderSweepJobPayloadSchema,
+  outreachSendJobPayloadSchema,
 } from '@openconferences/schemas';
 import { processFileScanJob } from './scan.js';
 import { processInvoiceJob } from './invoice.js';
 import { processDiscardSweepJob } from './discard-sweep.js';
 import { processPaymentReconcileJob } from './payment-reconcile.js';
 import { processNotificationJob } from './notification.js';
+import { processOutreachCampaignJob } from './outreach.js';
 import { processReminderSweepJob } from './reminder-sweep.js';
 
 export const NOOP_JOB_NAME = 'noop.smoke';
@@ -58,6 +61,7 @@ async function startWorker(): Promise<void> {
   await boss.createQueue(INVOICE_GENERATE_JOB_NAME);
   await boss.createQueue(DISCARD_SWEEP_JOB_NAME);
   await boss.createQueue(PAYMENT_RECONCILE_JOB_NAME);
+  await boss.createQueue(OUTREACH_SEND_JOB_NAME);
 
   await boss.work(NOOP_JOB_NAME, async (jobs) => {
     for (const job of jobs) {
@@ -200,6 +204,27 @@ async function startWorker(): Promise<void> {
         logger.info({ jobId: job.id, ...result }, 'Payment reconcile completed');
       } catch (err) {
         logger.error({ jobId: job.id, err }, 'Payment reconcile job failed');
+        throw err;
+      }
+    }
+  });
+
+  await boss.work(OUTREACH_SEND_JOB_NAME, async (jobs) => {
+    for (const job of jobs) {
+      const parsed = outreachSendJobPayloadSchema.safeParse(job.data);
+      if (!parsed.success) {
+        logger.error({ jobId: job.id, err: parsed.error }, 'Invalid outreach send payload');
+        continue;
+      }
+
+      try {
+        await processOutreachCampaignJob(parsed.data);
+        logger.info(
+          { jobId: job.id, campaignId: parsed.data.campaignId },
+          'Outreach campaign send completed',
+        );
+      } catch (err) {
+        logger.error({ jobId: job.id, err }, 'Outreach campaign send failed');
         throw err;
       }
     }

@@ -137,12 +137,13 @@ describe('RLS catalog and role policies', () => {
       WHERE n.nspname = 'public'
         AND c.relname IN (
           'organizations','conferences','papers','users','accounts','sessions',
-          'audit_logs','notification_logs','_prisma_migrations'
+          'audit_logs','notification_logs','outreach_campaigns','outreach_recipients',
+          'outreach_templates','outreach_webhook_events','_prisma_migrations'
         )
       ORDER BY c.relname
     `;
 
-    expect(rows.length).toBeGreaterThanOrEqual(9);
+    expect(rows.length).toBeGreaterThanOrEqual(13);
     for (const row of rows) {
       expect(row.relrowsecurity, row.relname).toBe(true);
       expect(row.relforcerowsecurity, row.relname).toBe(true);

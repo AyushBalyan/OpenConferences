@@ -1,4 +1,17 @@
-import type { ReviewRoundDto } from './review-types';
+import type { DecisionDto, ReviewRoundDto } from './review-types';
+
+/** Historical outcomes must not decide a paper's newly opened review cycle. */
+export function currentCycleDecisions<T extends Pick<DecisionDto, 'paperId' | 'roundId'>>(
+  papers: { id: string; cycleId: string | null }[],
+  decisions: T[],
+): Map<string, T> {
+  const cycles = new Map(papers.map((paper) => [paper.id, paper.cycleId]));
+  return new Map(
+    decisions
+      .filter((decision) => cycles.get(decision.paperId) === decision.roundId)
+      .map((decision) => [decision.paperId, decision]),
+  );
+}
 
 const OPEN_STAGES = new Set(['IN_REVIEW', 'FEEDBACK_RELEASED', 'SUBMITTED']);
 

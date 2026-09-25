@@ -93,6 +93,22 @@ const baseEnvSchema = z.object({
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
   REGISTRATION_ADDITIONAL_GRACE_DAYS: z.coerce.number().int().nonnegative().default(7),
   PAYMENT_WEBHOOK_REPLAY_WINDOW_SECONDS: z.coerce.number().int().positive().default(300),
+  SES_REGION: z.string().default('us-east-1'),
+  SES_ACCESS_KEY_ID: z.string().optional(),
+  SES_SECRET_ACCESS_KEY: z.string().optional(),
+  OUTREACH_SES_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  OUTREACH_MAIL_PROVIDER: z.enum(['log', 'ses', 'resend']).optional(),
+  OUTREACH_FROM_NAME: z.string().min(1).default('OpenConferences Outreach'),
+  OUTREACH_FROM_EMAIL: z.string().email().default('outreach@example.com'),
+  OUTREACH_REPLY_TO_EMAIL: z.string().email().optional(),
+  OUTREACH_SES_CONFIGURATION_SET: z.string().optional(),
+  OUTREACH_MAX_RECIPIENTS: z.coerce.number().int().positive().max(500).default(500),
+  OUTREACH_RESEND_API_KEY: z.string().optional(),
+  OUTREACH_RESEND_WEBHOOK_SECRET: z.string().optional(),
+  OUTREACH_RESEND_RATE_PER_SECOND: z.coerce.number().positive().max(100).default(10),
 });
 
 export type AppConfig = {
@@ -147,6 +163,24 @@ export type AppConfig = {
   billing: {
     additionalGraceDays: number;
     webhookReplayWindowSeconds: number;
+  };
+  outreach: {
+    provider: 'log' | 'ses' | 'resend';
+    fromName: string;
+    fromEmail: string;
+    replyToEmail: string;
+    maxRecipients: number;
+    ses: {
+      region: string;
+      accessKeyId?: string;
+      secretAccessKey?: string;
+      configurationSet?: string;
+    };
+    resend: {
+      apiKey?: string;
+      webhookSecret?: string;
+      ratePerSecond: number;
+    };
   };
   isDev: boolean;
   isTest: boolean;
@@ -283,6 +317,7 @@ function parseEnv(env: Record<string, string | undefined> = process.env): AppCon
       additionalGraceDays: data.REGISTRATION_ADDITIONAL_GRACE_DAYS,
       webhookReplayWindowSeconds: data.PAYMENT_WEBHOOK_REPLAY_WINDOW_SECONDS,
     },
+    outreach: buildOutreachConfig(data),
     isDev: data.NODE_ENV === 'development',
     isTest: data.NODE_ENV === 'test',
     isProd: data.NODE_ENV === 'production',
@@ -297,6 +332,44 @@ export function getConfig(env?: Record<string, string | undefined>): AppConfig {
     cachedConfig = parseEnv();
   }
   return cachedConfig;
+}
+
+function resolveOutreachProvider(data: z.infer<typeof baseEnvSchema>): 'log' | 'ses' | 'resend' {
+  if (data.OUTREACH_MAIL_PROVIDER) {
+    return data.OUTREACH_MAIL_PROVIDER;
+  }
+  if (data.OUTREACH_SES_ENABLED || (data.SES_ACCESS_KEY_ID && data.SES_SECRET_ACCESS_KEY)) {
+    return 'ses';
+  }
+  return 'log';
+}
+
+function buildOutreachConfig(data: z.infer<typeof baseEnvSchema>): AppConfig['outreach'] {
+  const provider = resolveOutreachProvider(data);
+  if (provider === 'resend' && !data.OUTREACH_RESEND_API_KEY?.trim()) {
+    throw new Error(
+      'Invalid environment configuration:\n  - OUTREACH_RESEND_API_KEY: required when OUTREACH_MAIL_PROVIDER=resend',
+    );
+  }
+
+  return {
+    provider,
+    fromName: data.OUTREACH_FROM_NAME,
+    fromEmail: data.OUTREACH_FROM_EMAIL,
+    replyToEmail: data.OUTREACH_REPLY_TO_EMAIL ?? data.OUTREACH_FROM_EMAIL,
+    maxRecipients: data.OUTREACH_MAX_RECIPIENTS,
+    ses: {
+      region: data.SES_REGION,
+      accessKeyId: data.SES_ACCESS_KEY_ID,
+      secretAccessKey: data.SES_SECRET_ACCESS_KEY,
+      configurationSet: data.OUTREACH_SES_CONFIGURATION_SET,
+    },
+    resend: {
+      apiKey: data.OUTREACH_RESEND_API_KEY,
+      webhookSecret: data.OUTREACH_RESEND_WEBHOOK_SECRET,
+      ratePerSecond: data.OUTREACH_RESEND_RATE_PER_SECOND,
+    },
+  };
 }
 
 export function resetConfig(): void {

@@ -152,6 +152,10 @@ export const NAV_SECTIONS = {
     label: 'Email log',
     href: (conferenceId: string) => `/dashboard/conferences/${conferenceId}/notifications`,
   },
+  outreach: {
+    label: 'Outreach',
+    href: (conferenceId: string) => `/dashboard/conferences/${conferenceId}/outreach`,
+  },
   emailTemplates: {
     label: 'Email templates',
     href: (conferenceId: string) =>
@@ -181,6 +185,7 @@ export const NAV_ITEM_ICONS: Record<string, LucideIcon> = {
   Settings: Settings,
   Tracks: Layers,
   Members: Users,
+  Outreach: Mail,
   'Email log': Mail,
   'Email templates': Mail,
   'Audit log': ScrollText,
@@ -221,6 +226,7 @@ export const BREADCRUMB_SEGMENT_LABELS: Record<string, string> = {
   settings: 'Settings',
   tracks: 'Tracks',
   members: 'Members',
+  outreach: 'Outreach',
   notifications: 'Email log',
   templates: 'Email templates',
   audit: 'Audit log',
@@ -277,6 +283,7 @@ export function navGroupsForRoles(roles: string[]): NavGroupConfig[] {
         NAV_SECTIONS.settings,
         NAV_SECTIONS.tracks,
         NAV_SECTIONS.members,
+        NAV_SECTIONS.outreach,
         NAV_SECTIONS.emailLog,
         NAV_SECTIONS.emailTemplates,
         NAV_SECTIONS.auditLog,
@@ -520,6 +527,11 @@ export const SECTION_PAGE_META = {
     item: NAV_SECTIONS.registrations,
     title: 'Registrations',
     description: 'Manage author registrations and student verification.',
+  },
+  outreach: {
+    item: NAV_SECTIONS.outreach,
+    title: 'Academic outreach',
+    description: 'Invite professors, researchers, and potential authors with personalized emails.',
   },
   coiReviewer: {
     item: NAV_SECTIONS.coiReviewer,

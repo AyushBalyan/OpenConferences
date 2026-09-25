@@ -628,6 +628,62 @@ Phase 0 (queue), Phase 1 (interface); consumed by 1,3,4,6,8.
 
 ---
 
+## Phase 9b — Academic Outreach (replaceable mailers)
+
+**Status:** Approved additive module. Transactional Zepto Mail is unchanged.
+
+**Objective.** Give conference organizers a conference-scoped campaign workflow to email professors/researchers (initially TPC invitations; later paper-submission invitations and general outreach) through a replaceable outreach mailer (`log`, Amazon SES, or Resend).
+
+**Business value.** Outreach is a distinct organizer workflow from transactional notifications. A dedicated provider identity/domain keeps deliverability and sending limits isolated from auth/decision mail.
+
+**Modules.** `Outreach` (`OutreachCampaign`, `OutreachRecipient`, `OutreachTemplate`, `OutreachWebhookEvent`), `outreach.campaign.send` worker job, replaceable `OutreachMailer` adapters.
+
+### Database tasks
+
+- Tables: `outreach_templates`, `outreach_campaigns`, `outreach_recipients` with `organizationId`/`conferenceId`, campaign/recipient status enums, unique `(campaignId, email)`, RLS + worker policies.
+- Seed platform templates: TPC Invitation, Paper Submission Invitation, General Conference Outreach.
+
+### Backend tasks
+
+- Campaign CRUD, recipient import with server-side validation/duplicates, template selection with subject/body snapshot, personalized preview, explicit confirm-before-send.
+- Enqueue `outreach.campaign.send`; copy sender name/from/reply-to from env at send time; audit create/send.
+
+### Worker / mailer tasks
+
+- `OutreachMailer` adapters: log (default/dev), SES (`GetAccount` quota/rate), Resend (configured rate, idempotent `emails.send`, `data.id` as provider message id). Skip `email_suppressions`. Finalize campaign counts from recipient rows.
+
+### Webhook tasks
+
+- Verified `POST /webhooks/resend/outreach` (Svix); replay-protect with `svix-id`; update recipient delivery/bounce/complaint/suppression; upsert shared `email_suppressions`; recompute campaign rollup without touching transactional `notification_logs`.
+
+### Frontend tasks
+
+- Organizer nav item; campaign list; wizard: Create → Upload CSV/Excel → Select Template → Preview → Confirm send.
+
+### Security tasks
+
+- `@RequireRole('ORGANIZER', 'ORG_ADMIN', 'PLATFORM_ADMIN')`; MFA via existing membership guard; provider credentials never in frontend; HTML-escape merge fields; webhook signatures required outside test.
+
+### Exit criteria
+
+- An organizer can import a spreadsheet, preview a personalized TPC invitation, confirm, and send through the configured adapter (SES, Resend, or log). Invalid/duplicate rows are shown. Failed sends are recorded. Resend delivery events update outreach state and suppressions. Transactional Zepto path is untouched.
+
+### Estimated complexity
+
+**M** (~1–1.5 weeks).
+
+### Dependencies
+
+Phases 1–2 (auth/RBAC), Phase 0 (queue/worker). Does not replace Phase 9.
+
+### Risks
+
+- _Sending marketing mail from the transactional identity_ — isolated outreach provider/env/domain.
+- _Quota exhaustion mid-campaign_ — adapter send limits / provider errors; mark remainder failed/partial.
+- _Provider webhook replay_ — unique `svix-id` and idempotent recipient updates.
+
+---
+
 ## Phase 10 — Dashboards, Search & Analytics
 
 **Status:** 🟡 **In progress** (2026-06-30) — role-based dashboard declutter slice shipped; analytics/search/aggregation deferred.
