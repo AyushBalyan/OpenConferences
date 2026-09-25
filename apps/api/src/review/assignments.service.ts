@@ -210,6 +210,7 @@ export class AssignmentsService {
         await this.notifications.publishReviewerAssigned({
           to: outcome.reviewerEmail,
           reviewerName: outcome.reviewerName,
+          conferenceName: conference.name,
           conferenceId,
           organizationId: conference.organizationId,
           paperTitle: outcome.paperTitle,
@@ -339,6 +340,7 @@ export class AssignmentsService {
     await this.notifications.publishReviewerAssigned({
       to: outcome.reviewerEmail,
       reviewerName: outcome.reviewerName,
+      conferenceName: conference.name,
       conferenceId,
       organizationId: conference.organizationId,
       paperTitle: outcome.paperTitle,

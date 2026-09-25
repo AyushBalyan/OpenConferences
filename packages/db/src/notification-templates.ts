@@ -154,13 +154,21 @@ ${noteHtml}
 </html>`;
 }
 
+function toPlainText(value: string): string {
+  return value.replace(/<a href="([^"]+)">([^<]*)<\/a>/g, '$2 <$1>').replace(/<\/?strong>/g, '');
+}
+
 function plainText(parts: LayoutOptions): string {
   const brand = parts.brand === undefined ? CONFERENCE_BRAND : parts.brand;
   const lines: string[] = [];
   if (brand) {
     lines.push(brand, '');
   }
-  lines.push(parts.headline, '', ...parts.paragraphs.flatMap((paragraph) => [paragraph, '']));
+  lines.push(
+    parts.headline,
+    '',
+    ...parts.paragraphs.flatMap((paragraph) => [toPlainText(paragraph), '']),
+  );
   if (parts.details?.length) {
     for (const row of parts.details) {
       lines.push(`${row.label}: ${row.value}`);
@@ -168,7 +176,7 @@ function plainText(parts: LayoutOptions): string {
     lines.push('');
   }
   for (const extra of parts.extraParagraphs ?? []) {
-    lines.push(extra, '');
+    lines.push(toPlainText(extra), '');
   }
   if (parts.steps?.length) {
     lines.push('How to accept');
@@ -309,13 +317,13 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
     subject: 'Reviewer invitation for {{conferenceName}}',
     headline: 'Reviewer invitation',
     paragraphs: [
-      'Dear colleague,',
+      'Dear Professor,',
       'You have been invited to serve as a reviewer for {{conferenceName}}. The program organizers would value your expertise in evaluating submissions for this conference.',
     ],
     steps: [
       'Open the invitation link below.',
       'Sign in with the same email address that received this message. If you are new, you will be asked to choose a name and password.',
-      'After you accept, you can bid on papers and declare any conflicts of interest.',
+      'After you accept, the dashboard may appear empty at first. Please wait until a paper is assigned to you.',
     ],
     details: [{ label: 'Expires', value: '{{expiresAt}}' }],
     cta: { label: 'Accept invitation', url: '{{signupUrl}}' },
@@ -328,10 +336,11 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
     headline: 'Dear Prof. {{reviewerName}}',
     paragraphs: [
       'Thank you for serving as a member of the Technical Programme Committee of the conference {{conferenceName}}.',
-      'We would be grateful if you could review the assigned conference paper "{{paperTitle}}".',
-      'You are kindly requested to complete the review and submit your comments/recommendations within 7 days of receiving this email.',
+      'We would be grateful if you could review the assigned conference paper "<strong>{{paperTitle}}</strong>".',
+      'You are kindly requested to complete the review and submit your comments/recommendations within <strong>7 days</strong> of receiving this email.',
       'Your valuable feedback will help us ensure the quality of the conference programme and assist the authors in improving their work.',
       'Thank you for your time and valuable contribution to the conference.',
+      'You can access the review portal by going on the given link: <a href="https://app.fresi.org/me/dashboard">View Review Portal</a>',
     ],
     extraParagraphs: ['With regards,', 'Organizing Committee', '({{conferenceName}})'],
     variables: ['reviewerName', 'paperTitle', 'conferenceName'],

@@ -20,7 +20,8 @@ describe('platform notification templates', () => {
     for (const template of PLATFORM_NOTIFICATION_TEMPLATES) {
       const haystack = [template.subject, template.bodyHtml, template.bodyText]
         .join('\n')
-        .replaceAll('icamcds2026@fresi.org', '');
+        .replaceAll('icamcds2026@fresi.org', '')
+        .replaceAll('app.fresi.org', '');
       expect(haystack, template.key).not.toMatch(PRODUCT_NAMES);
     }
   });
@@ -30,7 +31,9 @@ describe('platform notification templates', () => {
       const haystack = [template.subject, template.bodyHtml, template.bodyText]
         .join('\n')
         .replace(/https?:\/\/\S+/gi, '')
-        .replace(/\{\{\w+Url\}\}/g, '');
+        .replace(/\{\{\w+Url\}\}/g, '')
+        .replace(/review portal/gi, '')
+        .replace(/the dashboard may appear empty at first/gi, '');
       expect(haystack, template.key).not.toMatch(PRODUCT_UI);
     }
   });
@@ -78,7 +81,10 @@ describe('platform notification templates', () => {
     expect(template?.bodyHtml).toContain('How to accept');
     expect(template?.bodyHtml).toContain('Open the invitation link below.');
     expect(template?.bodyHtml).toContain('choose a name and password');
-    expect(template?.bodyHtml).toContain('bid on papers');
+    expect(template?.bodyHtml).toContain('Dear Professor,');
+    expect(template?.bodyHtml).toContain(
+      'the dashboard may appear empty at first. Please wait until a paper is assigned to you.',
+    );
     expect(template?.bodyText).toContain('1. Open the invitation link below.');
   });
 

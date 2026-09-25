@@ -142,6 +142,7 @@ export class NotificationPublisher {
       to: payload.to,
       context: {
         reviewerName: payload.reviewerName,
+        conferenceName: payload.conferenceName,
         paperTitle: payload.paperTitle,
         roundNumber: payload.roundNumber,
         dueAt: payload.dueAt,

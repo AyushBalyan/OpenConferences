@@ -4,7 +4,7 @@
   "subject": "Reviewer invitation for {{conferenceName}}",
   "headline": "Reviewer invitation",
   "paragraphs": [
-    "Dear colleague,",
+    "Dear Professor,",
     "You have been invited to serve as a reviewer for {{conferenceName}}. The program organizers would value your expertise in evaluating submissions for this conference."
   ],
   "details": [{ "label": "Expires", "value": "{{expiresAt}}" }],
