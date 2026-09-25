@@ -1,31 +1,21 @@
 import type { ReviewRoundDto } from './review-types';
 
-/** Prefer the highest-numbered round that is still open for chair/reviewer workflows. */
+const OPEN_STAGES = new Set(['IN_REVIEW', 'FEEDBACK_RELEASED', 'SUBMITTED']);
+
+/** Prefer the highest-numbered cycle that still has no final outcome. */
 export function resolveActiveReviewRound(
-  rounds: Pick<ReviewRoundDto, 'id' | 'roundNumber' | 'status'>[],
-): Pick<ReviewRoundDto, 'id' | 'roundNumber' | 'status'> | undefined {
+  rounds: Pick<ReviewRoundDto, 'id' | 'roundNumber' | 'reviewStage'>[],
+): Pick<ReviewRoundDto, 'id' | 'roundNumber' | 'reviewStage'> | undefined {
   if (rounds.length === 0) return undefined;
 
-  const openRounds = rounds.filter((round) => round.status !== 'CLOSED');
-  if (openRounds.length > 0) {
-    return openRounds.reduce((best, round) =>
-      round.roundNumber > best.roundNumber ? round : best,
-    );
-  }
-
-  return rounds.reduce((best, round) => (round.roundNumber > best.roundNumber ? round : best));
+  const openRounds = rounds.filter((round) => OPEN_STAGES.has(round.reviewStage));
+  const pool = openRounds.length > 0 ? openRounds : rounds;
+  return pool.reduce((best, round) => (round.roundNumber > best.roundNumber ? round : best));
 }
 
-/** Decisions happen during rebuttal/deciding; otherwise fall back to the active round. */
+/** A paper can be decided while it is in review or after feedback is released. */
 export function resolveDecisionRound(
-  rounds: Pick<ReviewRoundDto, 'id' | 'roundNumber' | 'status'>[],
-): Pick<ReviewRoundDto, 'id' | 'roundNumber' | 'status'> | undefined {
-  if (rounds.length === 0) return undefined;
-
-  const deciding = rounds.filter((r) => r.status === 'REBUTTAL' || r.status === 'DECIDING');
-  if (deciding.length > 0) {
-    return deciding.reduce((best, round) => (round.roundNumber > best.roundNumber ? round : best));
-  }
-
+  rounds: Pick<ReviewRoundDto, 'id' | 'roundNumber' | 'reviewStage'>[],
+): Pick<ReviewRoundDto, 'id' | 'roundNumber' | 'reviewStage'> | undefined {
   return resolveActiveReviewRound(rounds);
 }

@@ -370,19 +370,30 @@ describe('Reviewer management & assignment integration', () => {
     await app?.close();
   });
 
-  it('opens review round 1 (chair, MFA-gated)', async () => {
-    const res = await request(app.getHttpServer())
-      .post(`/api/v1/conferences/${confId}/rounds`)
-      .set('Cookie', chairCookie)
-      .send({ roundNumber: 1 });
+  it('creates cycle 1 for a paper when the chair assigns a reviewer', async () => {
+    roundId = generateId();
+    await withTenantContext({}, async (tx) => {
+      await tx.reviewRound.create({
+        data: {
+          id: roundId,
+          organizationId: orgId,
+          conferenceId: confId,
+          paperId,
+          roundNumber: 1,
+        },
+      });
+    });
 
-    expect(res.status).toBe(201);
-    expect(res.body.roundNumber).toBe(1);
-    expect(res.body.status).toBe('OPEN');
-    roundId = res.body.id as string;
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/rounds`)
+      .set('Cookie', chairCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].paperId).toBe(paperId);
+    expect(res.body.data[0].reviewStage).toBe('IN_REVIEW');
   });
 
-  it('opens review round as organizer without CHAIR role', async () => {
+  it('does not expose a conference-wide round creation endpoint', async () => {
     const organizerEmail = `organizer-only-${Date.now()}@example.com`;
     const user = await createUserWithSession(app, organizerEmail, 'Organizer Only');
 
@@ -409,8 +420,7 @@ describe('Reviewer management & assignment integration', () => {
       .set('Cookie', user.cookie)
       .send({ roundNumber: 1 });
 
-    expect(res.status).toBe(201);
-    expect(res.body.roundNumber).toBe(1);
+    expect(res.status).toBe(404);
   });
 
   it('opens review round as org admin inherited from organization membership', async () => {
@@ -439,8 +449,7 @@ describe('Reviewer management & assignment integration', () => {
       .set('Cookie', user.cookie)
       .send({ roundNumber: 2 });
 
-    expect(res.status).toBe(201);
-    expect(res.body.roundNumber).toBe(2);
+    expect(res.status).toBe(404);
   });
 
   it('rejects round creation without MFA for chair role', async () => {
@@ -465,7 +474,7 @@ describe('Reviewer management & assignment integration', () => {
       .set('Cookie', user.cookie)
       .send({ roundNumber: 3 });
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
   });
 
   it('issues reviewer invitation and sends email', async () => {
@@ -675,17 +684,13 @@ describe('Reviewer management & assignment integration', () => {
     expect(res.body.detail).toContain('pending');
   });
 
-  it('hides author identities in DOUBLE blinding paper pool', async () => {
+  it('blocks reviewer paper pool while bidding is disabled', async () => {
     const res = await request(app.getHttpServer())
       .get(`/api/v1/conferences/${confId}/review/paper-pool`)
       .set('Cookie', reviewerCookie);
 
-    expect(res.status).toBe(200);
-    expect(res.body.blindingMode).toBe('DOUBLE');
-    expect(res.body.mode).toBe('reviewer');
-    const item = res.body.data.find((p: { id: string }) => p.id === paperId);
-    expect(item).toBeTruthy();
-    expect(item.authorships).toBeUndefined();
+    expect(res.status).toBe(403);
+    expect(res.body.detail).toMatch(/bidding is disabled/i);
   });
 
   it('allows chair to view paper pool in oversight mode', async () => {
@@ -700,40 +705,39 @@ describe('Reviewer management & assignment integration', () => {
     expect(item?.authorships?.length).toBeGreaterThan(0);
   });
 
-  it('shows author identities in SINGLE blinding paper pool', async () => {
+  it('blocks reviewer paper pool in single blinding while bidding is disabled', async () => {
     const res = await request(app.getHttpServer())
       .get(`/api/v1/conferences/${confSingleId}/review/paper-pool`)
       .set('Cookie', reviewerCookie);
 
-    expect(res.status).toBe(200);
-    expect(res.body.blindingMode).toBe('SINGLE');
-    expect(res.body.data[0]?.authorships?.length).toBeGreaterThan(0);
+    expect(res.status).toBe(403);
+    expect(res.body.detail).toMatch(/bidding is disabled/i);
   });
 
-  it('allows reviewer to bid on a paper', async () => {
+  it('rejects reviewer bids while bidding is disabled', async () => {
     const res = await request(app.getHttpServer())
       .put(`/api/v1/conferences/${confId}/papers/${paperId}/bids`)
       .set('Cookie', reviewerCookie)
       .send({ value: 'YES' });
 
-    expect(res.status).toBe(200);
-    expect(res.body.value).toBe('YES');
+    expect(res.status).toBe(403);
+    expect(res.body.detail).toMatch(/bidding is disabled/i);
   });
 
-  it('lists submitted papers for COI declaration dropdown (reviewer view)', async () => {
+  it('rejects reviewer COI declaration targets while COI is disabled', async () => {
     const res = await request(app.getHttpServer())
       .get(`/api/v1/conferences/${confId}/conflicts-of-interest/declare-targets`)
       .set('Cookie', reviewerCookie);
 
-    expect(res.status).toBe(200);
-    expect(res.body.data.some((paper: { id: string }) => paper.id === paperId)).toBe(true);
+    expect(res.status).toBe(403);
+    expect(res.body.detail).toMatch(/conflict declaration is disabled/i);
   });
 
   it('blocks assignment when reviewer is paper author (COI authorship)', async () => {
     const res = await request(app.getHttpServer())
       .post(`/api/v1/conferences/${confId}/papers/${authorPaperId}/assignments`)
       .set('Cookie', chairCookie)
-      .send({ roundId, reviewerUserId: authorReviewerUserId });
+      .send({ reviewerUserId: authorReviewerUserId });
 
     expect(res.status).toBe(409);
     expect(res.body.detail).toMatch(/author/i);
@@ -742,8 +746,13 @@ describe('Reviewer management & assignment integration', () => {
   it('blocks assignment when declared COI exists', async () => {
     const declare = await request(app.getHttpServer())
       .post(`/api/v1/conferences/${confId}/conflicts-of-interest`)
-      .set('Cookie', reviewerCookie)
-      .send({ paperId, type: 'PERSONAL', note: 'Collaborated last year' });
+      .set('Cookie', chairCookie)
+      .send({
+        paperId,
+        userId: reviewerUserId,
+        type: 'PERSONAL',
+        note: 'Collaborated last year',
+      });
 
     expect(declare.status).toBe(201);
 
@@ -757,7 +766,7 @@ describe('Reviewer management & assignment integration', () => {
 
     await request(app.getHttpServer())
       .delete(`/api/v1/conferences/${confId}/conflicts-of-interest/${declare.body.id}`)
-      .set('Cookie', reviewerCookie);
+      .set('Cookie', chairCookie);
   });
 
   it('assigns reviewer when COI checks pass and sends email', async () => {
@@ -891,15 +900,23 @@ describe('Reviewer management & assignment integration', () => {
       });
     });
 
-    await request(app.getHttpServer())
-      .put(`/api/v1/conferences/${confId}/papers/${secondPaperId}/bids`)
-      .set('Cookie', reviewerCookie)
-      .send({ value: 'CONFLICT' });
+    await withTenantContext({}, async (tx) => {
+      await tx.bid.create({
+        data: {
+          id: generateId(),
+          organizationId: orgId,
+          conferenceId: confId,
+          paperId: secondPaperId,
+          reviewerUserId,
+          value: 'CONFLICT',
+        },
+      });
+    });
 
     const res = await request(app.getHttpServer())
       .post(`/api/v1/conferences/${confId}/papers/${secondPaperId}/assignments`)
       .set('Cookie', chairCookie)
-      .send({ roundId, reviewerUserId: reviewerUserId });
+      .send({ reviewerUserId: reviewerUserId });
 
     expect(res.status).toBe(409);
     expect(res.body.detail).toMatch(/CONFLICT/i);
@@ -911,15 +928,19 @@ describe('Reviewer management & assignment integration', () => {
       .set('Cookie', chairCookie);
 
     const current = round.body.data[0];
-    expect(current.status).toBe('OPEN');
+    expect(current.reviewStage).toBe('IN_REVIEW');
 
     const update = await request(app.getHttpServer())
       .patch(`/api/v1/conferences/${confId}/rounds/${current.id}`)
       .set('Cookie', chairCookie)
-      .send({ status: 'REVIEWING', version: current.version });
+      .send({
+        rebuttalDueAt: new Date(Date.now() + 86_400_000).toISOString(),
+        version: current.version,
+      });
 
     expect(update.status).toBe(200);
-    expect(update.body.status).toBe('REVIEWING');
+    expect(update.body.reviewStage).toBe('IN_REVIEW');
+    expect(update.body.rebuttalDueAt).toBeTruthy();
   });
 
   it('returns 404 for cross-conference assignment list (IDOR)', async () => {
@@ -1030,13 +1051,13 @@ describe('Reviewer management & assignment integration', () => {
       const round = rounds.body.data[0];
 
       const release = await request(app.getHttpServer())
-        .post(`/api/v1/conferences/${confId}/rounds/${round.id}/reviews/release`)
+        .post(`/api/v1/conferences/${confId}/papers/${paperId}/cycles/${round.id}/reviews/release`)
         .set('Cookie', chairCookie)
         .send({ version: round.version });
 
       expect(release.status).toBe(200);
       expect(release.body.releasedCount).toBeGreaterThan(0);
-      expect(release.body.round.status).toBe('REBUTTAL');
+      expect(release.body.round.reviewStage).toBe('FEEDBACK_RELEASED');
       expect(lastTestNotification?.templateKey).toBe('review.released');
 
       const authorView = await request(app.getHttpServer())
@@ -1350,28 +1371,23 @@ describe('Reviewer management & assignment integration', () => {
         });
       });
 
-      const roundRes = await request(app.getHttpServer())
-        .post(`/api/v1/conferences/${confBId}/rounds`)
-        .set('Cookie', chairCookie)
-        .send({ roundNumber: 10 });
-
-      expect(roundRes.status).toBe(201);
-      revisionRoundId = roundRes.body.id;
-
-      await request(app.getHttpServer())
-        .patch(`/api/v1/conferences/${confBId}/rounds/${revisionRoundId}`)
-        .set('Cookie', chairCookie)
-        .send({ status: 'REVIEWING', version: roundRes.body.version });
+      revisionRoundId = generateId();
+      await withTenantContext({}, async (tx) => {
+        await tx.reviewRound.create({
+          data: {
+            id: revisionRoundId,
+            organizationId: orgId,
+            conferenceId: confBId,
+            paperId: revisionPaperId,
+            roundNumber: 1,
+          },
+        });
+      });
 
       await request(app.getHttpServer())
         .post(`/api/v1/conferences/${confBId}/papers/${revisionPaperId}/assignments`)
         .set('Cookie', chairCookie)
         .send({ roundId: revisionRoundId, reviewerUserId });
-
-      await request(app.getHttpServer())
-        .patch(`/api/v1/conferences/${confBId}/rounds/${revisionRoundId}`)
-        .set('Cookie', chairCookie)
-        .send({ status: 'REBUTTAL', version: 1 });
 
       const paper = await prisma.paper.findUnique({ where: { id: revisionPaperId } });
       expect(paper).toBeTruthy();
@@ -1389,11 +1405,10 @@ describe('Reviewer management & assignment integration', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.decision.outcome).toBe('MINOR_REVISION');
-      expect(res.body.nextRound).toBeTruthy();
-      expect(res.body.nextRound.roundNumber).toBe(11);
+      expect(res.body.nextRound).toBeNull();
 
-      const closedRound = await prisma.reviewRound.findUnique({ where: { id: revisionRoundId } });
-      expect(closedRound?.status).toBe('CLOSED');
+      const cycles = await prisma.reviewRound.findMany({ where: { paperId: revisionPaperId } });
+      expect(cycles).toHaveLength(1);
 
       const updatedPaper = await prisma.paper.findUnique({ where: { id: revisionPaperId } });
       expect(updatedPaper?.status).toBe('UNDER_REVIEW');
@@ -1433,23 +1448,28 @@ describe('Reviewer management & assignment integration', () => {
         });
       });
 
-      const roundRes = await request(app.getHttpServer())
-        .post(`/api/v1/conferences/${confBId}/rounds`)
-        .set('Cookie', chairCookie)
-        .send({ roundNumber: 20 });
-
-      expect(roundRes.status).toBe(201);
-      bulkRoundId = roundRes.body.id;
-
-      await request(app.getHttpServer())
-        .patch(`/api/v1/conferences/${confBId}/rounds/${bulkRoundId}`)
-        .set('Cookie', chairCookie)
-        .send({ status: 'REVIEWING', version: roundRes.body.version });
-
-      await request(app.getHttpServer())
-        .patch(`/api/v1/conferences/${confBId}/rounds/${bulkRoundId}`)
-        .set('Cookie', chairCookie)
-        .send({ status: 'REBUTTAL', version: 1 });
+      bulkRoundId = generateId();
+      const otherCycleId = generateId();
+      await withTenantContext({}, async (tx) => {
+        await tx.reviewRound.createMany({
+          data: [
+            {
+              id: bulkRoundId,
+              organizationId: orgId,
+              conferenceId: confBId,
+              paperId: bulkPaper1Id,
+              roundNumber: 1,
+            },
+            {
+              id: otherCycleId,
+              organizationId: orgId,
+              conferenceId: confBId,
+              paperId: bulkPaper2Id,
+              roundNumber: 1,
+            },
+          ],
+        });
+      });
 
       await request(app.getHttpServer())
         .post(`/api/v1/conferences/${confBId}/papers/${bulkPaper1Id}/assignments`)
@@ -1463,18 +1483,18 @@ describe('Reviewer management & assignment integration', () => {
         .set('Cookie', chairCookie)
         .send({
           items: [
-            { paperId: bulkPaper1Id, outcome: 'ACCEPT' },
+            { paperId: bulkPaper1Id, outcome: 'REJECT' },
             { paperId: invalidPaperId, outcome: 'REJECT' },
           ],
           notify: false,
         });
 
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(201);
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.failures).toHaveLength(1);
 
-      const decisions = await prisma.decision.findMany({
-        where: { roundId: bulkRoundId },
-      });
-      expect(decisions).toHaveLength(0);
+      const untouched = await prisma.paper.findUnique({ where: { id: bulkPaper2Id } });
+      expect(untouched?.status).toBe('UNDER_REVIEW');
     });
   });
 
@@ -1553,13 +1573,19 @@ describe('Reviewer management & assignment integration', () => {
       });
     });
 
-    const round1Res = await request(app.getHttpServer())
-      .post(`/api/v1/conferences/${confBId}/rounds`)
-      .set('Cookie', chairCookie)
-      .send({ roundNumber: 30 });
-
-    expect(round1Res.status).toBe(201);
-    priorRoundId = round1Res.body.id as string;
+    priorRoundId = generateId();
+    const nextRoundId = generateId();
+    await withTenantContext({}, async (tx) => {
+      await tx.reviewRound.create({
+        data: {
+          id: priorRoundId,
+          organizationId: orgId,
+          conferenceId: confBId,
+          paperId: copyPaperId,
+          roundNumber: 1,
+        },
+      });
+    });
 
     await request(app.getHttpServer())
       .post(`/api/v1/conferences/${confBId}/papers/${copyPaperId}/assignments`)
@@ -1567,13 +1593,17 @@ describe('Reviewer management & assignment integration', () => {
       .send({ roundId: priorRoundId, reviewerUserId })
       .expect(201);
 
-    const round2Res = await request(app.getHttpServer())
-      .post(`/api/v1/conferences/${confBId}/rounds`)
-      .set('Cookie', chairCookie)
-      .send({ roundNumber: 31 });
-
-    expect(round2Res.status).toBe(201);
-    const nextRoundId = round2Res.body.id as string;
+    await withTenantContext({}, async (tx) => {
+      await tx.reviewRound.create({
+        data: {
+          id: nextRoundId,
+          organizationId: orgId,
+          conferenceId: confBId,
+          paperId: copyPaperId,
+          roundNumber: 2,
+        },
+      });
+    });
 
     const copyRes = await request(app.getHttpServer())
       .post(
@@ -1584,7 +1614,7 @@ describe('Reviewer management & assignment integration', () => {
 
     expect(copyRes.status).toBe(200);
     expect(copyRes.body.createdCount).toBe(1);
-    expect(copyRes.body.previousRoundNumber).toBe(30);
+    expect(copyRes.body.previousRoundNumber).toBe(1);
 
     const list = await request(app.getHttpServer())
       .get(`/api/v1/conferences/${confBId}/rounds/${nextRoundId}/assignments`)

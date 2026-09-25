@@ -13,7 +13,7 @@ import type {
   Recommendation,
   ReviewVisibility,
   BidValue,
-  RoundStatus,
+  ReviewStage,
   CoiType,
 } from '@openconferences/schemas';
 
@@ -32,7 +32,7 @@ export type {
   Recommendation,
   ReviewVisibility,
   BidValue,
-  RoundStatus,
+  ReviewStage,
   CoiType,
 };
 
@@ -53,15 +53,15 @@ export const COI_TYPE_OPTIONS: { value: CoiType; label: string }[] = [
   { value: 'OTHER', label: 'Other' },
 ];
 
-export function roundStatusLabel(status: RoundStatus): string {
-  const labels: Record<RoundStatus, string> = {
-    OPEN: 'Open',
-    REVIEWING: 'Reviewing',
-    REBUTTAL: 'Rebuttal',
-    DECIDING: 'Deciding',
-    CLOSED: 'Closed',
+export function reviewStageLabel(stage: ReviewStage): string {
+  const labels: Record<ReviewStage, string> = {
+    SUBMITTED: 'Submitted',
+    IN_REVIEW: 'In review',
+    FEEDBACK_RELEASED: 'Feedback released',
+    DECIDED: 'Decided',
+    REVISION_REQUESTED: 'Revision requested',
   };
-  return labels[status];
+  return labels[stage];
 }
 
 export function bidValueLabel(value: BidValue): string {

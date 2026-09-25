@@ -8,12 +8,7 @@ type DataTableProps = {
 
 export function DataTable({ children, footer, className }: DataTableProps) {
   return (
-    <div
-      className={cn(
-        'overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm',
-        className,
-      )}
-    >
+    <div className={cn('overflow-hidden rounded-2xl border border-slate-200 bg-white', className)}>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[640px] border-collapse text-sm">{children}</table>
       </div>
@@ -24,7 +19,7 @@ export function DataTable({ children, footer, className }: DataTableProps) {
 
 export function DataTableHeader({ children }: { children: React.ReactNode }) {
   return (
-    <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 backdrop-blur">
+    <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/80 backdrop-blur">
       {children}
     </thead>
   );
@@ -54,7 +49,7 @@ export function DataTableHead({
   return (
     <th
       className={cn(
-        'px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-slate-500',
+        'px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500',
         className,
       )}
     >
@@ -73,7 +68,7 @@ export function DataTableCell({
   colSpan?: number;
 }) {
   return (
-    <td colSpan={colSpan} className={cn('px-4 py-3 text-slate-700', className)}>
+    <td colSpan={colSpan} className={cn('px-4 py-3.5 text-slate-700', className)}>
       {children}
     </td>
   );
@@ -89,7 +84,7 @@ export function DataTableFooter({
   return (
     <div
       className={cn(
-        'flex items-center justify-end border-t border-slate-200 bg-white px-4 py-3 text-sm text-slate-500',
+        'flex items-center justify-end border-t border-slate-100 bg-slate-50/50 px-4 py-2.5 text-xs text-slate-500',
         className,
       )}
     >
@@ -100,7 +95,7 @@ export function DataTableFooter({
 
 export function DataTableSkeleton({ rows = 4 }: { rows?: number }) {
   return (
-    <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-4">
+    <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-4">
       {Array.from({ length: rows }).map((_, index) => (
         <div key={index} className="h-10 animate-pulse rounded-md bg-slate-100" />
       ))}
@@ -110,7 +105,7 @@ export function DataTableSkeleton({ rows = 4 }: { rows?: number }) {
 
 export function DataTableEmpty({ title, description }: { title: string; description?: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-10 text-center">
+    <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
       <p className="font-medium text-slate-900">{title}</p>
       {description ? <p className="mt-1 text-sm text-slate-500">{description}</p> : null}
     </div>

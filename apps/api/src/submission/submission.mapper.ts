@@ -1,3 +1,4 @@
+import { resolveStorageBucket } from '@openconferences/config/env';
 import type { Authorship, FileAsset, Paper, PaperVersion } from '@openconferences/db';
 import type {
   AuthorshipDto,
@@ -14,12 +15,13 @@ type PaperWithRelations = Paper & {
       })
     | null;
   versions?: (PaperVersion & { fileAsset?: FileAsset })[];
+  reviewRounds?: { revisionDueAt: Date | null }[];
 };
 
 export function mapFileAsset(asset: FileAsset): FileAssetDto {
   return {
     id: asset.id,
-    bucket: asset.bucket,
+    bucket: resolveStorageBucket(asset.bucket),
     objectKey: asset.objectKey,
     sizeBytes: asset.sizeBytes.toString(),
     checksumSha256: asset.checksumSha256,
@@ -66,6 +68,7 @@ export function mapPaper(paper: PaperWithRelations): PaperDto {
   const latestVersion = paper.versions?.[0] ?? null;
   const latestCameraReady =
     paper.versions?.find((version) => version.kind === 'CAMERA_READY') ?? null;
+  const latestRevision = paper.versions?.find((version) => version.kind === 'REVISION') ?? null;
 
   return {
     id: paper.id,
@@ -83,6 +86,8 @@ export function mapPaper(paper: PaperWithRelations): PaperDto {
     currentVersion: paper.currentVersion ? mapPaperVersion(paper.currentVersion) : null,
     latestVersion: latestVersion ? mapPaperVersion(latestVersion) : null,
     cameraReadyVersion: latestCameraReady ? mapPaperVersion(latestCameraReady) : null,
+    revisionVersion: latestRevision ? mapPaperVersion(latestRevision) : null,
+    revisionDueAt: paper.reviewRounds?.[0]?.revisionDueAt?.toISOString() ?? null,
     createdAt: paper.createdAt.toISOString(),
     updatedAt: paper.updatedAt.toISOString(),
   };

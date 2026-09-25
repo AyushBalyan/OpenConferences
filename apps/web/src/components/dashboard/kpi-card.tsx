@@ -31,11 +31,11 @@ export function KpiCard({
   return (
     <Card className={cn('overflow-hidden', className)}>
       <CardContent className="p-5">
-        <p className="text-sm font-medium text-slate-500">{label}</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
         {loading ? (
           <Skeleton className="mt-2 h-8 w-20" />
         ) : (
-          <p className={cn('mt-1 font-mono text-3xl font-semibold tracking-tight', valueTone)}>
+          <p className={cn('mt-2 text-3xl font-semibold tabular-nums tracking-tight', valueTone)}>
             {value}
           </p>
         )}

@@ -47,7 +47,7 @@ export function AssignmentsBidsPanel() {
     return (
       <Card>
         <CardContent className="py-10 text-center text-sm text-slate-500">
-          No reviewer bids yet. Reviewers can bid from the Bidding tab once bidding is open.
+          No reviewer bids yet. Reviewer bidding is turned off, so assign reviewers manually.
         </CardContent>
       </Card>
     );

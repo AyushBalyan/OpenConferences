@@ -9,12 +9,14 @@ import { NotificationPublisher } from './notification.publisher';
 import { NotificationSubscriber } from './notification.subscriber';
 import { TemplateService } from './template.service';
 import { MessagingWebhookService } from './messaging-webhook.service';
+import { InboxService } from './inbox.service';
 
 @Global()
 @Module({
   imports: [AuthModule, TenancyModule, QueueModule],
   controllers: [MessagingController, MessagingWebhookController],
   providers: [
+    InboxService,
     NotificationService,
     NotificationPublisher,
     NotificationSubscriber,

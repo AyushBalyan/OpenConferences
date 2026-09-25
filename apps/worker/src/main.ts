@@ -48,6 +48,7 @@ async function startWorker(): Promise<void> {
 
   await boss.start();
   logger.info('pg-boss worker started');
+  logger.info({ endpoint: config.s3.endpoint, bucket: config.s3.bucket }, 'object store');
 
   await boss.createQueue(NOOP_JOB_NAME);
   await boss.createQueue(EMAIL_SEND_JOB_NAME);

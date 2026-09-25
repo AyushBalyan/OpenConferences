@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { Prisma, Review, RoleKind, RoundStatus } from '@openconferences/db';
+import type { Prisma, Review, RoleKind } from '@openconferences/db';
 import { generateId, withTenantContext } from '@openconferences/db';
 import type {
   MyAssignmentItemDto,
@@ -27,7 +27,8 @@ import { NotificationPublisher } from '../messaging/notification.publisher';
 import { ConferenceService } from '../tenancy/conference.service';
 import { canCoordinateReview } from '../tenancy/role-hierarchy';
 import { CoiCheckService } from './coi-check.service';
-import { RoundsService } from './rounds.service';
+import { RoundsService, lockReviewRound } from './rounds.service';
+import { deriveReviewStage } from './review-stage';
 import {
   isPrivilegedReader,
   mapReview,
@@ -71,11 +72,16 @@ export class ReviewsService {
           where: {
             conferenceId,
             reviewerUserId: userId,
-            round: { status: { not: 'CLOSED' } },
           },
           include: {
             paper: { select: { title: true, currentVersionId: true } },
-            round: { select: { roundNumber: true, status: true } },
+            round: {
+              select: {
+                roundNumber: true,
+                reviewsReleasedAt: true,
+                decisions: { select: { outcome: true }, take: 1 },
+              },
+            },
             review: true,
           },
           orderBy: { createdAt: 'desc' },
@@ -91,7 +97,11 @@ export class ReviewsService {
         paperTitle: a.paper.title,
         currentVersionId: a.paper.currentVersionId,
         roundNumber: a.round.roundNumber,
-        roundStatus: a.round.status,
+        reviewStage: deriveReviewStage({
+          reviewsReleasedAt: a.round.reviewsReleasedAt,
+          decisionOutcome: a.round.decisions[0]?.outcome ?? null,
+          hasNewerCycle: false,
+        }),
         review: a.review ? mapReview(a.review) : null,
       })),
       nextCursor: page.nextCursor,
@@ -116,11 +126,21 @@ export class ReviewsService {
       currentVersionId: paper.currentVersionId,
     };
 
+    const decided = await this.cycleHasDecision(userId, conferenceId, assignment.roundId);
+    const canEdit =
+      assignment.reviewerUserId === userId && assignment.status !== 'DECLINED' && !decided;
+    const capabilities = {
+      canEdit,
+      editLockReason: canEdit
+        ? null
+        : 'This review is read-only because the cycle has a decision or this account cannot edit it.',
+    };
+
     if (review) {
-      return { ...mapReview(review), ...paperMeta };
+      return { ...mapReview(review), ...paperMeta, ...capabilities };
     }
 
-    return { ...this.buildDraftReview(assignment), ...paperMeta };
+    return { ...this.buildDraftReview(assignment), ...paperMeta, ...capabilities };
   }
 
   async saveReview(
@@ -138,12 +158,16 @@ export class ReviewsService {
       roles,
     );
 
-    const round = await this.rounds.loadRound(userId, conferenceId, assignment.roundId, roles);
-    this.assertReviewEditable(round.status, review?.submittedAt ?? null);
+    if (assignment.reviewerUserId !== userId || assignment.status === 'DECLINED') {
+      throw new ForbiddenException('Only the assigned reviewer may edit this review');
+    }
+    await this.rounds.loadRound(userId, conferenceId, assignment.roundId, roles);
 
     const saved = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
+        await lockReviewRound(tx, conferenceId, assignment.roundId);
+        await this.assertCycleOpen(tx, conferenceId, assignment.roundId);
         const coiResult = await this.coiCheck.checkReviewerPaperConflict(
           tx,
           userId,
@@ -157,11 +181,14 @@ export class ReviewsService {
 
         if (review) {
           if (input.version !== review.version) {
-            throw new ConflictException('Review was modified by another request');
+            throw new ConflictException({
+              code: 'REVIEW_VERSION_CONFLICT',
+              message: 'Review was modified by another request',
+            });
           }
 
-          const updated = await tx.review.update({
-            where: { id: review.id },
+          const updated = await tx.review.updateMany({
+            where: { id: review.id, conferenceId, reviewerUserId: userId, version: input.version },
             data: {
               scores: input.scores as Prisma.InputJsonValue,
               recommendation: input.recommendation ?? null,
@@ -172,14 +199,21 @@ export class ReviewsService {
             },
           });
 
-          return updated;
+          if (updated.count !== 1) {
+            throw this.versionConflict();
+          }
+          return tx.review.findUniqueOrThrow({ where: { id: review.id } });
         }
 
         if (input.version !== 0) {
-          throw new ConflictException('Review was modified by another request');
+          throw new ConflictException({
+            code: 'REVIEW_VERSION_CONFLICT',
+            message: 'Review was modified by another request',
+          });
         }
 
-        return tx.review.create({
+        const created = await tx.review.createMany({
+          skipDuplicates: true,
           data: {
             id: generateId(),
             organizationId: conference.organizationId,
@@ -197,6 +231,10 @@ export class ReviewsService {
             version: 1,
           },
         });
+        if (created.count !== 1) {
+          throw this.versionConflict();
+        }
+        return tx.review.findUniqueOrThrow({ where: { assignmentId: assignment.id } });
       },
     );
 
@@ -222,22 +260,20 @@ export class ReviewsService {
       roles,
     );
 
-    const round = await this.rounds.loadRound(userId, conferenceId, assignment.roundId, roles);
-
-    if (round.status !== 'REVIEWING' && round.status !== 'REBUTTAL') {
-      throw new ConflictException('Reviews cannot be submitted in the current round phase');
+    if (assignment.reviewerUserId !== userId || assignment.status === 'DECLINED') {
+      throw new ForbiddenException('Only the assigned reviewer may submit this review');
     }
+    await this.rounds.loadRound(userId, conferenceId, assignment.roundId, roles);
 
     if (!review) {
       throw new BadRequestException('Save a review draft before submitting');
     }
 
     if (input.version !== review.version) {
-      throw new ConflictException('Review was modified by another request');
-    }
-
-    if (review.submittedAt && round.status !== 'REBUTTAL') {
-      throw new ConflictException('Review has already been submitted');
+      throw new ConflictException({
+        code: 'REVIEW_VERSION_CONFLICT',
+        message: 'Review was modified by another request',
+      });
     }
 
     this.validateReviewForSubmit(review, conference.reviewConfig as ReviewConfig);
@@ -245,6 +281,8 @@ export class ReviewsService {
     const submitted = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
+        await lockReviewRound(tx, conferenceId, assignment.roundId);
+        await this.assertCycleOpen(tx, conferenceId, assignment.roundId);
         const coiResult = await this.coiCheck.checkReviewerPaperConflict(
           tx,
           userId,
@@ -256,14 +294,18 @@ export class ReviewsService {
           throw new ConflictException('Conflict of interest prevents review submission');
         }
 
-        const updatedReview = await tx.review.update({
-          where: { id: review.id },
+        const updated = await tx.review.updateMany({
+          where: { id: review.id, conferenceId, reviewerUserId: userId, version: input.version },
           data: {
             submittedAt: review.submittedAt ?? new Date(),
             version: { increment: 1 },
           },
         });
 
+        if (updated.count !== 1) {
+          throw this.versionConflict();
+        }
+        const updatedReview = await tx.review.findUniqueOrThrow({ where: { id: review.id } });
         await tx.reviewerAssignment.update({
           where: { id: assignment.id },
           data: { status: 'COMPLETED' },
@@ -317,9 +359,10 @@ export class ReviewsService {
 
     assertScope(paper, { conferenceId });
 
-    const privileged = canCoordinateReview(roles);
     const isAuthor =
       paper.submittedById === userId || paper.authorships.some((a) => a.userId === userId);
+    // A committee role must not expose private reviews of the reader's own paper.
+    const privileged = canCoordinateReview(roles) && !isAuthor;
 
     if (!privileged && !isAuthor) {
       throw new ForbiddenException('Insufficient permissions to view reviews');
@@ -343,13 +386,22 @@ export class ReviewsService {
     const page = paginateItems(rows, limit, (row) => row.id);
 
     const activeRoundId = roundId ?? page.data[0]?.roundId;
-    let roundStatus: RoundStatus | undefined;
+    let reviewStage: ReviewListDto['reviewStage'];
 
     if (activeRoundId) {
       const round = await withTenantContext({ userId, conferenceId }, async (tx) =>
-        tx.reviewRound.findFirst({ where: { id: activeRoundId } }),
+        tx.reviewRound.findFirst({
+          where: { id: activeRoundId },
+          include: { decisions: { select: { outcome: true }, take: 1 } },
+        }),
       );
-      roundStatus = round?.status;
+      if (round) {
+        reviewStage = deriveReviewStage({
+          reviewsReleasedAt: round.reviewsReleasedAt,
+          decisionOutcome: round.decisions[0]?.outcome ?? null,
+          hasNewerCycle: false,
+        });
+      }
     }
 
     const data = privileged
@@ -359,7 +411,7 @@ export class ReviewsService {
     return {
       data,
       roundId: activeRoundId,
-      roundStatus,
+      reviewStage,
       nextCursor: page.nextCursor,
     };
   }
@@ -367,7 +419,8 @@ export class ReviewsService {
   async releaseReviews(
     userId: string,
     conferenceId: string,
-    roundId: string,
+    paperId: string,
+    cycleId: string,
     input: ReleaseReviewsInput,
     roles: RoleKind[],
   ) {
@@ -376,24 +429,28 @@ export class ReviewsService {
     }
 
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-    const round = await this.rounds.loadRound(userId, conferenceId, roundId, roles);
+    const round = await this.rounds.loadRound(userId, conferenceId, cycleId, roles);
+
+    if (round.paperId !== paperId) {
+      throw new NotFoundException('Review cycle not found for this paper');
+    }
 
     if (input.version !== round.version) {
       throw new ConflictException('Review round was modified by another request');
     }
 
-    if (round.status !== 'REVIEWING') {
-      throw new ConflictException('Reviews can only be released during the reviewing phase');
-    }
-
     const result = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
-        const submittedReviews = await tx.review.findMany({
+        await lockReviewRound(tx, conferenceId, cycleId);
+        await this.assertCycleOpen(tx, conferenceId, cycleId);
+        const hiddenSubmitted = await tx.review.findMany({
           where: {
-            roundId,
+            roundId: cycleId,
             conferenceId,
+            paperId,
             submittedAt: { not: null },
+            visibility: 'HIDDEN',
           },
           include: {
             paper: {
@@ -408,27 +465,41 @@ export class ReviewsService {
           },
         });
 
-        if (submittedReviews.length === 0) {
+        if (hiddenSubmitted.length === 0) {
           throw new BadRequestException('No submitted reviews to release');
         }
 
-        await tx.review.updateMany({
-          where: {
-            id: { in: submittedReviews.map((r) => r.id) },
-            visibility: 'HIDDEN',
-          },
-          data: { visibility: 'AUTHOR_VISIBLE' },
-        });
+        const rebuttalDueAt =
+          input.rebuttalDueAt !== undefined
+            ? new Date(input.rebuttalDueAt)
+            : (round.rebuttalDueAt ??
+              (conference.rebuttalDueAt && conference.rebuttalDueAt > new Date()
+                ? conference.rebuttalDueAt
+                : null));
 
-        const updatedRound = await tx.reviewRound.update({
-          where: { id: roundId },
+        const transition = await tx.reviewRound.updateMany({
+          where: { id: cycleId, conferenceId, paperId, version: input.version },
           data: {
-            status: 'REBUTTAL',
+            reviewsReleasedAt: round.reviewsReleasedAt ?? new Date(),
+            ...(rebuttalDueAt ? { rebuttalDueAt } : {}),
             version: { increment: 1 },
           },
         });
+        if (transition.count !== 1) {
+          throw new ConflictException('Review round was modified by another request');
+        }
 
-        return { submittedReviews, updatedRound };
+        await tx.review.updateMany({
+          where: { id: { in: hiddenSubmitted.map((review) => review.id) }, visibility: 'HIDDEN' },
+          data: { visibility: 'AUTHOR_VISIBLE' },
+        });
+
+        const updatedRound = await tx.reviewRound.findUniqueOrThrow({
+          where: { id: cycleId },
+          include: { decisions: { select: { outcome: true }, take: 1 } },
+        });
+
+        return { submittedReviews: hiddenSubmitted, updatedRound };
       },
     );
 
@@ -438,7 +509,7 @@ export class ReviewsService {
       conferenceId,
       action: 'review.released',
       entity: 'ReviewRound',
-      entityId: roundId,
+      entityId: cycleId,
       diff: { releasedCount: result.submittedReviews.length },
     });
 
@@ -451,17 +522,31 @@ export class ReviewsService {
           organizationId: conference.organizationId,
           paperTitle: review.paper.title,
           paperId: review.paperId,
-          roundId,
-          idempotencyKey: `review-released-${review.paperId}-${roundId}`,
+          roundId: cycleId,
+          idempotencyKey: `review-released-${review.id}`,
         });
       }
     }
 
     return {
       releasedCount: result.submittedReviews.length,
-      round: mapReviewRound(result.updatedRound),
+      round: mapReviewRound(
+        result.updatedRound,
+        deriveReviewStage({
+          reviewsReleasedAt: result.updatedRound.reviewsReleasedAt,
+          decisionOutcome: result.updatedRound.decisions[0]?.outcome ?? null,
+          hasNewerCycle: false,
+        }),
+      ),
       message: 'Reviews released to authors',
     };
+  }
+
+  private versionConflict() {
+    return new ConflictException({
+      code: 'REVIEW_VERSION_CONFLICT',
+      message: 'Review was modified by another request',
+    });
   }
 
   private async loadAssignmentForReviewer(
@@ -535,13 +620,27 @@ export class ReviewsService {
     };
   }
 
-  private assertReviewEditable(roundStatus: string, submittedAt: Date | null): void {
-    if (roundStatus === 'DECIDING' || roundStatus === 'CLOSED' || roundStatus === 'OPEN') {
-      throw new ConflictException('Reviews cannot be edited in the current round phase');
-    }
+  private async cycleHasDecision(userId: string, conferenceId: string, roundId: string) {
+    const decision = await withTenantContext({ userId, conferenceId }, async (tx) =>
+      tx.decision.findFirst({ where: { roundId, conferenceId }, select: { id: true } }),
+    );
+    return Boolean(decision);
+  }
 
-    if (submittedAt && roundStatus !== 'REBUTTAL') {
-      throw new ConflictException('Submitted reviews cannot be edited until the rebuttal phase');
+  private async assertCycleOpen(
+    tx: Prisma.TransactionClient,
+    conferenceId: string,
+    roundId: string,
+  ) {
+    const decision = await tx.decision.findFirst({
+      where: { roundId, conferenceId },
+      select: { id: true },
+    });
+    if (decision) {
+      throw new ConflictException({
+        code: 'REVIEW_PHASE_LOCKED',
+        message: 'Reviews cannot be edited after this cycle has a decision',
+      });
     }
   }
 

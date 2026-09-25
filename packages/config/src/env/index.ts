@@ -42,6 +42,10 @@ const baseEnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => v === 'true' || v === '1'),
+  S3_ALLOW_REMOTE: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
   API_PORT: z.coerce.number().int().positive().default(3001),
   API_HOST: z.string().default('0.0.0.0'),
   API_BASE_PATH: z.string().default('/api/v1'),
@@ -164,6 +168,59 @@ function withConnectTimeout(databaseUrl: string, seconds = 15): string {
   }
 }
 
+/** Compose MinIO defaults that match docker-compose.yml + CI. */
+export const LOCAL_MINIO_S3 = {
+  endpoint: 'http://localhost:9000',
+  accessKey: 'minioadmin',
+  secretKey: 'minioadmin',
+  bucket: 'openconferences',
+  region: 'us-east-1',
+  forcePathStyle: true,
+} as const;
+
+export function isRemoteObjectStore(endpoint: string): boolean {
+  try {
+    const { hostname } = new URL(endpoint);
+    return !['localhost', '127.0.0.1', '0.0.0.0', 'minio', 'host.docker.internal'].includes(
+      hostname,
+    );
+  } catch {
+    return true;
+  }
+}
+
+function resolveS3Config(data: z.infer<typeof baseEnvSchema>): AppConfig['s3'] {
+  const configured: AppConfig['s3'] = {
+    endpoint: data.S3_ENDPOINT,
+    accessKey: data.S3_ACCESS_KEY,
+    secretKey: data.S3_SECRET_KEY,
+    bucket: data.S3_BUCKET,
+    region: data.S3_REGION,
+    forcePathStyle: data.S3_FORCE_PATH_STYLE ?? true,
+  };
+
+  if (
+    data.NODE_ENV === 'development' &&
+    !data.S3_ALLOW_REMOTE &&
+    isRemoteObjectStore(configured.endpoint)
+  ) {
+    return { ...LOCAL_MINIO_S3 };
+  }
+
+  return configured;
+}
+
+/** Use the configured bucket in local dev so prod FileAsset.bucket rows do not target R2/S3. */
+export function resolveStorageBucket(
+  storedBucket?: string | null,
+  config: AppConfig = getConfig(),
+): string {
+  if (config.isDev) {
+    return config.s3.bucket;
+  }
+  return storedBucket?.trim() ? storedBucket : config.s3.bucket;
+}
+
 function parseEnv(env: Record<string, string | undefined> = process.env): AppConfig {
   ensureEnvLoaded();
   const result = baseEnvSchema.safeParse(env);
@@ -184,14 +241,7 @@ function parseEnv(env: Record<string, string | undefined> = process.env): AppCon
     nodeEnv: data.NODE_ENV,
     databaseUrl,
     redisUrl: data.REDIS_URL,
-    s3: {
-      endpoint: data.S3_ENDPOINT,
-      accessKey: data.S3_ACCESS_KEY,
-      secretKey: data.S3_SECRET_KEY,
-      bucket: data.S3_BUCKET,
-      region: data.S3_REGION,
-      forcePathStyle: data.S3_FORCE_PATH_STYLE ?? true,
-    },
+    s3: resolveS3Config(data),
     api: {
       port: data.API_PORT,
       host: data.API_HOST,

@@ -27,17 +27,18 @@ export function scanStatusLabel(status: 'PENDING_SCAN' | 'CLEAN' | 'INFECTED'): 
 export function latestScanStatus(
   paper: PaperDto,
 ): 'PENDING_SCAN' | 'CLEAN' | 'INFECTED' | undefined {
-  return paper.currentVersion?.fileAsset?.scanStatus ?? paper.latestVersion?.fileAsset?.scanStatus;
+  return (paper.latestVersion ?? paper.currentVersion)?.fileAsset?.scanStatus;
 }
 
 export function canSubmitDraft(paper: PaperDto): boolean {
   return (
     paper.status === 'DRAFT' &&
     Boolean(paper.currentVersionId) &&
+    (!paper.latestVersion || paper.latestVersion.id === paper.currentVersionId) &&
     paper.currentVersion?.fileAsset?.scanStatus === 'CLEAN'
   );
 }
 
 export function paperHasCleanDownload(paper: PaperDto): boolean {
-  return Boolean(paper.currentVersionId) && latestScanStatus(paper) === 'CLEAN';
+  return Boolean(paper.currentVersionId) && paper.currentVersion?.fileAsset?.scanStatus === 'CLEAN';
 }

@@ -12,6 +12,7 @@
     "S3_BUCKET",
     "S3_REGION",
     "S3_FORCE_PATH_STYLE",
+    "S3_ALLOW_REMOTE",
     "API_PORT",
     "API_HOST",
     "API_BASE_PATH",

@@ -56,6 +56,7 @@ export class AssignmentsService {
         reviewerName?: string;
         reviewerEmail?: string;
         bidValue?: BidValue | null;
+        reviewProgress?: 'NOT_STARTED' | 'DRAFT' | 'SUBMITTED';
       }
     >;
     nextCursor: string | null;
@@ -65,7 +66,7 @@ export class AssignmentsService {
     }
 
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-    await this.rounds.loadRound(userId, conferenceId, roundId, roles);
+    const round = await this.rounds.loadRound(userId, conferenceId, roundId, roles);
     const limit = resolveLimit(options.limit);
 
     const rows = await withTenantContext(
@@ -76,6 +77,7 @@ export class AssignmentsService {
           include: {
             paper: { select: { title: true } },
             reviewer: { select: { name: true, email: true } },
+            review: { select: { submittedAt: true } },
           },
           orderBy: { createdAt: 'desc' },
           ...prismaCursorArgs(options, limit),
@@ -101,6 +103,12 @@ export class AssignmentsService {
     return {
       data: page.data.map((a) => ({
         ...mapReviewerAssignment(a),
+        dueAt: (a.dueAt ?? round.reviewDueAt)?.toISOString() ?? null,
+        reviewProgress: a.review?.submittedAt
+          ? ('SUBMITTED' as const)
+          : a.review
+            ? ('DRAFT' as const)
+            : ('NOT_STARTED' as const),
         paperTitle: a.paper.title,
         reviewerName: a.reviewer.name,
         reviewerEmail: a.reviewer.email,
@@ -124,18 +132,22 @@ export class AssignmentsService {
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
     const targetRound = await this.rounds.loadRound(userId, conferenceId, roundId, roles);
 
-    if (targetRound.status === 'CLOSED') {
-      throw new ConflictException('Cannot assign reviewers to a closed round');
+    const decided = await withTenantContext({ userId, conferenceId }, async (tx) =>
+      tx.decision.findFirst({ where: { roundId: targetRound.id, conferenceId } }),
+    );
+    if (decided) {
+      throw new ConflictException('Cannot assign reviewers after this cycle has a decision');
     }
 
     if (targetRound.roundNumber <= 1) {
-      throw new BadRequestException('There is no previous round to copy assignments from');
+      throw new BadRequestException('There is no previous cycle to copy assignments from');
     }
 
     const previousRound = await withTenantContext({ userId, conferenceId }, async (tx) =>
       tx.reviewRound.findFirst({
         where: {
           conferenceId,
+          paperId: targetRound.paperId,
           roundNumber: targetRound.roundNumber - 1,
         },
       }),
@@ -263,10 +275,29 @@ export class AssignmentsService {
     }
 
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-    const round = await this.rounds.loadRound(userId, conferenceId, input.roundId, roles);
+    const round = input.roundId
+      ? await this.rounds.loadRound(userId, conferenceId, input.roundId, roles)
+      : await withTenantContext(
+          { userId, conferenceId, organizationId: conference.organizationId },
+          async (tx) =>
+            this.rounds.ensureOpenCycle(tx, {
+              organizationId: conference.organizationId,
+              conferenceId,
+              paperId,
+              reviewDueAt: conference.reviewDueAt,
+              rebuttalDueAt: conference.rebuttalDueAt,
+            }),
+        );
 
-    if (round.status === 'CLOSED') {
-      throw new ConflictException('Cannot assign reviewers to a closed round');
+    if (round.paperId !== paperId) {
+      throw new ConflictException('Review cycle does not belong to this paper');
+    }
+
+    const decided = await withTenantContext({ userId, conferenceId }, async (tx) =>
+      tx.decision.findFirst({ where: { roundId: round.id, conferenceId } }),
+    );
+    if (decided) {
+      throw new ConflictException('Cannot assign reviewers after this cycle has a decision');
     }
 
     const outcome = await this.tryCreateAssignment(
@@ -303,7 +334,7 @@ export class AssignmentsService {
       diff: {
         paperId,
         reviewerUserId: input.reviewerUserId,
-        roundId: input.roundId,
+        roundId: round.id,
       },
     });
 

@@ -44,13 +44,13 @@ export class ReviewController {
     });
   }
 
-  @TsRestHandler(reviewContract.createRound)
+  @TsRestHandler(reviewContract.listReviewProgress)
   @RequireReviewCoordination()
   @RequireMembership()
-  createRound(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
-    return tsRestHandler(reviewContract.createRound, async ({ params, body }) => {
-      const round = await this.rounds.create(user.id, params.conferenceId, body, roles);
-      return { status: 201 as const, body: round };
+  listReviewProgress(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(reviewContract.listReviewProgress, async ({ params }) => {
+      const result = await this.rounds.listProgress(user.id, params.conferenceId, roles);
+      return { status: 200 as const, body: result };
     });
   }
 
@@ -326,7 +326,8 @@ export class ReviewController {
       const result = await this.reviews.releaseReviews(
         user.id,
         params.conferenceId,
-        params.roundId,
+        params.paperId,
+        params.cycleId,
         body,
         roles,
       );

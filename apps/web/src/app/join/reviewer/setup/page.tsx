@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { fetchMe, setupAccount } from '@/lib/api-client';
+import { reviewerLandingPath } from '@/lib/reviewer-features';
 
 export default function ReviewerJoinSetupPage() {
   return (
@@ -43,7 +44,7 @@ function ReviewerJoinSetup() {
 
       if (!profile.needsProfileSetup) {
         if (conferenceId) {
-          router.replace(`/dashboard/conferences/${conferenceId}/reviews/bidding`);
+          router.replace(reviewerLandingPath(conferenceId));
         } else {
           router.replace('/dashboard');
         }
@@ -59,9 +60,7 @@ function ReviewerJoinSetup() {
     })();
   }, [conferenceId, router]);
 
-  const redirectTarget = conferenceId
-    ? `/dashboard/conferences/${conferenceId}/reviews/bidding`
-    : '/dashboard';
+  const redirectTarget = conferenceId ? reviewerLandingPath(conferenceId) : '/dashboard';
 
   return (
     <AuthShell

@@ -399,7 +399,15 @@ export async function initiateVersionUpload(
     body,
   });
   if (result.status === 200) return result.body;
-  if (result.status === 400) throw new Error(result.body.detail ?? 'Invalid upload');
+  if (
+    result.status === 400 ||
+    result.status === 403 ||
+    result.status === 404 ||
+    result.status === 409 ||
+    result.status === 422
+  ) {
+    throw new Error(result.body.detail ?? 'Invalid upload');
+  }
   throw new Error('Failed to initiate upload');
 }
 
@@ -413,7 +421,13 @@ export async function completeVersionUpload(
     body,
   });
   if (result.status === 201) return result.body;
-  if (result.status === 400 || result.status === 409) {
+  if (
+    result.status === 400 ||
+    result.status === 403 ||
+    result.status === 404 ||
+    result.status === 409 ||
+    result.status === 422
+  ) {
     throw new Error(result.body.detail ?? 'Upload finalize failed');
   }
   throw new Error('Failed to complete upload');
@@ -459,9 +473,11 @@ export async function downloadPaperVersion(
   conferenceId: string,
   paperId: string,
   versionId: string,
+  disposition: 'attachment' | 'inline' = 'attachment',
 ) {
   const result = await apiClient.submission.downloadVersion({
     params: { conferenceId, paperId, versionId },
+    query: { disposition },
   });
   if (result.status === 200) return result.body;
   if (result.status === 403) throw new Error(result.body.detail ?? 'Download not available');
@@ -495,6 +511,61 @@ export async function uploadPaperPdf(
     objectKey: presigned.objectKey,
     kind: 'SUBMISSION',
   });
+}
+
+export async function uploadRevisionPdf(
+  conferenceId: string,
+  paperId: string,
+  file: File,
+): Promise<void> {
+  const presigned = await initiateVersionUpload(conferenceId, paperId, {
+    originalFilename: file.name,
+    contentType: 'application/pdf',
+    sizeBytes: file.size,
+    kind: 'REVISION',
+  });
+
+  const putResponse = await fetch(presigned.uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/pdf' },
+    body: file,
+  });
+
+  if (!putResponse.ok) {
+    throw new Error('Direct upload to storage failed');
+  }
+
+  await completeVersionUpload(conferenceId, paperId, {
+    objectKey: presigned.objectKey,
+    kind: 'REVISION',
+  });
+  await waitForRevisionScan(conferenceId, paperId);
+}
+
+export async function waitForRevisionScan(
+  conferenceId: string,
+  paperId: string,
+  options?: { timeoutMs?: number; intervalMs?: number },
+): Promise<void> {
+  const timeoutMs = options?.timeoutMs ?? 60_000;
+  const intervalMs = options?.intervalMs ?? 1_000;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const paper = await fetchPaper(conferenceId, paperId);
+    const scanStatus = paper.revisionVersion?.fileAsset?.scanStatus;
+    if (scanStatus === 'CLEAN' && paper.currentVersion?.kind === 'REVISION') {
+      return;
+    }
+    if (scanStatus === 'INFECTED') {
+      throw new Error('The uploaded PDF failed security scanning. Please upload a different file.');
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  throw new Error(
+    'Security scan is taking longer than expected. Your PDF was uploaded — wait a moment and try again.',
+  );
 }
 
 export async function uploadCameraReadyPdf(
@@ -533,26 +604,19 @@ export async function fetchReviewRounds(conferenceId: string) {
   throw new Error('Failed to load review rounds');
 }
 
-export async function createReviewRound(
-  conferenceId: string,
-  body: { roundNumber?: number; reviewDueAt?: string },
-) {
-  const result = await apiClient.review.createRound({ params: { conferenceId }, body });
-  if (result.status === 201) return result.body;
-  if (result.status === 409) throw new Error(result.body.detail ?? 'Round already exists');
-  if (result.status === 403)
-    throw new Error(result.body.detail ?? 'Not allowed to open review rounds');
-  if (result.status === 400 || result.status === 401 || result.status === 404) {
-    throw new Error(result.body.detail ?? 'Failed to create review round');
-  }
-  throw new Error('Failed to create review round');
+export async function fetchReviewProgress(conferenceId: string) {
+  const result = await apiClient.review.listReviewProgress({ params: { conferenceId } });
+  if (result.status === 200) return result.body;
+  throw new Error('Failed to load review progress');
 }
 
 export async function updateReviewRound(
   conferenceId: string,
   roundId: string,
   body: {
-    status?: 'OPEN' | 'REVIEWING' | 'REBUTTAL' | 'DECIDING' | 'CLOSED';
+    reviewDueAt?: string | null;
+    rebuttalDueAt?: string | null;
+    revisionDueAt?: string | null;
     version: number;
   },
 ) {
@@ -698,7 +762,7 @@ export async function fetchAssignments(conferenceId: string, roundId: string) {
 export async function createAssignment(
   conferenceId: string,
   paperId: string,
-  body: { roundId: string; reviewerUserId: string },
+  body: { roundId?: string; reviewerUserId: string },
 ) {
   const result = await apiClient.review.createAssignment({
     params: { conferenceId, paperId },
@@ -775,8 +839,10 @@ export async function saveReview(
   if (result.status === 409) {
     const err = new Error(result.body.detail ?? 'Review was modified elsewhere') as Error & {
       status: number;
+      code?: string;
     };
     err.status = 409;
+    err.code = result.body.code;
     throw err;
   }
   throw new Error('Failed to save review');
@@ -796,10 +862,15 @@ export async function submitReview(
   throw new Error('Failed to submit review');
 }
 
-export async function fetchPaperReviews(conferenceId: string, paperId: string, roundId?: string) {
+export async function fetchPaperReviews(
+  conferenceId: string,
+  paperId: string,
+  roundId?: string,
+  cursor?: string,
+) {
   const result = await apiClient.review.listPaperReviews({
     params: { conferenceId, paperId },
-    query: roundId ? { roundId } : {},
+    query: { ...(roundId ? { roundId } : {}), ...(cursor ? { cursor } : {}) },
   });
   if (result.status === 200) return result.body;
   throw new Error('Failed to load reviews');
@@ -807,11 +878,12 @@ export async function fetchPaperReviews(conferenceId: string, paperId: string, r
 
 export async function releaseReviews(
   conferenceId: string,
-  roundId: string,
-  body: { version: number },
+  paperId: string,
+  cycleId: string,
+  body: { version: number; rebuttalDueAt?: string },
 ) {
   const result = await apiClient.review.releaseReviews({
-    params: { conferenceId, roundId },
+    params: { conferenceId, paperId, cycleId },
     body,
   });
   if (result.status === 200) return result.body;

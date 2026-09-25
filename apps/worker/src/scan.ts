@@ -1,5 +1,5 @@
 import { GetObjectCommand } from '@aws-sdk/client-s3';
-import { getConfig } from '@openconferences/config/env';
+import { getConfig, resolveStorageBucket } from '@openconferences/config/env';
 import { applyScanResult, withTenantContext } from '@openconferences/db';
 import type { FileScanJobPayload } from '@openconferences/schemas';
 import { scanBufferWithClamAV } from './clamav.js';
@@ -48,7 +48,7 @@ export async function runAvScan(payload: FileScanJobPayload): Promise<'CLEAN' | 
     throw new Error(`FileAsset not found: ${payload.fileAssetId}`);
   }
 
-  const bytes = await fetchObjectBytes(asset.bucket, asset.objectKey);
+  const bytes = await fetchObjectBytes(resolveStorageBucket(asset.bucket), asset.objectKey);
   return scanBufferWithClamAV(bytes, config.clamav.host, config.clamav.port);
 }
 

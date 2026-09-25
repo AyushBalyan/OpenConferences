@@ -28,6 +28,7 @@ import {
   mapBid,
   mapConflictOfInterest,
 } from './review.mapper';
+import { REVIEWER_BIDDING_ENABLED, REVIEWER_COI_ENABLED } from './reviewer-features';
 
 @Injectable()
 export class BidsService {
@@ -95,6 +96,10 @@ export class BidsService {
   }> {
     const oversight = isPrivilegedReader(roles);
     const canBid = roles.includes('REVIEWER');
+
+    if (!oversight && !REVIEWER_BIDDING_ENABLED) {
+      throw new ForbiddenException('Reviewer bidding is disabled');
+    }
 
     if (!oversight && !canBid) {
       throw new ForbiddenException('Reviewer or coordinator role required');
@@ -178,6 +183,10 @@ export class BidsService {
     input: UpsertBidInput,
     roles: RoleKind[],
   ) {
+    if (!REVIEWER_BIDDING_ENABLED) {
+      throw new ForbiddenException('Reviewer bidding is disabled');
+    }
+
     if (!roles.includes('REVIEWER') && !isPrivilegedReader(roles)) {
       throw new ForbiddenException('Reviewer role required to bid');
     }
@@ -278,8 +287,12 @@ export class CoiService {
     roles: RoleKind[],
     options: CursorPaginationOptions = {},
   ) {
-    const conference = await this.conferences.loadConference(userId, conferenceId, roles);
     const privileged = isPrivilegedReader(roles);
+    if (!privileged && !REVIEWER_COI_ENABLED) {
+      throw new ForbiddenException('Reviewer conflict declaration is disabled');
+    }
+
+    const conference = await this.conferences.loadConference(userId, conferenceId, roles);
     const limit = resolveLimit(options.limit);
 
     const rows = await withTenantContext(
@@ -312,8 +325,12 @@ export class CoiService {
   }
 
   async listDeclareTargets(userId: string, conferenceId: string, roles: RoleKind[]) {
-    const conference = await this.conferences.loadConference(userId, conferenceId, roles);
     const privileged = isPrivilegedReader(roles);
+    if (!privileged && !REVIEWER_COI_ENABLED) {
+      throw new ForbiddenException('Reviewer conflict declaration is disabled');
+    }
+
+    const conference = await this.conferences.loadConference(userId, conferenceId, roles);
 
     if (!privileged && !roles.includes('REVIEWER')) {
       throw new ForbiddenException('Reviewer or coordinator role required');
@@ -341,8 +358,12 @@ export class CoiService {
   }
 
   async declare(userId: string, conferenceId: string, input: DeclareCoiInput, roles: RoleKind[]) {
-    const conference = await this.conferences.loadConference(userId, conferenceId, roles);
     const privileged = isPrivilegedReader(roles);
+    if (!privileged && !REVIEWER_COI_ENABLED) {
+      throw new ForbiddenException('Reviewer conflict declaration is disabled');
+    }
+
+    const conference = await this.conferences.loadConference(userId, conferenceId, roles);
 
     const targetUserId = input.userId ?? userId;
     if (targetUserId !== userId && !privileged) {
@@ -392,8 +413,12 @@ export class CoiService {
   }
 
   async remove(userId: string, conferenceId: string, coiId: string, roles: RoleKind[]) {
-    const conference = await this.conferences.loadConference(userId, conferenceId, roles);
     const privileged = isPrivilegedReader(roles);
+    if (!privileged && !REVIEWER_COI_ENABLED) {
+      throw new ForbiddenException('Reviewer conflict declaration is disabled');
+    }
+
+    const conference = await this.conferences.loadConference(userId, conferenceId, roles);
 
     const coi = await withTenantContext({ userId, conferenceId }, async (tx) =>
       tx.conflictOfInterest.findFirst({ where: { id: coiId } }),

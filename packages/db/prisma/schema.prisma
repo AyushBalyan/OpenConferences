@@ -83,14 +83,6 @@ enum CoiSource {
   SYSTEM
 }
 
-enum RoundStatus {
-  OPEN
-  REVIEWING
-  REBUTTAL
-  DECIDING
-  CLOSED
-}
-
 enum ReviewVisibility {
   HIDDEN
   AUTHOR_VISIBLE
@@ -178,6 +170,7 @@ enum NotificationStatus {
 }
 
 model Organization {
+  inboxReadStates InboxReadState[]
   id        String    @id @db.Uuid
   slug      String
   name      String
@@ -210,6 +203,7 @@ model Organization {
 }
 
 model User {
+  inboxReadStates InboxReadState[]
   id               String    @id @db.Uuid
   name             String
   // Partial unique index in DB (active rows only); required for Better Auth update-by-email.
@@ -309,6 +303,7 @@ model TwoFactor {
 }
 
 model Conference {
+  inboxReadStates InboxReadState[]
   id              String           @id @db.Uuid
   organizationId  String           @db.Uuid
   slug            String
@@ -442,6 +437,7 @@ model Paper {
   authorships    Authorship[]
   bids           Bid[]
   conflictsOfInterest ConflictOfInterest[]
+  reviewRounds        ReviewRound[]
   reviewerAssignments ReviewerAssignment[]
   reviews             Review[]
   rebuttals           Rebuttal[]
@@ -519,27 +515,30 @@ model Authorship {
 }
 
 model ReviewRound {
-  id             String       @id @db.Uuid
-  organizationId String       @db.Uuid
-  conferenceId   String       @db.Uuid
-  roundNumber    Int
-  status         RoundStatus  @default(OPEN)
-  reviewDueAt    DateTime?
-  rebuttalDueAt  DateTime?
-  revisionDueAt  DateTime?
-  version        Int          @default(0)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id                String    @id @db.Uuid
+  organizationId    String    @db.Uuid
+  conferenceId      String    @db.Uuid
+  paperId           String    @db.Uuid
+  roundNumber       Int
+  reviewDueAt       DateTime?
+  rebuttalDueAt     DateTime?
+  revisionDueAt     DateTime?
+  reviewsReleasedAt DateTime?
+  version           Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id])
   conference   Conference   @relation(fields: [conferenceId], references: [id])
+  paper        Paper        @relation(fields: [paperId], references: [id])
   assignments  ReviewerAssignment[]
   reviews      Review[]
   rebuttals    Rebuttal[]
   decisions    Decision[]
 
-  @@unique([conferenceId, roundNumber])
-  @@index([conferenceId, status])
+  @@unique([paperId, roundNumber])
+  @@index([conferenceId])
+  @@index([paperId])
   @@map("review_rounds")
 }
 
@@ -876,4 +875,21 @@ model EmailSuppression {
   createdAt DateTime @default(now())
 
   @@map("email_suppressions")
+}
+
+model InboxReadState {
+  id String @id @db.Uuid
+  organizationId String @db.Uuid
+  conferenceId String @db.Uuid
+  userId String @db.Uuid
+  kind String
+  sourceId String @db.Uuid
+  readVersion Int
+  updatedAt DateTime @updatedAt
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conference Conference @relation(fields: [conferenceId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([userId, conferenceId, kind, sourceId])
+  @@index([conferenceId, userId])
+  @@map("inbox_read_states")
 }

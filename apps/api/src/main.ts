@@ -12,6 +12,7 @@ async function bootstrap(): Promise<void> {
   const config = getConfig();
   initSentry(config);
 
+  console.log(`[boot] object store ${config.s3.endpoint} bucket=${config.s3.bucket}`);
   console.log('[boot] asserting database role (first Postgres connect)');
   await assertSafeDatabaseRole();
   console.log('[boot] database role ok; creating Nest app (includes pg-boss start)');

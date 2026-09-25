@@ -32,12 +32,12 @@ import { AuditService } from '../audit/audit.service';
 import { NotificationPublisher } from '../messaging/notification.publisher';
 import { ConferenceService } from '../tenancy/conference.service';
 import { canCoordinateReview } from '../tenancy/role-hierarchy';
-import { mapDecision, mapReviewRound } from './review.mapper';
+import { mapDecision } from './review.mapper';
+import { minimumReviewsFromConfig, reviewCountWarning } from './review-stage';
 import { RoundsService } from './rounds.service';
 import { RegistrationsService } from '../billing/registrations.service';
 
 const REVISION_OUTCOMES: DecisionOutcome[] = ['MINOR_REVISION', 'MAJOR_REVISION'];
-const DECIDABLE_ROUND_STATUSES = new Set(['REBUTTAL', 'DECIDING']);
 
 type PaperForDecision = {
   id: string;
@@ -200,7 +200,8 @@ export class DecisionsService {
 
     return {
       decision: mapDecision(result.decision),
-      nextRound: result.nextRound ? mapReviewRound(result.nextRound) : null,
+      nextRound: null,
+      warnings: result.warnings,
       message: 'Decision recorded successfully',
     };
   }
@@ -216,109 +217,92 @@ export class DecisionsService {
       throw new ForbiddenException('Insufficient permissions to make decisions');
     }
 
+    void roundId;
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-    const round = await this.rounds.loadRound(userId, conferenceId, roundId, roles);
 
     const paperIds = input.items.map((item) => item.paperId);
     if (new Set(paperIds).size !== paperIds.length) {
       throw new BadRequestException('Duplicate paper IDs in bulk decision request');
     }
 
-    const papers = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId },
-      async (tx) =>
-        tx.paper.findMany({
-          where: { id: { in: paperIds }, conferenceId },
-          include: {
-            authorships: {
-              where: { isCorresponding: true },
-              select: { email: true, fullName: true, isCorresponding: true, userId: true },
-            },
-          },
-        }),
-    );
+    const successes: Array<{ decision: Decision; paper: PaperForDecision }> = [];
+    const failures: Array<{ paperId: string; reason: string }> = [];
 
-    if (papers.length !== paperIds.length) {
-      throw new NotFoundException('One or more papers were not found in this conference');
-    }
-
-    const paperById = new Map(papers.map((p) => [p.id, p]));
-
-    try {
-      const results = await withTenantContext(
-        { userId, conferenceId, organizationId: conference.organizationId },
-        async (tx) => {
-          const applied: Array<{ decision: Decision; paper: PaperForDecision }> = [];
-          let currentRound = round;
-
-          for (const item of input.items) {
-            const paper = paperById.get(item.paperId)!;
-            assertScope(paper, { conferenceId });
-
-            const outcome = await this.createDecisionAndUpdatePaper(
-              tx,
-              userId,
-              conference.organizationId,
-              conferenceId,
-              paper,
-              currentRound,
-              item.outcome,
-              item.rationale ?? null,
-            );
-
-            applied.push({ decision: outcome.decision, paper: outcome.paper });
-
-            if (outcome.nextRound) {
-              currentRound = outcome.nextRound;
-            }
-          }
-
-          return applied;
-        },
-      );
-
-      for (const { decision } of results) {
-        await this.audit.log({
-          actorUserId: userId,
-          organizationId: conference.organizationId,
+    for (const item of input.items) {
+      try {
+        const cycle = await withTenantContext(
+          { userId, conferenceId, organizationId: conference.organizationId },
+          async (tx) =>
+            tx.reviewRound.findFirst({
+              where: { conferenceId, paperId: item.paperId },
+              orderBy: { roundNumber: 'desc' },
+            }),
+        );
+        if (!cycle) {
+          failures.push({ paperId: item.paperId, reason: 'Paper has no review cycle' });
+          continue;
+        }
+        const paper = await this.loadPaper(userId, conferenceId, item.paperId);
+        const result = await this.applyDecisionInTransaction(
+          userId,
+          conference.organizationId,
           conferenceId,
-          action: 'decision.made',
-          entity: 'Decision',
-          entityId: decision.id,
-          diff: { paperId: decision.paperId, roundId, outcome: decision.outcome, bulk: true },
+          item.paperId,
+          cycle,
+          item.outcome,
+          item.rationale ?? null,
+          paper.version,
+        );
+        successes.push({ decision: result.decision, paper: result.paper });
+      } catch (error) {
+        failures.push({
+          paperId: item.paperId,
+          reason: error instanceof Error ? error.message : 'Decision failed',
         });
       }
-
-      if (input.notify !== false) {
-        await this.notifyDecisionAuthors(
-          results.map((r) => r.paper),
-          results.map((r) => r.decision),
-          roundId,
-        );
-      }
-
-      for (const { decision, paper } of results) {
-        if (decision.outcome === 'ACCEPT') {
-          await this.registrations.openRegistration(
-            conference.organizationId,
-            conferenceId,
-            paper.id,
-          );
-        }
-      }
-
-      return {
-        data: results.map((r) => mapDecision(r.decision)),
-        message: `${results.length} decision(s) recorded successfully`,
-      };
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('Unique constraint')) {
-        throw new ConflictException(
-          'A decision already exists for one or more papers in this round',
-        );
-      }
-      throw error;
     }
+
+    for (const { decision } of successes) {
+      await this.audit.log({
+        actorUserId: userId,
+        organizationId: conference.organizationId,
+        conferenceId,
+        action: 'decision.made',
+        entity: 'Decision',
+        entityId: decision.id,
+        diff: {
+          paperId: decision.paperId,
+          roundId: decision.roundId,
+          outcome: decision.outcome,
+          bulk: true,
+        },
+      });
+    }
+
+    const firstSuccess = successes[0];
+    if (input.notify !== false && firstSuccess) {
+      await this.notifyDecisionAuthors(
+        successes.map((row) => row.paper),
+        successes.map((row) => row.decision),
+        firstSuccess.decision.roundId,
+      );
+    }
+
+    for (const { decision, paper } of successes) {
+      if (decision.outcome === 'ACCEPT') {
+        await this.registrations.openRegistration(
+          conference.organizationId,
+          conferenceId,
+          paper.id,
+        );
+      }
+    }
+
+    return {
+      data: successes.map((row) => mapDecision(row.decision)),
+      failures,
+      message: `${successes.length} decision(s) recorded successfully`,
+    };
   }
 
   async notifyDecisions(
@@ -433,13 +417,13 @@ export class DecisionsService {
     round: ReviewRound,
     outcome: DecisionOutcome,
     rationale: string | null,
-  ): Promise<{ decision: Decision; paper: PaperForDecision; nextRound: ReviewRound | null }> {
+  ): Promise<{ decision: Decision; paper: PaperForDecision; warnings: string[] }> {
     if (paper.status === 'WITHDRAWN' || paper.status === 'WITHDRAWN_NONPAYMENT') {
       throw new ConflictException('Cannot decide on a withdrawn paper');
     }
 
-    if (!DECIDABLE_ROUND_STATUSES.has(round.status)) {
-      throw new ConflictException('Decisions can only be made during rebuttal or deciding phase');
+    if (round.paperId !== paper.id) {
+      throw new ConflictException('Review cycle does not belong to this paper');
     }
 
     const existingAssignment = await tx.reviewerAssignment.findFirst({
@@ -464,35 +448,21 @@ export class DecisionsService {
       },
     });
 
-    let nextRound: ReviewRound | null = null;
-    let nextPaperStatus: PaperStatus;
+    const submittedReviewCount = await tx.review.count({
+      where: { roundId: round.id, conferenceId, submittedAt: { not: null } },
+    });
+    const conference = await tx.conference.findUniqueOrThrow({
+      where: { id: conferenceId },
+      select: { reviewConfig: true },
+    });
+    const warning = reviewCountWarning(
+      submittedReviewCount,
+      minimumReviewsFromConfig(conference.reviewConfig),
+    );
 
-    if (REVISION_OUTCOMES.includes(outcome)) {
-      nextPaperStatus = 'UNDER_REVIEW';
-
-      await tx.reviewRound.update({
-        where: { id: round.id },
-        data: { status: 'CLOSED', version: { increment: 1 } },
-      });
-
-      nextRound = await tx.reviewRound.create({
-        data: {
-          id: generateId(),
-          organizationId,
-          conferenceId,
-          roundNumber: round.roundNumber + 1,
-          status: 'OPEN',
-          revisionDueAt: round.revisionDueAt,
-        },
-      });
-    } else {
-      nextPaperStatus = 'DECISION_MADE';
-
-      await tx.reviewRound.update({
-        where: { id: round.id },
-        data: { status: 'CLOSED', version: { increment: 1 } },
-      });
-    }
+    const nextPaperStatus: PaperStatus = REVISION_OUTCOMES.includes(outcome)
+      ? 'UNDER_REVIEW'
+      : 'DECISION_MADE';
 
     await tx.paper.update({
       where: { id: paper.id },
@@ -502,7 +472,7 @@ export class DecisionsService {
       },
     });
 
-    return { decision, paper, nextRound };
+    return { decision, paper, warnings: warning ? [warning] : [] };
   }
 
   private async loadPaper(userId: string, conferenceId: string, paperId: string) {
@@ -529,12 +499,17 @@ export class DecisionsService {
     const now = new Date();
     const decisionIds = decisions.map((d) => d.id);
 
-    await withTenantContext({}, async (tx) => {
+    const rounds = await withTenantContext({}, async (tx) => {
       await tx.decision.updateMany({
         where: { id: { in: decisionIds } },
         data: { notifiedAt: now },
       });
+      return tx.reviewRound.findMany({
+        where: { id: { in: decisions.map((decision) => decision.roundId) } },
+        select: { id: true, revisionDueAt: true },
+      });
     });
+    const revisionDueByRound = new Map(rounds.map((round) => [round.id, round.revisionDueAt]));
 
     for (const decision of decisions) {
       const paper = papers.find((p) => p.id === decision.paperId);
@@ -556,16 +531,25 @@ export class DecisionsService {
         rationaleBlock: decision.rationale?.trim()
           ? `Committee note: ${decision.rationale.trim()}`
           : '',
-        acceptBlock:
-          decision.outcome === 'ACCEPT'
-            ? 'Next steps: upload your camera-ready version and complete conference registration before the deadline.'
-            : decision.outcome === 'REJECT'
-              ? 'Thank you for your submission. We encourage you to consider the reviewer feedback when preparing future work.'
-              : '',
+        acceptBlock: this.decisionNextSteps(
+          decision.outcome,
+          revisionDueByRound.get(decision.roundId) ?? null,
+        ),
         decisionId: decision.id,
         idempotencyKey: `decision-${decision.paperId}-${roundId}`,
       });
     }
+  }
+
+  private decisionNextSteps(outcome: DecisionOutcome, revisionDueAt: Date | null): string {
+    if (outcome === 'ACCEPT') {
+      return 'Next steps: upload your camera-ready version and complete conference registration before the deadline.';
+    }
+    if (outcome === 'REJECT') {
+      return 'Thank you for your submission. We encourage you to consider the reviewer feedback when preparing future work.';
+    }
+    const deadline = revisionDueAt ? ` before ${revisionDueAt.toISOString()}` : '';
+    return `Next steps: upload a revised PDF on this submission${deadline}.`;
   }
 
   private outcomeLabel(outcome: DecisionOutcome): string {

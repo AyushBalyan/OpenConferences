@@ -278,9 +278,9 @@ Phases 1–2.
 
 ## Phase 4 — Reviewer Management & Assignment
 
-**Status:** ✅ **Complete** (2026-06-30)
+**Status:** ✅ **Complete** (2026-06-30). The conference-wide round gate is superseded by Phase 6b; assignment, COI, bids, and invitations remain.
 
-**Objective.** Reviewer invitations, bidding, **conflict-of-interest** declaration, and assignment into `ReviewRound 1` (respecting bids + COI), with assignment UI and notifications.
+**Objective.** Reviewer invitations, bidding, **conflict-of-interest** declaration, and assignment into a paper’s cycle 1 (respecting bids + COI), with assignment UI and notifications.
 
 **Business value.** Connects people to papers — the setup step that makes peer review possible. Encodes the COI invariant (§5.3, §19) that protects review integrity.
 
@@ -344,7 +344,9 @@ Phases 1–3.
 
 ## Phase 5 — Reviews
 
-**Objective.** Review submission forms, review lifecycle and visibility (`HIDDEN → AUTHOR_VISIBLE`), reviewer dashboard, validation, and rebuttal — with concurrency-safe state.
+> Superseded in part by Phase 6b: release and rebuttal are per paper. Visibility, the review editor, and concurrency locking from this phase remain.
+
+**Objective.** Review submission forms, per-paper review visibility (`HIDDEN → AUTHOR_VISIBLE`), reviewer dashboard, validation, and rebuttal — with concurrency-safe state.
 
 **Business value.** The core academic value of the platform. Completes the reviewer's day-to-day workflow.
 
@@ -398,7 +400,9 @@ Phases 1–4.
 
 ## Phase 6 — Decisions
 
-**Objective.** Accept/Reject (and revision outcomes), one decision per paper per round, status transitions, decision notifications, and the organizer decision workflow — including opening the next round on `MINOR/MAJOR_REVISION`.
+> Superseded in part by Phase 6b: a decision does not close other papers or open a conference round. One decision per paper per cycle, notifications, and acceptance finalization from this phase remain.
+
+**Objective.** Accept/Reject (and revision outcomes), one decision per paper per cycle, status transitions, decision notifications, and the organizer decision workflow. A revision waits for a `PaperVersion(kind=REVISION)` before the next cycle exists.
 
 **Business value.** Converts review effort into outcomes and triggers the entire finalization (camera-ready + registration) machinery.
 
@@ -443,6 +447,48 @@ Phases 1–5.
 ### Risks
 
 - _Decision/round race conditions_ — enforce uniqueness in DB + transaction, not just app logic.
+
+---
+
+## Phase 6b — Paper-independent review cycles
+
+**Objective.** Replace the conference-wide `ReviewRound` phase with one cycle per paper, as specified in `SYSTEM_DESIGN.md` §19. A finished paper can be released, rebutted, and decided while another paper is still in review.
+
+**Business value.** Chairs are no longer forced to hold every paper for the slowest review, and an unfinished paper is not swept into a later conference round.
+
+**Modules.** `Review` (`ReviewRound`, assignments, reviews, rebuttals, decisions) and `Submission` (revision upload).
+
+### Database tasks
+
+- `review_rounds.paperId` required; unique `(paperId, roundNumber)`; drop `RoundStatus`; add `reviewsReleasedAt`.
+- Migrate each existing conference round into one cycle per paper that already has an assignment, review, rebuttal, or decision. Delete empty conference rounds.
+
+### Backend tasks
+
+- Derive stage from assignments, `reviewsReleasedAt`, the decision, and a newer cycle.
+- First assignment creates cycle 1. Release, rebuttal, and decision lock that cycle only.
+- Revision upload creates cycle N+1. Bulk release and bulk decision are one transaction per paper.
+- Warn, and do not block, when submitted reviews are below the conference minimum.
+
+### Frontend tasks
+
+- Replace conference round phase controls with a per-paper progress board.
+- Assignment targets the paper. Cycle history is per paper. Pending decisions include incomplete reviews, with the warning visible.
+
+### Testing tasks
+
+- Eight papers can be released and accepted while two remain in review.
+- A second release publishes a later review. A decision on one paper does not change another.
+- A revision decision creates no cycle; a `REVISION` upload creates cycle 2 for that paper only.
+- Rebuttal is rejected before release and after `rebuttalDueAt`. Author visibility and blinding stay unchanged.
+
+### Exit criteria
+
+- The design contract in §19 matches the API and the chair board. Integration tests above are green.
+
+### Dependencies
+
+Phases 4–6.
 
 ---
 
@@ -542,6 +588,8 @@ Phases 1–3, 6 (acceptance), 9 recommended for emails (can stub).
 ---
 
 ## Phase 9 — Notifications
+
+**Participant inbox slice (23 September 2026, local implementation):** the conference Updates page projects eligible released reviews and submitted rebuttals, with persistent version-scoped read receipts, exact-round links, pagination and visibility-aware refresh. Receipt RLS is tested in disposable PostgreSQL. Apply `20260923010000_participant_inbox` before deploying the API/UI. This does not complete notification history, decision/deadline alerts, global unread counts or delivery monitoring; authenticated browser acceptance remains pending. See `PAPER_LIFECYCLE_UX_PLAN.md` for rollout and historical-baseline constraints.
 
 **Objective.** Production email service behind the `Mailer` interface: Zepto Mail adapter, data-driven templates, pg-boss queue, retries/dead-letter, idempotency, reminders, and bounce handling.
 

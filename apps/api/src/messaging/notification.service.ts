@@ -154,10 +154,11 @@ export class NotificationService {
     if (!input.conferenceId || String(context.conferenceName ?? '').trim()) {
       return context;
     }
+    const conferenceId = input.conferenceId;
 
     const conference = await withTenantContext({}, async (tx) =>
       tx.conference.findFirst({
-        where: { id: input.conferenceId },
+        where: { id: conferenceId },
         select: { name: true },
       }),
     );

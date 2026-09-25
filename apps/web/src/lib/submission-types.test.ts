@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { paperHasCleanDownload, type PaperDto } from './submission-types';
+import {
+  canSubmitDraft,
+  latestScanStatus,
+  paperHasCleanDownload,
+  type PaperDto,
+} from './submission-types';
 
 function paper(overrides: Partial<PaperDto>): PaperDto {
   return {
@@ -48,6 +53,22 @@ const cleanVersion = {
 };
 
 describe('paperHasCleanDownload', () => {
+  it('blocks submission of an older clean file while its replacement is scanning', () => {
+    const draft = paper({
+      status: 'DRAFT',
+      currentVersionId: cleanVersion.id,
+      currentVersion: cleanVersion,
+      latestVersion: {
+        ...cleanVersion,
+        id: '22222222-2222-2222-2222-222222222222',
+        fileAsset: { ...cleanVersion.fileAsset, scanStatus: 'PENDING_SCAN' },
+      },
+    });
+    expect(canSubmitDraft(draft)).toBe(false);
+    expect(latestScanStatus(draft)).toBe('PENDING_SCAN');
+    expect(paperHasCleanDownload(draft)).toBe(true);
+    expect(canSubmitDraft({ ...draft, latestVersion: cleanVersion })).toBe(true);
+  });
   it('requires a current version whose scan is CLEAN', () => {
     expect(paperHasCleanDownload(paper({ currentVersionId: null }))).toBe(false);
     expect(

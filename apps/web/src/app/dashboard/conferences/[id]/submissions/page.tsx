@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DownloadPaperButton } from '@/components/dashboard/download-paper-button';
 import { Input } from '@/components/ui/input';
@@ -16,7 +17,6 @@ import {
   DataTablePagination,
   DataTableRow,
   DataTableSkeleton,
-  DataTableToolbar,
 } from '@/components/dashboard/data-table';
 import { SectionPageLayout } from '@/components/dashboard/section-page-layout';
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
@@ -100,37 +100,43 @@ export default function SubmissionsListPage() {
         ) : undefined
       }
     >
-      <DataTableToolbar className="lg:max-w-2xl">
-        <div className="grid flex-1 gap-4 sm:grid-cols-2">
-          <div>
-            <Label htmlFor="submissions-status">Status</Label>
-            <select
-              id="submissions-status"
-              className="mt-1 flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
-              value={filter.status}
-              onChange={(event) =>
-                setFilter({ status: event.target.value as SubmissionsFilter['status'] })
-              }
-            >
-              {STATUS_OPTIONS.map((option) => (
-                <option key={option.value || 'all'} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <Label htmlFor="submissions-search">Search</Label>
-            <Input
-              id="submissions-search"
-              className="mt-1"
-              placeholder="Title or abstract"
-              value={filter.q}
-              onChange={(event) => setFilter({ q: event.target.value })}
-            />
-          </div>
+      <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-2 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400"
+            aria-hidden
+          />
+          <Label htmlFor="submissions-search" className="sr-only">
+            Search
+          </Label>
+          <Input
+            id="submissions-search"
+            className="h-9 border-0 pl-9 shadow-none focus-visible:ring-0"
+            placeholder="Search by title or abstract"
+            value={filter.q}
+            onChange={(event) => setFilter({ q: event.target.value })}
+          />
         </div>
-      </DataTableToolbar>
+        <div className="flex items-center gap-2 sm:border-l sm:border-slate-100 sm:pl-3">
+          <Label htmlFor="submissions-status" className="text-xs font-medium text-slate-500">
+            Status
+          </Label>
+          <select
+            id="submissions-status"
+            className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-700"
+            value={filter.status}
+            onChange={(event) =>
+              setFilter({ status: event.target.value as SubmissionsFilter['status'] })
+            }
+          >
+            {STATUS_OPTIONS.map((option) => (
+              <option key={option.value || 'all'} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       {loading ? (
         <DataTableSkeleton rows={5} />
@@ -176,11 +182,13 @@ export default function SubmissionsListPage() {
                     <div>
                       <Link
                         href={`/dashboard/conferences/${conferenceId}/submissions/${paper.id}`}
-                        className="font-medium text-slate-900 hover:text-indigo-700 hover:underline"
+                        className="font-medium text-slate-900 hover:text-indigo-700"
                       >
                         {paper.title}
                       </Link>
-                      <p className="mt-0.5 line-clamp-1 text-xs text-slate-500">{paper.abstract}</p>
+                      <p className="mt-1 line-clamp-1 max-w-xl text-xs text-slate-500">
+                        {paper.abstract}
+                      </p>
                     </div>
                   </DataTableCell>
                   <DataTableCell>
@@ -189,8 +197,12 @@ export default function SubmissionsListPage() {
                       tone={paperStatusTone(paper.status)}
                     />
                   </DataTableCell>
-                  <DataTableCell className="font-mono text-xs text-slate-500">
-                    {new Date(paper.updatedAt).toLocaleDateString()}
+                  <DataTableCell className="whitespace-nowrap text-sm tabular-nums text-slate-500">
+                    {new Date(paper.updatedAt).toLocaleDateString(undefined, {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                    })}
                   </DataTableCell>
                   <DataTableCell className="text-right">
                     <div className="inline-flex items-center justify-end gap-1">

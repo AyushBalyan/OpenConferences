@@ -234,8 +234,8 @@ async function main(): Promise<void> {
         id: roundId,
         organizationId: orgId,
         conferenceId,
+        paperId,
         roundNumber: 1,
-        status: 'OPEN',
         reviewDueAt: new Date('2026-12-31T23:59:59Z'),
       },
     });

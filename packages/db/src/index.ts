@@ -118,7 +118,6 @@ export type {
   BidValue,
   CoiType,
   CoiSource,
-  RoundStatus,
   ReviewVisibility,
   InvitationStatus,
   AssignmentStatus,

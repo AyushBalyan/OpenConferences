@@ -4,7 +4,7 @@ import { INestApplication } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 import request from 'supertest';
 import { getConfig } from '@openconferences/config/env';
-import { prisma, generateId, withTenantContext } from '@openconferences/db';
+import { prisma, generateId, withTenantContext, applyScanResult } from '@openconferences/db';
 import {
   lastTestNotifications,
   resetLastTestNotification,
@@ -698,18 +698,6 @@ describe('Paper submission integration', () => {
           data: { cameraReadyDueAt: cameraReadyDue },
         });
 
-        const roundId = generateId();
-
-        await tx.reviewRound.create({
-          data: {
-            id: roundId,
-            organizationId: orgId,
-            conferenceId: confId,
-            roundNumber: 99,
-            status: 'CLOSED',
-          },
-        });
-
         acceptedPaperId = generateId();
         unnotifiedPaperId = generateId();
         rejectedPaperId = generateId();
@@ -739,54 +727,36 @@ describe('Paper submission integration', () => {
           ],
         });
 
-        await tx.decision.createMany({
-          data: [
-            {
+        for (const item of [
+          { paperId: acceptedPaperId, outcome: 'ACCEPT' as const, notifiedAt: new Date() },
+          { paperId: unnotifiedPaperId, outcome: 'ACCEPT' as const, notifiedAt: null },
+          { paperId: rejectedPaperId, outcome: 'REJECT' as const, notifiedAt: new Date() },
+          { paperId: lateDeadlinePaperId, outcome: 'ACCEPT' as const, notifiedAt: new Date() },
+        ]) {
+          const cycleId = generateId();
+          await tx.reviewRound.create({
+            data: {
+              id: cycleId,
+              organizationId: orgId,
+              conferenceId: confId,
+              paperId: item.paperId,
+              roundNumber: 1,
+            },
+          });
+          await tx.decision.create({
+            data: {
               id: generateId(),
               organizationId: orgId,
               conferenceId: confId,
-              paperId: acceptedPaperId,
-              roundId,
+              paperId: item.paperId,
+              roundId: cycleId,
               decidedById: authorUserId,
-              outcome: 'ACCEPT',
-              notifiedAt: new Date(),
+              outcome: item.outcome,
+              notifiedAt: item.notifiedAt,
               version: 1,
             },
-            {
-              id: generateId(),
-              organizationId: orgId,
-              conferenceId: confId,
-              paperId: unnotifiedPaperId,
-              roundId,
-              decidedById: authorUserId,
-              outcome: 'ACCEPT',
-              notifiedAt: null,
-              version: 1,
-            },
-            {
-              id: generateId(),
-              organizationId: orgId,
-              conferenceId: confId,
-              paperId: rejectedPaperId,
-              roundId,
-              decidedById: authorUserId,
-              outcome: 'REJECT',
-              notifiedAt: new Date(),
-              version: 1,
-            },
-            {
-              id: generateId(),
-              organizationId: orgId,
-              conferenceId: confId,
-              paperId: lateDeadlinePaperId,
-              roundId,
-              decidedById: authorUserId,
-              outcome: 'ACCEPT',
-              notifiedAt: new Date(),
-              version: 1,
-            },
-          ],
-        });
+          });
+        }
       });
     });
 
@@ -974,16 +944,6 @@ describe('Paper submission integration', () => {
       const roundId = generateId();
 
       await withTenantContext({}, async (tx) => {
-        await tx.reviewRound.create({
-          data: {
-            id: roundId,
-            organizationId: orgId,
-            conferenceId: confId,
-            roundNumber: 100,
-            status: 'CLOSED',
-          },
-        });
-
         await tx.paper.create({
           data: {
             id: paperId,
@@ -995,6 +955,16 @@ describe('Paper submission integration', () => {
             abstract: 'Should not become camera-ready.',
             keywords: [],
             status: 'DECISION_MADE',
+          },
+        });
+
+        await tx.reviewRound.create({
+          data: {
+            id: roundId,
+            organizationId: orgId,
+            conferenceId: confId,
+            paperId,
+            roundNumber: 1,
           },
         });
 
@@ -1023,6 +993,237 @@ describe('Paper submission integration', () => {
       expect(paper.body.status).toBe('DECISION_MADE');
       expect(paper.body.cameraReadyVersion?.fileAsset?.scanStatus).toBe('INFECTED');
       expect(paper.body.currentVersionId).toBeNull();
+    });
+  });
+
+  describe('POST revision version', () => {
+    const futureDue = new Date(Date.now() + 86_400_000 * 14);
+
+    async function seedRevisionPaper(options: {
+      status?: 'UNDER_REVIEW' | 'DECISION_MADE' | 'WITHDRAWN';
+      outcome?: 'MINOR_REVISION' | 'MAJOR_REVISION' | 'ACCEPT' | 'REJECT';
+      notifiedAt?: Date | null;
+      revisionDueAt?: Date | null;
+    }) {
+      const paperId = generateId();
+      const roundId = generateId();
+      await withTenantContext({}, async (tx) => {
+        await tx.paper.create({
+          data: {
+            id: paperId,
+            organizationId: orgId,
+            conferenceId: confId,
+            trackId,
+            submittedById: authorUserId,
+            title: 'Revision upload paper',
+            abstract: 'Needs a revised PDF.',
+            keywords: [],
+            status: options.status ?? 'UNDER_REVIEW',
+          },
+        });
+        await tx.reviewRound.create({
+          data: {
+            id: roundId,
+            organizationId: orgId,
+            conferenceId: confId,
+            paperId,
+            roundNumber: 1,
+            revisionDueAt: options.revisionDueAt === undefined ? futureDue : options.revisionDueAt,
+          },
+        });
+        await tx.decision.create({
+          data: {
+            id: generateId(),
+            organizationId: orgId,
+            conferenceId: confId,
+            paperId,
+            roundId,
+            decidedById: authorUserId,
+            outcome: options.outcome ?? 'MINOR_REVISION',
+            notifiedAt: options.notifiedAt === undefined ? new Date() : options.notifiedAt,
+            version: 1,
+          },
+        });
+      });
+      return { paperId, roundId };
+    }
+
+    async function uploadRevision(paperId: string, cookie: string, filename = 'revision.pdf') {
+      const initiate = await request(app.getHttpServer())
+        .post(`/api/v1/conferences/${confId}/papers/${paperId}/versions/initiate`)
+        .set('Cookie', cookie)
+        .send({
+          originalFilename: filename,
+          contentType: 'application/pdf',
+          sizeBytes: 4096,
+          kind: 'REVISION',
+        });
+      if (initiate.status !== 200) return initiate;
+      return request(app.getHttpServer())
+        .post(`/api/v1/conferences/${confId}/papers/${paperId}/versions/complete`)
+        .set('Cookie', cookie)
+        .send({ objectKey: initiate.body.objectKey, kind: 'REVISION' });
+    }
+
+    it('opens the next cycle once a clean revision is current', async () => {
+      const { paperId } = await seedRevisionPaper({});
+      const complete = await uploadRevision(paperId, authorCookie);
+      expect(complete.status).toBe(201);
+
+      const paper = await request(app.getHttpServer())
+        .get(`/api/v1/conferences/${confId}/papers/${paperId}`)
+        .set('Cookie', authorCookie);
+      expect(paper.body.revisionVersion?.fileAsset?.scanStatus).toBe('CLEAN');
+      expect(paper.body.currentVersion?.kind).toBe('REVISION');
+      expect(paper.body.status).toBe('UNDER_REVIEW');
+      expect(paper.body.revisionDueAt).toBeTruthy();
+
+      const cycles = await prisma.reviewRound.findMany({
+        where: { paperId },
+        orderBy: { roundNumber: 'asc' },
+      });
+      expect(cycles).toHaveLength(2);
+      expect(cycles[1]?.roundNumber).toBe(2);
+    });
+
+    it('does not open a cycle for an infected revision and allows a later clean upload', async () => {
+      const { paperId } = await seedRevisionPaper({});
+      const infected = await uploadRevision(paperId, authorCookie, 'eicar-revision.pdf');
+      expect(infected.status).toBe(201);
+      expect(await prisma.reviewRound.count({ where: { paperId } })).toBe(1);
+
+      const clean = await uploadRevision(paperId, authorCookie, 'revision.pdf');
+      expect(clean.status).toBe(201);
+      expect(await prisma.reviewRound.count({ where: { paperId } })).toBe(2);
+
+      const paper = await prisma.paper.findUnique({ where: { id: paperId } });
+      expect(paper?.currentVersionId).toBeTruthy();
+    });
+
+    it('replaces the revised PDF without opening a third cycle before assignment', async () => {
+      const { paperId } = await seedRevisionPaper({});
+      expect((await uploadRevision(paperId, authorCookie, 'revision-v1.pdf')).status).toBe(201);
+      expect((await uploadRevision(paperId, authorCookie, 'revision-v2.pdf')).status).toBe(201);
+      expect(await prisma.reviewRound.count({ where: { paperId } })).toBe(2);
+
+      const current = await prisma.paper.findUnique({
+        where: { id: paperId },
+        include: { currentVersion: true },
+      });
+      expect(current?.currentVersion?.versionNumber).toBe(2);
+    });
+
+    it('rejects another revision after the next cycle has an assignment', async () => {
+      const { paperId } = await seedRevisionPaper({});
+      expect((await uploadRevision(paperId, authorCookie)).status).toBe(201);
+      const nextCycle = await prisma.reviewRound.findFirst({
+        where: { paperId, roundNumber: 2 },
+      });
+      await withTenantContext({}, async (tx) => {
+        await tx.reviewerAssignment.create({
+          data: {
+            id: generateId(),
+            organizationId: orgId,
+            conferenceId: confId,
+            roundId: nextCycle!.id,
+            paperId,
+            reviewerUserId: authorUserId,
+            status: 'ASSIGNED',
+          },
+        });
+      });
+
+      const res = await uploadRevision(paperId, authorCookie, 'revision-v3.pdf');
+      expect(res.status).toBe(409);
+      expect(await prisma.reviewRound.count({ where: { paperId } })).toBe(2);
+    });
+
+    it('rejects an unnotified revision decision', async () => {
+      const { paperId } = await seedRevisionPaper({ notifiedAt: null });
+      const res = await uploadRevision(paperId, authorCookie);
+      expect(res.status).toBe(404);
+    });
+
+    it('rejects a missing or passed revision deadline', async () => {
+      const missing = await seedRevisionPaper({ revisionDueAt: null });
+      expect((await uploadRevision(missing.paperId, authorCookie)).status).toBe(422);
+
+      const passed = await seedRevisionPaper({
+        revisionDueAt: new Date(Date.now() - 86_400_000),
+      });
+      expect((await uploadRevision(passed.paperId, authorCookie)).status).toBe(422);
+    });
+
+    it('rejects accept, reject, withdrawn papers, and non-authors', async () => {
+      const accepted = await seedRevisionPaper({ status: 'DECISION_MADE', outcome: 'ACCEPT' });
+      expect((await uploadRevision(accepted.paperId, authorCookie)).status).toBe(409);
+
+      const rejected = await seedRevisionPaper({ status: 'UNDER_REVIEW', outcome: 'REJECT' });
+      expect((await uploadRevision(rejected.paperId, authorCookie)).status).toBe(409);
+
+      const withdrawn = await seedRevisionPaper({ status: 'WITHDRAWN' });
+      expect((await uploadRevision(withdrawn.paperId, authorCookie)).status).toBe(409);
+
+      const allowed = await seedRevisionPaper({});
+      expect((await uploadRevision(allowed.paperId, organizerCookie)).status).toBe(403);
+    });
+
+    it('keeps an older clean revision from replacing a newer one', async () => {
+      const { paperId } = await seedRevisionPaper({});
+      const file = async (name: string) => {
+        const assetId = generateId();
+        const versionId = generateId();
+        await withTenantContext({}, async (tx) => {
+          const latest = await tx.paperVersion.findFirst({
+            where: { paperId, kind: 'REVISION' },
+            orderBy: { versionNumber: 'desc' },
+          });
+          await tx.fileAsset.create({
+            data: {
+              id: assetId,
+              organizationId: orgId,
+              uploadedById: authorUserId,
+              bucket: 'test',
+              objectKey: `${paperId}/${name}`,
+              sizeBytes: 10,
+              checksumSha256: 'a'.repeat(64),
+              mimeType: 'application/pdf',
+              originalFilename: name,
+              scanStatus: 'PENDING_SCAN',
+            },
+          });
+          await tx.paperVersion.create({
+            data: {
+              id: versionId,
+              paperId,
+              fileAssetId: assetId,
+              uploadedById: authorUserId,
+              kind: 'REVISION',
+              versionNumber: (latest?.versionNumber ?? 0) + 1,
+            },
+          });
+        });
+        return { assetId, versionId };
+      };
+
+      const older = await file('older.pdf');
+      const newer = await file('newer.pdf');
+      await applyScanResult({
+        fileAssetId: newer.assetId,
+        paperVersionId: newer.versionId,
+        paperId,
+        scanStatus: 'CLEAN',
+      });
+      await applyScanResult({
+        fileAssetId: older.assetId,
+        paperVersionId: older.versionId,
+        paperId,
+        scanStatus: 'CLEAN',
+      });
+
+      const paper = await prisma.paper.findUnique({ where: { id: paperId } });
+      expect(paper?.currentVersionId).toBe(newer.versionId);
+      expect(await prisma.reviewRound.count({ where: { paperId } })).toBe(2);
     });
   });
 });

@@ -13,7 +13,6 @@ export function AssignmentsManualPanel() {
   const searchParams = useSearchParams();
   const {
     conferenceId,
-    roundId,
     papers,
     reviewers,
     selectedPaper,
@@ -36,13 +35,12 @@ export function AssignmentsManualPanel() {
   }, [searchParams, setSelectedPaper, setSelectedReviewer]);
 
   async function handleAssign() {
-    if (!roundId || !selectedPaper || !selectedReviewer) return;
+    if (!selectedPaper || !selectedReviewer) return;
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
       const result = await createAssignment(conferenceId, selectedPaper, {
-        roundId,
         reviewerUserId: selectedReviewer,
       });
       setMessage(result.message);
@@ -108,7 +106,10 @@ export function AssignmentsManualPanel() {
             </select>
           </div>
         </div>
-        <Button onClick={() => void handleAssign()} disabled={busy || !roundId}>
+        <Button
+          onClick={() => void handleAssign()}
+          disabled={busy || !selectedPaper || !selectedReviewer}
+        >
           Assign reviewer
         </Button>
       </CardContent>

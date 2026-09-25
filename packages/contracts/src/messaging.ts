@@ -29,6 +29,49 @@ const logParams = z.object({
 });
 
 export const messagingContract = c.router({
+  listInbox: {
+    method: 'GET',
+    path: '/conferences/:id/inbox',
+    pathParams: conferenceIdParams,
+    query: z.object({ kind: z.enum(['REVIEW', 'REBUTTAL']), cursor: z.string().uuid().optional() }),
+    responses: {
+      200: z.object({
+        data: z.array(
+          z.object({
+            id: z.string().uuid(),
+            kind: z.enum(['REVIEW', 'REBUTTAL']),
+            version: z.number().int(),
+            paperId: z.string().uuid(),
+            roundId: z.string().uuid(),
+            title: z.string(),
+            updatedAt: z.string().datetime(),
+            unread: z.boolean(),
+            href: z.string(),
+          }),
+        ),
+        nextCursor: z.string().uuid().nullable(),
+      }),
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+    },
+  },
+  readInbox: {
+    method: 'POST',
+    path: '/conferences/:id/inbox/read',
+    pathParams: conferenceIdParams,
+    body: z.object({
+      kind: z.enum(['REVIEW', 'REBUTTAL']),
+      sourceId: z.string().uuid(),
+      version: z.number().int().nonnegative(),
+    }),
+    responses: {
+      200: z.object({ read: z.literal(true) }),
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+      409: problemEnvelopeSchema,
+    },
+  },
   listNotificationLogs: {
     method: 'GET',
     path: '/conferences/:id/notification-logs',

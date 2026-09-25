@@ -14,6 +14,7 @@ export const problemEnvelopeSchema = z.object({
   title: z.string(),
   status: z.number().int(),
   detail: z.string().optional(),
+  code: z.string().optional(),
   instance: z.string().optional(),
 });
 

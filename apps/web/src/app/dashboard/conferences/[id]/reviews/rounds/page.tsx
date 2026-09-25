@@ -2,7 +2,6 @@
 
 import { PageHeader } from '@/components/dashboard/page-header';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import {
   DataTable,
   DataTableBody,
@@ -13,42 +12,30 @@ import {
   DataTableRow,
 } from '@/components/dashboard/data-table';
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
-import {
-  createReviewRound,
-  fetchReviewRounds,
-  releaseReviews,
-  updateReviewRound,
-} from '@/lib/api-client';
-import { roundStatusLabel, type ReviewRoundDto } from '@/lib/review-types';
+import { fetchReviewProgress, releaseReviews } from '@/lib/api-client';
+import { reviewStageLabel, type ReviewStage } from '@/lib/review-types';
+import type { PaperReviewProgressDto } from '@openconferences/schemas';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
-function roundTone(status: ReviewRoundDto['status']) {
-  if (status === 'CLOSED') return 'neutral' as const;
-  if (status === 'REVIEWING' || status === 'REBUTTAL') return 'pending' as const;
-  if (status === 'DECIDING') return 'info' as const;
-  return 'success' as const;
+function stageTone(stage: ReviewStage) {
+  if (stage === 'DECIDED') return 'success' as const;
+  if (stage === 'FEEDBACK_RELEASED' || stage === 'REVISION_REQUESTED') return 'pending' as const;
+  if (stage === 'IN_REVIEW') return 'info' as const;
+  return 'neutral' as const;
 }
 
-function nextRoundNumber(rounds: ReviewRoundDto[]) {
-  if (rounds.length === 0) return 1;
-  return Math.max(...rounds.map((round) => round.roundNumber)) + 1;
-}
-
-export default function ReviewRoundsPage() {
-  return <ReviewRounds />;
-}
-
-function ReviewRounds() {
+export default function ReviewProgressPage() {
   const params = useParams<{ id: string }>();
   const conferenceId = params.id;
-  const [rounds, setRounds] = useState<ReviewRoundDto[]>([]);
+  const [rows, setRows] = useState<PaperReviewProgressDto[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const data = await fetchReviewRounds(conferenceId);
-    setRounds(data);
+    const progress = await fetchReviewProgress(conferenceId);
+    setRows(progress.data);
     setError(null);
   }, [conferenceId]);
 
@@ -56,150 +43,85 @@ function ReviewRounds() {
     load().catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'));
   }, [load]);
 
-  const upcomingRoundNumber = nextRoundNumber(rounds);
-  const hasActiveRound = rounds.some((round) => round.status !== 'CLOSED');
-  const canOpenRound = !hasActiveRound;
-
-  async function handleOpenRound() {
-    if (!canOpenRound) return;
-
-    setBusy(true);
+  async function handleRelease(row: PaperReviewProgressDto) {
+    if (!row.cycleId || row.cycleVersion == null) return;
+    setBusyId(row.paperId);
     setError(null);
+    setMessage(null);
     try {
-      await createReviewRound(conferenceId, { roundNumber: upcomingRoundNumber });
+      const result = await releaseReviews(conferenceId, row.paperId, row.cycleId, {
+        version: row.cycleVersion,
+      });
+      setMessage(result.message);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to open review round');
+      setError(err instanceof Error ? err.message : 'Release failed');
     } finally {
-      setBusy(false);
+      setBusyId(null);
     }
   }
-
-  async function handleAdvance(round: ReviewRoundDto) {
-    const next =
-      round.status === 'OPEN'
-        ? 'REVIEWING'
-        : round.status === 'REBUTTAL'
-          ? 'DECIDING'
-          : round.status === 'DECIDING'
-            ? 'CLOSED'
-            : null;
-    if (!next) return;
-
-    setBusy(true);
-    setError(null);
-    try {
-      await updateReviewRound(conferenceId, round.id, { status: next, version: round.version });
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update round');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleRelease(round: ReviewRoundDto) {
-    setBusy(true);
-    setError(null);
-    try {
-      await releaseReviews(conferenceId, round.id, { version: round.version });
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to release reviews');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const openRoundLabel = `Open Round ${upcomingRoundNumber}`;
 
   return (
-    <div className="space-y-6">
+    <div>
       <PageHeader
-        title="Review rounds"
-        description="Open, close, and manage review rounds."
-        actions={
-          canOpenRound && rounds.length > 0 ? (
-            <Button disabled={busy} onClick={() => void handleOpenRound()}>
-              {openRoundLabel}
-            </Button>
-          ) : undefined
-        }
+        title="Review progress"
+        description="Each paper moves on its own. Releasing or deciding one paper leaves the others in review."
       />
-
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
-
-      {rounds.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-4 py-8 text-center">
-            <p className="text-muted-foreground">
-              No review rounds yet. Open Round 1 to begin assignments.
-            </p>
-            <Button disabled={busy} onClick={() => void handleOpenRound()}>
-              {openRoundLabel}
-            </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <DataTable
-          footer={
-            <DataTableFooter>
-              {rounds.length} round{rounds.length === 1 ? '' : 's'}
-            </DataTableFooter>
-          }
-        >
-          <DataTableHeader>
-            <tr>
-              <DataTableHead>Round</DataTableHead>
-              <DataTableHead>Status</DataTableHead>
-              <DataTableHead>Review due</DataTableHead>
-              <DataTableHead className="text-right">Actions</DataTableHead>
-            </tr>
-          </DataTableHeader>
-          <DataTableBody>
-            {rounds.map((round) => (
-              <DataTableRow key={round.id}>
-                <DataTableCell>
-                  <p className="font-medium text-slate-900">Round {round.roundNumber}</p>
-                </DataTableCell>
-                <DataTableCell>
-                  <WorkflowBadge
-                    label={roundStatusLabel(round.status)}
-                    tone={roundTone(round.status)}
-                  />
-                </DataTableCell>
-                <DataTableCell className="font-mono text-xs text-slate-500">
-                  {round.reviewDueAt ? new Date(round.reviewDueAt).toLocaleDateString() : '—'}
-                </DataTableCell>
-                <DataTableCell className="text-right">
-                  <div className="flex flex-wrap justify-end gap-1">
-                    {round.status === 'REVIEWING' ? (
-                      <Button
-                        variant="default"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => handleRelease(round)}
-                      >
-                        Release reviews
-                      </Button>
-                    ) : null}
-                    {round.status !== 'CLOSED' && round.status !== 'REVIEWING' ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => handleAdvance(round)}
-                      >
-                        Advance status
-                      </Button>
-                    ) : null}
-                  </div>
-                </DataTableCell>
-              </DataTableRow>
-            ))}
-          </DataTableBody>
-        </DataTable>
-      )}
+      {error ? <p className="mb-4 text-sm text-red-600">{error}</p> : null}
+      {message ? <p className="mb-4 text-sm text-emerald-700">{message}</p> : null}
+      <DataTable>
+        <DataTableHeader>
+          <DataTableRow>
+            <DataTableHead>Paper</DataTableHead>
+            <DataTableHead>Stage</DataTableHead>
+            <DataTableHead>Reviews</DataTableHead>
+            <DataTableHead>Warning</DataTableHead>
+            <DataTableHead>Action</DataTableHead>
+          </DataTableRow>
+        </DataTableHeader>
+        <DataTableBody>
+          {rows.map((row) => (
+            <DataTableRow key={row.paperId}>
+              <DataTableCell>
+                <div className="font-medium">{row.paperTitle}</div>
+                {row.roundNumber ? (
+                  <div className="text-xs text-slate-500">Cycle {row.roundNumber}</div>
+                ) : null}
+              </DataTableCell>
+              <DataTableCell>
+                <WorkflowBadge
+                  label={reviewStageLabel(row.reviewStage)}
+                  tone={stageTone(row.reviewStage)}
+                />
+              </DataTableCell>
+              <DataTableCell>
+                {row.submittedReviewCount}/{row.assignmentCount || '—'}
+              </DataTableCell>
+              <DataTableCell className="text-amber-700">{row.warning ?? ''}</DataTableCell>
+              <DataTableCell>
+                {row.cycleId &&
+                (row.reviewStage === 'IN_REVIEW' || row.reviewStage === 'FEEDBACK_RELEASED') ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busyId === row.paperId || row.submittedReviewCount === 0}
+                    onClick={() => void handleRelease(row)}
+                  >
+                    Release
+                  </Button>
+                ) : null}
+              </DataTableCell>
+            </DataTableRow>
+          ))}
+        </DataTableBody>
+        <DataTableFooter>
+          <DataTableRow>
+            <DataTableCell colSpan={5}>
+              {rows.length === 0 ? 'No submitted papers yet.' : `${rows.length} papers`}
+            </DataTableCell>
+          </DataTableRow>
+        </DataTableFooter>
+      </DataTable>
     </div>
   );
 }

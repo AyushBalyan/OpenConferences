@@ -61,6 +61,7 @@ export const reviewConfigSchema = z.object({
   scoreDimensions: z.array(z.string().min(1)).default(['originality', 'clarity', 'significance']),
   recommendationRequired: z.boolean().default(true),
   confidenceRequired: z.boolean().optional(),
+  minimumReviews: z.number().int().positive().default(1),
 });
 
 export const phaseWindowsSchema = z.object({

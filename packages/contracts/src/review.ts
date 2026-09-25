@@ -2,7 +2,7 @@ import { initContract } from '@ts-rest/core';
 import {
   reviewRoundSchema,
   reviewRoundListSchema,
-  createReviewRoundSchema,
+  paperReviewProgressListSchema,
   updateReviewRoundSchema,
   reviewerInvitationSchema,
   reviewerInvitationListSchema,
@@ -106,20 +106,17 @@ export const reviewContract = c.router({
     },
     summary: 'List review rounds for a conference',
   },
-  createRound: {
-    method: 'POST',
-    path: '/conferences/:conferenceId/rounds',
+  listReviewProgress: {
+    method: 'GET',
+    path: '/conferences/:conferenceId/review-progress',
     pathParams: conferenceParams,
-    body: createReviewRoundSchema,
     responses: {
-      201: reviewRoundSchema,
-      400: problemEnvelopeSchema,
+      200: paperReviewProgressListSchema,
       401: problemEnvelopeSchema,
       403: problemEnvelopeSchema,
       404: problemEnvelopeSchema,
-      409: problemEnvelopeSchema,
     },
-    summary: 'Open a new review round',
+    summary: 'List each paper review stage for the chair',
   },
   updateRound: {
     method: 'PATCH',
@@ -134,7 +131,7 @@ export const reviewContract = c.router({
       404: problemEnvelopeSchema,
       409: problemEnvelopeSchema,
     },
-    summary: 'Update review round status or due dates',
+    summary: 'Update a paper cycle due dates',
   },
   listInvitations: {
     method: 'GET',
@@ -447,8 +444,12 @@ export const reviewContract = c.router({
   },
   releaseReviews: {
     method: 'POST',
-    path: '/conferences/:conferenceId/rounds/:roundId/reviews/release',
-    pathParams: roundParams,
+    path: '/conferences/:conferenceId/papers/:paperId/cycles/:cycleId/reviews/release',
+    pathParams: z.object({
+      conferenceId: z.string().uuid(),
+      paperId: z.string().uuid(),
+      cycleId: z.string().uuid(),
+    }),
     body: releaseReviewsSchema,
     responses: {
       200: releaseReviewsResponseSchema,

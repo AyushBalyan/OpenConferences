@@ -169,14 +169,14 @@ This is the heart of the document. We design the model first; tables and APIs fo
 
 We group entities into contexts that map 1:1 to backend modules. Boundaries are drawn where transactions and invariants cluster.
 
-| Context        | Owns                                                                                                                     | Core invariant it protects                                                                                                                    |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Identity**   | `User`, `Account`, `Session`                                                                                             | One human = one global identity                                                                                                               |
-| **Tenancy**    | `Organization`, `Conference`, `Track`, `Membership`                                                                      | Every conference belongs to exactly one org; every actor's power is scoped to a conference                                                    |
-| **Submission** | `Paper`, `Authorship`, `PaperVersion`, `FileAsset`                                                                       | A paper always belongs to one track; authorship order is stable; the "current" version is unambiguous                                         |
-| **Review**     | `ReviewRound`, `ReviewerInvitation`, `Bid`, `ConflictOfInterest`, `ReviewerAssignment`, `Review`, `Rebuttal`, `Decision` | A reviewer cannot review their own paper or a declared conflict; one decision per paper per round; identity visibility follows `blindingMode` |
-| **Billing**    | `Registration`, `Payment`, `Invoice`                                                                                     | Money state transitions are append-only and idempotent                                                                                        |
-| **Messaging**  | `NotificationTemplate`, `NotificationLog`                                                                                | Every outbound email is recorded; templates are data, not code                                                                                |
+| Context        | Owns                                                                                                                     | Core invariant it protects                                                                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Identity**   | `User`, `Account`, `Session`                                                                                             | One human = one global identity                                                                                                                                             |
+| **Tenancy**    | `Organization`, `Conference`, `Track`, `Membership`                                                                      | Every conference belongs to exactly one org; every actor's power is scoped to a conference                                                                                  |
+| **Submission** | `Paper`, `Authorship`, `PaperVersion`, `FileAsset`                                                                       | A paper always belongs to one track; authorship order is stable; the "current" version is unambiguous                                                                       |
+| **Review**     | `ReviewRound`, `ReviewerInvitation`, `Bid`, `ConflictOfInterest`, `ReviewerAssignment`, `Review`, `Rebuttal`, `Decision` | A reviewer cannot review their own paper or a declared conflict; one decision per paper per cycle; a cycle belongs to one paper; identity visibility follows `blindingMode` |
+| **Billing**    | `Registration`, `Payment`, `Invoice`                                                                                     | Money state transitions are append-only and idempotent                                                                                                                      |
+| **Messaging**  | `NotificationTemplate`, `NotificationLog`                                                                                | Every outbound email is recorded; templates are data, not code                                                                                                              |
 
 ### 3.2 Entity-relationship diagram
 
@@ -201,12 +201,13 @@ erDiagram
   PAPER ||--o{ PAPER_VERSION : "has versions"
   PAPER ||--o{ REVIEWER_ASSIGNMENT : "assigned to"
   PAPER ||--o{ REVIEW : "receives"
-  PAPER ||--o{ DECISION : "gets (per round)"
+  PAPER ||--o{ DECISION : "gets (per cycle)"
+  PAPER ||--o{ REVIEW_ROUND : "has cycles"
   PAPER ||--o| REGISTRATION : "requires (if accepted)"
 
   PAPER_VERSION ||--|| FILE_ASSET : "points to"
 
-  CONFERENCE ||--o{ REVIEW_ROUND : has
+  CONFERENCE ||--o{ REVIEW_ROUND : "scopes cycles"
   REVIEW_ROUND ||--o{ REVIEWER_ASSIGNMENT : contains
   REVIEW_ROUND ||--o{ REVIEW : contains
   REVIEW_ROUND ||--o{ DECISION : contains
@@ -254,21 +255,21 @@ erDiagram
 
 **FileAsset** — a stored object (S3 key, size, server-computed checksum, sniffed mime, uploadedBy). Lifecycle: `PENDING_SCAN → CLEAN | INFECTED`. Only `CLEAN` assets may become a `currentVersion` or be downloaded. Decouples storage from purpose so invoices, supplementary files, and papers reuse one abstraction.
 
-**ReviewRound** — first-class owner of a review cycle within a conference (`roundNumber`, `status`, review/rebuttal/revision due dates). Assignments, reviews, rebuttals, and decisions belong to a round. A `MINOR_REVISION` / `MAJOR_REVISION` decision opens the next round and expects a new `PaperVersion(kind=REVISION)`.
+**ReviewRound** — one paper’s review cycle (`paperId`, `roundNumber`, review/rebuttal/revision due dates, `reviewsReleasedAt`). There is no conference-wide round status. The first assignment creates cycle 1 for that paper. Assignments, reviews, the rebuttal, and the decision belong to that cycle. A `MINOR_REVISION` / `MAJOR_REVISION` decision leaves the paper `UNDER_REVIEW`; cycle N+1 is created when a `PaperVersion(kind=REVISION)` is uploaded. The stage shown in the UI is derived from these records, not stored.
 
 **Bid** — a reviewer's expressed interest in reviewing a paper (`EAGER` / `YES` / `MAYBE` / `NO` / `CONFLICT`), collected in a bidding window before assignment.
 
 **ConflictOfInterest** — an explicit, declared conflict between a user and a paper or another user (`CO_AUTHOR`, `INSTITUTION`, `ADVISOR_STUDENT`, `PERSONAL`, …), declared by self, chair, or system. Assignment rejects both authorship (inferred) and declared COIs.
 
-**Rebuttal** — the corresponding author's structured response to released reviews, one per paper per round, submitted before the final decision in that round.
+**Rebuttal** — the corresponding author's structured response to released reviews, one per paper per cycle. Allowed only after that cycle’s reviews are released, before its decision, and before `rebuttalDueAt`.
 
 **ReviewerInvitation** — an invitation for a person to become a reviewer of a conference, possibly before they have an account. Tracks token, email, status (`PENDING/ACCEPTED/DECLINED/EXPIRED`). On acceptance it materializes a `Membership` with a `REVIEWER` role.
 
-**ReviewerAssignment** — links a reviewer to a specific `Paper` within a `ReviewRound`. Carries assignment status and due date. Creation rejects authorship and declared `ConflictOfInterest` rows.
+**ReviewerAssignment** — links a reviewer to a specific `Paper` within that paper’s `ReviewRound`. Carries assignment status and due date. Creation rejects authorship and declared `ConflictOfInterest` rows, and creates cycle 1 when the paper has no cycle yet.
 
-**Review** — the reviewer's evaluation: scores, recommendation, confidence, comments to authors, confidential comments to chairs. One review per assignment. Carries `visibility` (`HIDDEN` → `AUTHOR_VISIBLE` when chair releases for rebuttal). Identity fields shown to the reviewer follow `Conference.blindingMode`.
+**Review** — the reviewer's evaluation: scores, recommendation, confidence, comments to authors, confidential comments to chairs. One review per assignment. Carries `visibility` (`HIDDEN` until the chair releases that paper’s cycle, then `AUTHOR_VISIBLE`). A reviewer may edit until the cycle has a decision. Identity fields shown to the reviewer follow `Conference.blindingMode`.
 
-**Decision** — the editorial outcome for a paper in a `ReviewRound`: `ACCEPT / REJECT / MINOR_REVISION / MAJOR_REVISION`. One decision per paper per round. Revision outcomes open the next `ReviewRound`.
+**Decision** — the editorial outcome for a paper in one cycle: `ACCEPT / REJECT / MINOR_REVISION / MAJOR_REVISION`. One decision per paper per cycle. Accept and reject set that paper to `DECISION_MADE` and leave every other paper untouched. Accept opens registration. Revision outcomes do not open a conference round.
 
 **Registration** — an accepted paper's registration obligation. Opens on acceptance notification; runs **in parallel** with camera-ready. Records **audience** (`REGULAR`/`STUDENT`), **locked timing** (`EARLY`/`REGULAR`, fixed at **payment capture**), `amountDueMinor`, and status. If `audience=STUDENT`, payment is blocked until a supporting document is uploaded. **Per paper** — an author with two accepted papers has two registrations. Payable/visible by any claimed author on the paper; `userId` records who paid. Carries `version int` for optimistic locking. Non-payment by deadline → `WITHDRAWN_NONPAYMENT`.
 
@@ -287,7 +288,7 @@ erDiagram
 - **Scope chain:** `Organization 1—* Conference 1—* Track 1—* Paper`. A paper's organization is always derivable; we still denormalize `organizationId` and `conferenceId` onto `Paper` for query and authorization speed (see §4).
 - **People are global, roles are local:** `User *—* Conference` through `Membership`; powers come from `RoleGrant` rows, never from a column on `User`.
 - **Authorship vs. account:** the _submitting_ author must be a `User`. Co-authors may exist as data without accounts and can be "claimed" later by linking to a `User`.
-- **Reviews hang off assignments in a round:** you cannot write a `Review` without a `ReviewerAssignment` in a `ReviewRound`; COI is enforced structurally (authorship + declared `ConflictOfInterest`).
+- **Reviews hang off assignments in a paper cycle:** you cannot write a `Review` without a `ReviewerAssignment` in that paper’s `ReviewRound`; COI is enforced structurally (authorship + declared `ConflictOfInterest`). A cycle’s release, rebuttal, and decision never change another paper’s cycle.
 - **Money is append-only:** `Registration 1—* Payment`; paid state = `(Σ captured − Σ refunded) ≥ amountDueMinor`, computed in one transaction with optimistic locking on `Registration`.
 - **Registration is per accepted paper:** `Paper 1—1 Registration`; window opens on acceptance; runs concurrently with camera-ready.
 - **Discounts = one fee-matrix cell:** audience × timing; timing locked at **capture**; audience provisional until student verification completes.
@@ -329,7 +330,6 @@ CREATE TYPE blinding_mode       AS ENUM ('SINGLE','DOUBLE','OPEN');
 CREATE TYPE bid_value           AS ENUM ('EAGER','YES','MAYBE','NO','CONFLICT');
 CREATE TYPE coi_type            AS ENUM ('CO_AUTHOR','INSTITUTION','ADVISOR_STUDENT','PERSONAL','FINANCIAL','OTHER');
 CREATE TYPE coi_source          AS ENUM ('SELF','CHAIR','SYSTEM');
-CREATE TYPE round_status        AS ENUM ('OPEN','REVIEWING','REBUTTAL','DECIDING','CLOSED');
 CREATE TYPE review_visibility   AS ENUM ('HIDDEN','AUTHOR_VISIBLE','PUBLIC');
 CREATE TYPE file_scan_status    AS ENUM ('PENDING_SCAN','CLEAN','INFECTED');
 ```
@@ -402,7 +402,7 @@ Below, each table lists **purpose / PK / FKs / indexes / constraints**. Represen
 
 #### `review_rounds`, `bids`, `conflicts_of_interest`, `rebuttals`
 
-- See §19 for full schemas. Integrated here: assignments/reviews/decisions FK `roundId → review_rounds.id` (replacing loose `round int`).
+- See §19 for full schemas. `review_rounds` is one paper’s cycle (`paperId` + `roundNumber`). Assignments, reviews, rebuttals, and decisions FK `roundId → review_rounds.id`.
 
 #### `reviewer_invitations`
 
@@ -428,7 +428,7 @@ Below, each table lists **purpose / PK / FKs / indexes / constraints**. Represen
 
 #### `reviewer_assignments`
 
-- **Purpose:** assign a reviewer to a paper within a review round.
+- **Purpose:** assign a reviewer to a paper within that paper’s review cycle.
 - **PK:** `id`. **FKs:** `paperId`, `roundId → review_rounds.id`, `reviewerUserId`, `conferenceId`, `assignedById`.
 - **Columns:** `status assignment_status`, `dueAt`.
 - **Indexes:** unique `(paperId, reviewerUserId, roundId)`; index `(reviewerUserId, status)`.
@@ -492,7 +492,7 @@ Below, each table lists **purpose / PK / FKs / indexes / constraints**. Represen
 
 #### `notification_logs`
 
-- **Purpose:** record of every send.
+- **Purpose:** record of every transactional send.
 - **PK:** `id`. **FKs:** `templateId`, `organizationId`, nullable `userId`, nullable `conferenceId`.
 - **Columns:** `toEmail`, `status notification_status`, `providerMessageId`, `error text`, `sentAt`.
 - **Indexes:** `(conferenceId)`, `(toEmail)`, `(status)`.
@@ -706,7 +706,7 @@ sequenceDiagram
 
 ### 6.2 Bidding → assignment → review → rebuttal → decision
 
-See §19.7 for the full sequence. Summary: reviewers declare COI and bid; chairs assign (respecting bids + COI) into `ReviewRound 1`; reviews submitted (`visibility=HIDDEN`); chair releases reviews (`AUTHOR_VISIBLE`); author submits `Rebuttal`; reviewers may update scores; chair records `Decision`. `MINOR/MAJOR_REVISION` opens `ReviewRound 2` + a new `PaperVersion(kind=REVISION)`.
+See §19.7 for the full sequence. Summary: reviewers declare COI and bid; chairs assign (respecting bids + COI), which creates that paper’s cycle 1; reviews are submitted (`visibility=HIDDEN`); the chair releases that paper’s reviews (`AUTHOR_VISIBLE`); the author submits a `Rebuttal`; reviewers may update scores until the decision; the chair records a `Decision` for that paper only. `MINOR/MAJOR_REVISION` waits for a `PaperVersion(kind=REVISION)`, which creates cycle 2 for that paper.
 
 ### 6.3 Decision → acceptance → parallel finalization
 
@@ -794,8 +794,8 @@ graph TD
 | **Tenancy**       | Orgs, conferences, tracks, memberships, role grants, lifecycle transitions                                                                         | `createConference`, `transitionStatus`, `addMember`, `rolesFor(user, scope)`                                                         | Users                     |
 | **Papers**        | Submission CRUD, versions, authorships                                                                                                             | `createPaper`, `addVersion`, `submit`, `withdraw`                                                                                    | Tenancy, Files            |
 | **Files**         | Presign upload/download, FileAsset lifecycle, AV scan gating                                                                                       | `presignUpload`, `finalize`, `scanAsset`, `presignDownload`                                                                          | (storage adapter), Queue  |
-| **Reviews**       | Rounds, invitations, bids, COI, assignments, reviews, rebuttals                                                                                    | `openRound`, `invite`, `recordBid`, `declareCoi`, `assign`, `releaseReviews`, `submitRebuttal`, `submitReview`, `coiCheck`           | Papers, Tenancy           |
-| **Decisions**     | Editorial outcomes, rounds                                                                                                                         | `decide`, `bulkDecide`                                                                                                               | Reviews                   |
+| **Reviews**       | Per-paper cycles, invitations, bids, COI, assignments, reviews, rebuttals                                                                          | `assign`, `invite`, `recordBid`, `declareCoi`, `releaseReviews`, `submitRebuttal`, `submitReview`, `coiCheck`                        | Papers, Tenancy           |
+| **Decisions**     | Editorial outcomes per paper cycle                                                                                                                 | `decide`, `bulkDecide`                                                                                                               | Reviews                   |
 | **Payments**      | Registrations (per accepted paper), fee-matrix resolution, student verification, provider orchestration, invoices, refunds, deadline discard sweep | `openRegistration`, `resolveAmountDue`, `initiatePayment`, `handleWebhook`, `reviewStudentVerification`, `runDiscardSweep`, `refund` | Tenancy, Files, Papers    |
 | **Notifications** | Templates, queue, send, log                                                                                                                        | `enqueue(templateKey, ctx)`, `resend`                                                                                                | (mailer adapter), Queue   |
 | **Dashboard**     | Read-optimized aggregates per role                                                                                                                 | `authorView`, `reviewerView`, `organizerView`                                                                                        | Papers, Reviews, Payments |
@@ -846,8 +846,8 @@ graph TD
 | `POST`  | `/conferences/:id/assignments/:aid/review`                       | assigned `REVIEWER`          | submit review                                                 |
 | `POST`  | `/conferences/:id/papers/:pid/bids`                              | `REVIEWER`                   | bid on paper                                                  |
 | `POST`  | `/conferences/:id/conflicts-of-interest`                         | member                       | declare COI                                                   |
-| `POST`  | `/conferences/:id/papers/:pid/rebuttal`                          | author                       | submit rebuttal (round)                                       |
-| `POST`  | `/conferences/:id/papers/:pid/rounds/:rid/reviews:release`       | `CHAIR`/`ORGANIZER`          | release reviews to authors                                    |
+| `POST`  | `/conferences/:id/papers/:pid/rebuttal`                          | author                       | submit rebuttal for the paper’s released cycle                |
+| `POST`  | `/conferences/:id/papers/:pid/cycles/:cycleId/reviews:release`   | `CHAIR`/`ORGANIZER`          | release this paper’s submitted reviews                        |
 | `POST`  | `/conferences/:id/papers/:pid/registration`                      | author of paper              | choose audience (`REGULAR`/`STUDENT`)                         |
 | `POST`  | `/conferences/:id/papers/:pid/registration/student-verification` | author of paper              | upload supporting document (required before pay if `STUDENT`) |
 | `POST`  | `/conferences/:id/papers/:pid/registration/payment`              | author of paper              | initiate payment (422 if `STUDENT` and no document on file)   |
@@ -1121,6 +1121,10 @@ graph LR
 
 ## 12. Dashboard Design
 
+### Participant inbox (September 2026)
+
+The Messaging context owns `InboxReadState`: a per-user, per-conference receipt keyed by source kind and source ID, holding the highest acknowledged version. The initial inbox projects committed author-visible, submitted reviews for authors, and submitted rebuttals for eligible assigned reviewers. Source mutations already persist transactionally; no duplicate event delivery or outbox is necessary for this read projection. It is not an email delivery log or an immutable activity history. Queries re-evaluate ownership, assignment, membership and publication visibility on each read. No confidential comment bodies are included. Acknowledgement cannot advance beyond the accessible source version and cannot regress on concurrent acknowledgements. Email delivery remains independent. Initial pagination is per source kind; unread indicators describe the displayed page, not a global count. Existing published content is shown as unread until acknowledged; no historical emails are sent.
+
 A single app with a **conference switcher**; the visible nav adapts to the user's roles in the selected conference. `/me/dashboard` aggregates across all conferences first (the "home" view), since one user may be author + reviewer + organizer in different events.
 
 ### 12.1 Author Dashboard
@@ -1156,7 +1160,7 @@ A single app with a **conference switcher**; the visible nav adapts to the user'
 - _Conference settings_ — phase windows, tracks, `blindingMode`, `reviewConfig`, `feeSchedule`.
 - _Submissions_ — all papers, filter by track/status, bulk actions.
 - _Bidding & COI_ — reviewer bids, declared conflicts, assignment input.
-- _Review rounds_ — open/close rounds, release reviews for rebuttal, rebuttal progress.
+- _Review progress_ — per-paper stage, submitted-review count, release, and decision. One paper can be released or decided while others are still in review.
 - _Reviewers_ — invite, view load.
 - _Assignments_ — assign/reassign (respecting bids + COI; matching automation is future).
 - _Reviews_ — progress, read all reviews.
@@ -1328,7 +1332,7 @@ The committed stack. Type-safe end-to-end; hardened for a money-handling interna
 | Auth                    | **Better Auth**                                 | Self-hosted; MFA for privileged roles; password reset + lockout                                                                    |
 | Object storage          | **Cloudflare R2** (MinIO locally)               | S3-compatible, zero egress                                                                                                         |
 | Payments                | **Razorpay** (primary), **Stripe** (future)     | Behind a `PaymentProvider` interface                                                                                               |
-| Email                   | **Zoho Zepto Mail**                             | Behind a `Mailer` interface; bounce webhooks in H1                                                                                 |
+| Email                   | **Zoho Zepto Mail**                             | Transactional mail behind a `Mailer` interface                                                                                     |
 | Deployment              | **Vercel (web) + Coolify/EC2 (api, worker)**    | `app.fresi.org` / `api.fresi.org`; hardened baseline (~$60–110/mo, §20); no Kubernetes                                             |
 
 ### 16.2 The glue layer (monorepo + end-to-end types)
@@ -1474,18 +1478,29 @@ Metrics/tracing/alerting; partial unique indexes; log partitioning; UUIDv7 in ap
 
 ## 19. Peer Review Model
 
-Multi-round, identity-aware, conflict-managed peer review — integrated into §§3–8. This section is the detailed reference for review-specific entities and lifecycle.
+Paper-independent, identity-aware, conflict-managed peer review — integrated into §§3–8. This section is the detailed reference for review-specific entities and lifecycle. A conference does not advance one shared round phase. Each paper has its own cycle, and that cycle’s stage is derived from its records.
 
-### 19.1 New enums
+### 19.1 Enums
 
 ```sql
 CREATE TYPE blinding_mode   AS ENUM ('SINGLE','DOUBLE','OPEN');
 CREATE TYPE bid_value       AS ENUM ('EAGER','YES','MAYBE','NO','CONFLICT');
 CREATE TYPE coi_type        AS ENUM ('CO_AUTHOR','INSTITUTION','ADVISOR_STUDENT','PERSONAL','FINANCIAL','OTHER');
 CREATE TYPE coi_source      AS ENUM ('SELF','CHAIR','SYSTEM');
-CREATE TYPE round_status    AS ENUM ('OPEN','REVIEWING','REBUTTAL','DECIDING','CLOSED');
 CREATE TYPE review_visibility AS ENUM ('HIDDEN','AUTHOR_VISIBLE','PUBLIC');
 ```
+
+There is no `round_status`. The chair UI shows a derived stage:
+
+| Stage                | Derived when                                                                           |
+| -------------------- | -------------------------------------------------------------------------------------- |
+| `SUBMITTED`          | The paper has no cycle                                                                 |
+| `IN_REVIEW`          | A cycle exists, reviews are not released, and it has no decision                       |
+| `FEEDBACK_RELEASED`  | `reviewsReleasedAt` is set and the cycle has no decision                               |
+| `DECIDED`            | The cycle’s decision is `ACCEPT` or `REJECT`                                           |
+| `REVISION_REQUESTED` | The cycle’s decision is `MINOR_REVISION` or `MAJOR_REVISION` and no newer cycle exists |
+
+`AWAITING_DECISION` is the same records as `IN_REVIEW` or `FEEDBACK_RELEASED`: the chair may decide either stage. Missing reviews are a warning, not a lock. A newer cycle moves the paper back to `IN_REVIEW`.
 
 ### 19.2 `Conference.blindingMode`
 
@@ -1501,12 +1516,14 @@ This replaces the earlier hard-coded "strip author identity" approach. Authoriza
 
 ### 19.3 `ReviewRound`
 
-First-class owner of a review cycle; the FK target for the existing `round` columns.
+One paper’s review cycle. It is the FK target for assignments, reviews, rebuttals, and decisions.
 
-- **PK:** `id`. **FKs:** `conferenceId`, `organizationId`.
-- **Columns:** `roundNumber int`, `status round_status`, `reviewDueAt`, `rebuttalDueAt`, `revisionDueAt`.
-- **Indexes:** unique `(conferenceId, roundNumber)`.
-- **Migration:** `reviews.roundId`, `reviewer_assignments.roundId`, `decisions.roundId` are FKs to `review_rounds`. A `MINOR/MAJOR_REVISION` decision opens the next round and expects a new `PaperVersion(kind=REVISION)`.
+- **PK:** `id`. **FKs:** `paperId`, `conferenceId`, `organizationId`.
+- **Columns:** `roundNumber int`, `reviewDueAt`, `rebuttalDueAt`, `revisionDueAt`, `reviewsReleasedAt timestamptz NULL`, `version int`.
+- **Indexes:** unique `(paperId, roundNumber)`.
+- **Creation:** the first assignment creates cycle 1 and copies `Conference.reviewDueAt` onto the cycle and the assignment. The chair may override the cycle deadlines. A revision upload creates cycle N+1; the decision itself does not.
+- **Release:** `POST /conferences/:id/papers/:paperId/cycles/:cycleId/reviews:release` sets submitted reviews on that cycle from `HIDDEN` to `AUTHOR_VISIBLE`, sets `reviewsReleasedAt` when null, and may set `rebuttalDueAt` from the conference default or the request. Release may run again for reviews submitted later. Other papers are unchanged.
+- **Locking:** release, review submit, rebuttal, and decision take `SELECT … FOR UPDATE` on that cycle row.
 
 ### 19.4 `Bid`
 
@@ -1528,14 +1545,14 @@ Explicit conflicts that authorship-inference cannot know (past advisor, collabor
 
 ### 19.6 `Rebuttal`
 
-Author response to reviews, before the final decision.
+Author response to reviews, before the decision on that cycle.
 
 - **PK:** `id`. **FKs:** `paperId`, `roundId`, `authoredByUserId`.
 - **Columns:** `body text`, `submittedAt`.
-- **Indexes:** unique `(paperId, roundId)` (one rebuttal per paper per round).
-- **Requires review visibility:** `Review` gains `visibility review_visibility` (default `HIDDEN`). A chair "releases" reviews (`AUTHOR_VISIBLE`) to open the rebuttal window; this is the controlled gate the current `Review` entity lacks.
+- **Indexes:** unique `(paperId, roundId)` (one rebuttal per paper per cycle).
+- **Gate:** the corresponding author may submit only when that cycle has `reviewsReleasedAt`, has no decision, and `now` is at or before `rebuttalDueAt` when a deadline is set. Reviews default to `visibility=HIDDEN`.
 
-### 19.7 Corrected review lifecycle
+### 19.7 Review lifecycle
 
 ```mermaid
 sequenceDiagram
@@ -1545,27 +1562,32 @@ sequenceDiagram
   participant Sys as System
 
   Note over Sys: Conference.blindingMode (e.g. DOUBLE)
-  Author->>Sys: Submit (anonymized if DOUBLE)
-  Reviewer->>Sys: Declare ConflictOfInterest (SELF)
-  Reviewer->>Sys: Bid on papers
-  Chair->>Sys: Assign reviewers (respect COI + bids) → Round 1
-  Reviewer->>Sys: Submit reviews (HIDDEN)
-  Chair->>Sys: Release reviews (AUTHOR_VISIBLE) → REBUTTAL
-  Author->>Sys: Submit Rebuttal
-  Reviewer->>Sys: Read rebuttal, update scores
-  Chair->>Sys: Decision (Round 1) = MAJOR_REVISION
-  Author->>Sys: Upload PaperVersion(kind=REVISION)
-  Chair->>Sys: Open Round 2 (same reviewers)
-  Reviewer->>Sys: Re-review (Round 2)
-  Chair->>Sys: Decision (Round 2) = ACCEPT
+  Author->>Sys: Submit paper A and paper B
+  Reviewer->>Sys: Declare ConflictOfInterest and bid
+  Chair->>Sys: Assign reviewers to A and B
+  Note over Sys: Each assignment creates that paper cycle 1
+  Reviewer->>Sys: Submit reviews for A (HIDDEN)
+  Chair->>Sys: Release A only
+  Note over Sys: B stays in review
+  Author->>Sys: Rebut A
+  Reviewer->>Sys: Update scores on A until its decision
+  Chair->>Sys: Decision A = MAJOR_REVISION
+  Author->>Sys: Upload PaperVersion kind REVISION for A
+  Note over Sys: Cycle 2 is created for A only
+  Chair->>Sys: Assign cycle 2 reviewers for A
+  Chair->>Sys: Decision B = ACCEPT while A is still in cycle 2
 ```
 
-### 19.8 Impact on existing entities
+Bulk release and bulk decision run one transaction per paper and return per-paper successes and failures. A decision warns when the submitted-review count is below the conference minimum. It does not block.
 
-- **`Review`** gains `visibility` and a real `roundId`.
-- **`ReviewerAssignment`** gains `roundId`; COI check broadened to consult `ConflictOfInterest`.
-- **`Decision`** gains `roundId`; `MINOR/MAJOR_REVISION` outcomes open the next `ReviewRound` and expect a revision upload.
-- **Bounded contexts (§3.1):** the _Review_ context now owns `ReviewRound`, `Bid`, `ConflictOfInterest`, `Rebuttal`.
+Reviewers may edit a review until that cycle has a decision. A declined assignment is read-only. COI is re-checked on write.
+
+### 19.8 Entity rules
+
+- **`Review`** carries `visibility` and `roundId` pointing at the paper’s cycle.
+- **`ReviewerAssignment`** carries `roundId`. Creation rejects authorship, a declared `ConflictOfInterest`, and a `CONFLICT` bid.
+- **`Decision`** is unique per `(paperId, roundId)`. `ACCEPT` / `REJECT` set that paper to `DECISION_MADE`. `ACCEPT` opens registration. `MINOR_REVISION` / `MAJOR_REVISION` leave the paper `UNDER_REVIEW` until a revision version creates the next cycle.
+- **Bounded contexts (§3.1):** the _Review_ context owns `ReviewRound`, `Bid`, `ConflictOfInterest`, and `Rebuttal`.
 
 ## 20. Revised Operating Cost
 

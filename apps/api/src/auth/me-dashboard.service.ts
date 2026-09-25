@@ -26,7 +26,7 @@ export class MeDashboardService {
         tx.reviewerAssignment.findMany({
           where: {
             reviewerUserId: userId,
-            round: { status: { not: 'CLOSED' } },
+            round: { decisions: { none: { outcome: { in: ['ACCEPT', 'REJECT'] } } } },
           },
           include: {
             paper: { select: { title: true } },

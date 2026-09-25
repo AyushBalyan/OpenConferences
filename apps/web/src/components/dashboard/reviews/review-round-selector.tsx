@@ -5,7 +5,8 @@ import { Label } from '@/components/ui/label';
 export type ReviewRoundOption = {
   id: string;
   roundNumber: number;
-  status: string;
+  reviewStage: string;
+  paperId?: string;
 };
 
 type ReviewRoundSelectorProps = {
@@ -20,7 +21,7 @@ type ReviewRoundSelectorProps = {
 
 export function ReviewRoundSelector({
   id,
-  label = 'Review round',
+  label = 'Review cycle',
   rounds,
   roundId,
   onRoundChange,
@@ -41,7 +42,7 @@ export function ReviewRoundSelector({
         >
           {rounds.map((round) => (
             <option key={round.id} value={round.id}>
-              Round {round.roundNumber} ({round.status})
+              Cycle {round.roundNumber} ({round.reviewStage.replaceAll('_', ' ').toLowerCase()})
             </option>
           ))}
         </select>

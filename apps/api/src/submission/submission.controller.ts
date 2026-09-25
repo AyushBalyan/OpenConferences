@@ -155,13 +155,14 @@ export class SubmissionController {
   @TsRestHandler(submissionContract.downloadVersion)
   @RequireMembership()
   downloadVersion(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
-    return tsRestHandler(submissionContract.downloadVersion, async ({ params }) => {
+    return tsRestHandler(submissionContract.downloadVersion, async ({ params, query }) => {
       const result = await this.versions.download(
         user.id,
         params.conferenceId,
         params.paperId,
         params.versionId,
         roles,
+        query.disposition,
       );
       return { status: 200 as const, body: result };
     });

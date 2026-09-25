@@ -10,7 +10,7 @@ import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileTypeFromBuffer } from 'file-type';
-import { getConfig } from '@openconferences/config/env';
+import { getConfig, resolveStorageBucket } from '@openconferences/config/env';
 import { generateId, Prisma, withTenantContext } from '@openconferences/db';
 import type { FileAsset, PaperVersion, VersionKind } from '@openconferences/db';
 import { applyScanResult } from '@openconferences/db';
@@ -262,6 +262,13 @@ export class FilesService {
       scanStatus,
     });
 
+    if (outcome.openedRevisionCycle) {
+      this.logger.log(
+        { paperId: payload.paperId, paperVersionId: payload.paperVersionId },
+        'Opened the next review cycle after a clean revision',
+      );
+    }
+
     if (outcome.activatedCameraReady) {
       await this.audit.log({
         organizationId: payload.organizationId,
@@ -285,7 +292,12 @@ export class FilesService {
     }
   }
 
-  async presignDownload(fileAssetId: string, userId: string, organizationId: string) {
+  async presignDownload(
+    fileAssetId: string,
+    userId: string,
+    organizationId: string,
+    disposition: 'attachment' | 'inline' = 'attachment',
+  ) {
     const asset = await withTenantContext({ userId, organizationId }, async (tx) =>
       tx.fileAsset.findFirst({
         where: { id: fileAssetId },
@@ -301,9 +313,13 @@ export class FilesService {
     }
 
     const command = new GetObjectCommand({
-      Bucket: asset.bucket,
+      Bucket: resolveStorageBucket(asset.bucket),
       Key: asset.objectKey,
-      ResponseContentDisposition: `attachment; filename="${asset.originalFilename.replace(/"/g, '')}"`,
+      ResponseContentDisposition:
+        disposition === 'inline'
+          ? 'inline; filename="manuscript.pdf"'
+          : `attachment; filename="${asset.originalFilename.replace(/"/g, '')}"`,
+      ...(disposition === 'inline' ? { ResponseContentType: 'application/pdf' } : {}),
     });
 
     const downloadUrl = await getSignedUrl(getS3Client(), command, {

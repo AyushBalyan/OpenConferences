@@ -27,6 +27,7 @@ loadSharedEnv(path.join(__dirname, '.env.local'));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  distDir: process.env.NEXT_DIST_DIR ?? '.next',
   output: 'standalone',
   outputFileTracingRoot: new URL('../../', import.meta.url).pathname,
 };

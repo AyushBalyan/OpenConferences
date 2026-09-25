@@ -20,6 +20,7 @@ import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
 import { fetchPaperPool, upsertBid } from '@/lib/api-client';
 import { bidValueLabel, type BidValue, type BlindedPaperPoolItemDto } from '@/lib/review-types';
 import { canCoordinateReview, isReviewer } from '@/lib/roles';
+import { REVIEWER_BIDDING_ENABLED, reviewerLandingPath } from '@/lib/reviewer-features';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 export default function ReviewBiddingPage() {
@@ -30,7 +31,8 @@ function ReviewBidding() {
   const { conferenceId, conference } = useConferenceWorkspace();
   const roles = conference?.myRoles ?? [];
   const oversight = canCoordinateReview(roles);
-  const canBid = isReviewer(roles);
+  const canBid = REVIEWER_BIDDING_ENABLED && isReviewer(roles);
+  const reviewerBiddingDisabled = !oversight && !REVIEWER_BIDDING_ENABLED;
 
   const [papers, setPapers] = useState<BlindedPaperPoolItemDto[]>([]);
   const [poolMode, setPoolMode] = useState<'reviewer' | 'oversight'>(
@@ -50,8 +52,9 @@ function ReviewBidding() {
   }, [conference?.blindingMode, conferenceId, oversight]);
 
   useEffect(() => {
+    if (reviewerBiddingDisabled) return;
     load().catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'));
-  }, [load]);
+  }, [load, reviewerBiddingDisabled]);
 
   const selectedPaper = useMemo(
     () => papers.find((paper) => paper.id === selectedPaperId) ?? null,
@@ -79,6 +82,25 @@ function ReviewBidding() {
   }
 
   const assignmentsHref = `/dashboard/conferences/${conferenceId}/reviews/assignments/bids`;
+
+  if (reviewerBiddingDisabled) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Paper pool & bidding"
+          description="Bidding is turned off for reviewers."
+        />
+        <Card>
+          <CardContent className="space-y-4 py-8 text-center text-muted-foreground">
+            <p>Reviewer bidding is not available. Open your assigned reviews instead.</p>
+            <Button asChild variant="outline" size="sm">
+              <Link href={reviewerLandingPath(conferenceId)}>My reviews</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

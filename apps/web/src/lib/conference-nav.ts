@@ -48,6 +48,10 @@ export type CommandNavItem = {
 
 /** Shared section configs — single source for sidebar, breadcrumbs, and command menu. */
 export const NAV_SECTIONS = {
+  inbox: {
+    label: 'Updates',
+    href: (conferenceId: string) => `/dashboard/conferences/${conferenceId}/inbox`,
+  },
   overview: {
     label: 'Overview',
     href: (conferenceId: string) => `/dashboard/conferences/${conferenceId}`,
@@ -93,7 +97,7 @@ export const NAV_SECTIONS = {
     href: (conferenceId: string) => `/dashboard/conferences/${conferenceId}/reviews/my-assignments`,
   },
   reviewRounds: {
-    label: 'Review rounds',
+    label: 'Review progress',
     href: (conferenceId: string) => `/dashboard/conferences/${conferenceId}/reviews/rounds`,
   },
   assignments: {
@@ -160,6 +164,7 @@ export const NAV_SECTIONS = {
 } as const satisfies Record<string, NavItemConfig>;
 
 export const NAV_ITEM_ICONS: Record<string, LucideIcon> = {
+  Updates: Mail,
   Overview: LayoutDashboard,
   'My submissions': FileText,
   'All submissions': FileText,
@@ -232,6 +237,7 @@ export function subTabHref(baseHref: string, segment: string): string {
 
 export function navGroupsForRoles(roles: string[]): NavGroupConfig[] {
   const groups: NavGroupConfig[] = [];
+  if (roles.length) groups.push({ label: 'Activity', items: [NAV_SECTIONS.inbox] });
 
   if (isAuthor(roles)) {
     groups.push({
@@ -243,7 +249,7 @@ export function navGroupsForRoles(roles: string[]): NavGroupConfig[] {
   if (isReviewer(roles)) {
     groups.push({
       label: 'Reviewer',
-      items: [NAV_SECTIONS.bidding, NAV_SECTIONS.coiReviewer, NAV_SECTIONS.myReviews],
+      items: [NAV_SECTIONS.myReviews],
     });
   }
 

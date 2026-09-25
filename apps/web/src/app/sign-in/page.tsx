@@ -19,6 +19,7 @@ import {
 } from '@/lib/reviewer-invite-pending';
 import { authorJoinPath, resolveAuthorJoinToken } from '@/lib/author-join-pending';
 import { acceptPendingReviewerInvitations } from '@/lib/api-client';
+import { reviewerLandingPath } from '@/lib/reviewer-features';
 import type { TurnstileInstance } from '@marsidev/react-turnstile';
 
 function authRedirectQuery(reviewerInvite: string | null, authorJoin: string | null) {
@@ -99,7 +100,7 @@ function SignInContent() {
       const pending = await acceptPendingReviewerInvitations();
       if (pending.data.length > 0) {
         clearStoredReviewerInviteToken();
-        router.push(`/dashboard/conferences/${pending.data[0]!.conferenceId}/reviews/bidding`);
+        router.push(reviewerLandingPath(pending.data[0]!.conferenceId));
         return;
       }
     } catch {

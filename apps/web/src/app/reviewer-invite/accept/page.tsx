@@ -11,6 +11,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
 import { clearStoredReviewerInviteToken } from '@/lib/reviewer-invite-pending';
+import { reviewerLandingPath } from '@/lib/reviewer-features';
 
 export default function ReviewerInviteAcceptPage() {
   return (
@@ -34,7 +35,7 @@ function ReviewerInviteAccept() {
   const autoAttempted = useRef(false);
 
   function redirectAfterAccept(conferenceId: string) {
-    router.replace(`/dashboard/conferences/${conferenceId}/reviews/bidding`);
+    router.replace(reviewerLandingPath(conferenceId));
     router.refresh();
   }
 

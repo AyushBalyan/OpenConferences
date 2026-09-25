@@ -27,12 +27,18 @@ const paperInclude = {
     take: 20,
     include: { fileAsset: true },
   },
+  reviewRounds: {
+    orderBy: { roundNumber: 'desc' as const },
+    take: 1,
+    select: { revisionDueAt: true },
+  },
 };
 
 type LoadedPaper = Paper & {
   authorships: Authorship[];
   currentVersion: (PaperVersion & { fileAsset: FileAsset }) | null;
   versions?: (PaperVersion & { fileAsset: FileAsset })[];
+  reviewRounds?: { revisionDueAt: Date | null }[];
 };
 
 function formatAuthorList(authorships: Authorship[]): string {
@@ -242,13 +248,13 @@ export class PapersService {
       throw new ConflictException('A corresponding author is required');
     }
 
-    if (!paper.currentVersionId) {
+    {
       const latestVersion = await withTenantContext(
         { userId, conferenceId, organizationId: paper.organizationId },
         async (tx) =>
           tx.paperVersion.findFirst({
             where: { paperId, kind: { in: ['SUBMISSION', 'REVISION'] } },
-            orderBy: { versionNumber: 'desc' },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
             include: { fileAsset: true },
           }),
       );
@@ -265,7 +271,14 @@ export class PapersService {
         );
       }
 
-      throw new ConflictException('A scanned PDF version is required before submission');
+      if (!paper.currentVersionId) {
+        throw new ConflictException('A scanned PDF version is required before submission');
+      }
+      if (latestVersion && latestVersion.id !== paper.currentVersionId) {
+        throw new ConflictException(
+          'The latest PDF is not ready for submission. Please wait for scanning to complete.',
+        );
+      }
     }
 
     const currentVersion = paper.currentVersion;

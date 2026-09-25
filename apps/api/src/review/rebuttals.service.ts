@@ -12,6 +12,7 @@ import { AuditService } from '../audit/audit.service';
 import { ConferenceService } from '../tenancy/conference.service';
 import { canCoordinateReview } from '../tenancy/role-hierarchy';
 import { mapRebuttal } from './review.mapper';
+import { lockReviewRound } from './rounds.service';
 
 @Injectable()
 export class RebuttalsService {
@@ -85,8 +86,11 @@ export class RebuttalsService {
       tx.reviewRound.findFirst({ where: { id: roundId } }),
     );
 
-    if (!round || round.status !== 'REBUTTAL') {
+    if (!round?.reviewsReleasedAt) {
       throw new ConflictException('Rebuttal window is not open');
+    }
+    if (round.rebuttalDueAt && new Date() > round.rebuttalDueAt) {
+      throw new ConflictException('Rebuttal deadline has passed');
     }
 
     const releasedReviewCount = await withTenantContext({ userId, conferenceId }, async (tx) =>
@@ -110,29 +114,49 @@ export class RebuttalsService {
       }),
     );
 
-    if (existing && input.version != null && input.version !== existing.version) {
-      throw new ConflictException('Rebuttal was modified by another request');
+    if (existing && input.version !== existing.version) {
+      throw this.versionConflict();
     }
 
     const rebuttal = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
+        const lockedRound = await lockReviewRound(tx, conferenceId, roundId);
+        const decision = await tx.decision.findFirst({
+          where: { roundId, conferenceId },
+          select: { id: true },
+        });
+        if (!lockedRound.reviewsReleasedAt || decision) {
+          throw new ConflictException({
+            code: 'REBUTTAL_PHASE_LOCKED',
+            message: 'Rebuttal window is not open',
+          });
+        }
+        if (lockedRound.rebuttalDueAt && new Date() > lockedRound.rebuttalDueAt) {
+          throw new ConflictException({
+            code: 'REBUTTAL_PHASE_LOCKED',
+            message: 'Rebuttal deadline has passed',
+          });
+        }
         if (existing) {
-          return tx.rebuttal.update({
-            where: { id: existing.id },
+          const updated = await tx.rebuttal.updateMany({
+            where: { id: existing.id, conferenceId, paperId, roundId, version: input.version },
             data: {
               body: input.body,
               submittedAt: new Date(),
               version: { increment: 1 },
             },
           });
+          if (updated.count !== 1) throw this.versionConflict();
+          return tx.rebuttal.findUniqueOrThrow({ where: { id: existing.id } });
         }
 
         if (input.version != null && input.version !== 0) {
-          throw new ConflictException('Rebuttal was modified by another request');
+          throw this.versionConflict();
         }
 
-        return tx.rebuttal.create({
+        const created = await tx.rebuttal.createMany({
+          skipDuplicates: true,
           data: {
             id: generateId(),
             organizationId: conference.organizationId,
@@ -144,6 +168,8 @@ export class RebuttalsService {
             submittedAt: new Date(),
           },
         });
+        if (created.count !== 1) throw this.versionConflict();
+        return tx.rebuttal.findUniqueOrThrow({ where: { paperId_roundId: { paperId, roundId } } });
       },
     );
 
@@ -161,6 +187,13 @@ export class RebuttalsService {
       rebuttal: mapRebuttal(rebuttal),
       message: 'Rebuttal submitted successfully',
     };
+  }
+
+  private versionConflict() {
+    return new ConflictException({
+      code: 'REBUTTAL_VERSION_CONFLICT',
+      message: 'Rebuttal was modified by another request. Refresh before submitting again.',
+    });
   }
 
   private async loadPaper(userId: string, conferenceId: string, paperId: string) {
@@ -202,7 +235,9 @@ export class RebuttalsService {
       tx.reviewRound.findFirst({
         where: {
           conferenceId,
-          status: 'REBUTTAL',
+          paperId,
+          reviewsReleasedAt: { not: null },
+          decisions: { none: {} },
           reviews: { some: { paperId, visibility: 'AUTHOR_VISIBLE' } },
         },
         orderBy: { roundNumber: 'desc' },

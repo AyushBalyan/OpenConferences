@@ -8,6 +8,7 @@ import { ProtectedRoute } from '@/components/auth/protected-route';
 import { AuthShell, AuthLink } from '@/components/auth/auth-shell';
 import { Button } from '@/components/ui/button';
 import { acceptReviewerInvitation, fetchMe } from '@/lib/api-client';
+import { reviewerLandingPath } from '@/lib/reviewer-features';
 
 export default function ReviewerJoinCompletePage() {
   return (
@@ -48,7 +49,7 @@ function ReviewerJoinComplete() {
           return;
         }
 
-        router.replace(`/dashboard/conferences/${conferenceId}/reviews/bidding`);
+        router.replace(reviewerLandingPath(conferenceId));
         router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unable to accept invitation');

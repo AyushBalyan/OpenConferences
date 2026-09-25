@@ -41,6 +41,7 @@ type AssignmentsWorkspaceValue = {
     reviewerName?: string;
     reviewerEmail?: string;
     bidValue?: string | null;
+    reviewProgress?: 'NOT_STARTED' | 'DRAFT' | 'SUBMITTED';
   })[];
   bids: BidRow[];
   papers: { id: string; title: string }[];
@@ -129,7 +130,10 @@ export function AssignmentsWorkspaceProvider({
 
   const selectedRound = rounds.find((round) => round.id === roundId);
   const canCopyFromPrevious =
-    selectedRound != null && selectedRound.roundNumber > 1 && selectedRound.status !== 'CLOSED';
+    selectedRound != null &&
+    selectedRound.roundNumber > 1 &&
+    selectedRound.reviewStage !== 'DECIDED' &&
+    selectedRound.reviewStage !== 'REVISION_REQUESTED';
 
   const refresh = useCallback(async () => {
     const [conference, roundList, paperList, members, bidList] = await Promise.all([

@@ -16,6 +16,7 @@ function parseReviewConfig(value: unknown): {
   scoreDimensions: string[];
   recommendationRequired: boolean;
   confidenceRequired?: boolean;
+  minimumReviews: number;
 } {
   const obj = (value ?? {}) as JsonValue;
   return {
@@ -26,6 +27,8 @@ function parseReviewConfig(value: unknown): {
       typeof obj.recommendationRequired === 'boolean' ? obj.recommendationRequired : true,
     confidenceRequired:
       typeof obj.confidenceRequired === 'boolean' ? obj.confidenceRequired : undefined,
+    minimumReviews:
+      typeof obj.minimumReviews === 'number' && obj.minimumReviews > 0 ? obj.minimumReviews : 1,
   };
 }
 

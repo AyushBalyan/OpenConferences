@@ -7,7 +7,6 @@ import {
   type UploadProgressStep,
 } from '@/components/dashboard/pdf-upload-field';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -170,113 +169,150 @@ function SubmissionWizard() {
     }
   }
 
+  const keywordChips = keywords
+    .split(',')
+    .map((k) => k.trim())
+    .filter(Boolean);
+  const abstractWords = abstract.trim() ? abstract.trim().split(/\s+/).length : 0;
+
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-3xl space-y-8">
       <PageHeader
         title="New submission"
-        description="Start a new paper submission for this conference."
+        description="Three short steps: describe your paper, list co-authors, then upload the manuscript."
       />
 
       <WizardSteps current={step} />
 
+      {error && step !== 'upload' ? (
+        <p
+          role="alert"
+          className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800"
+        >
+          {error}
+        </p>
+      ) : null}
+
       {step === 'details' ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Paper details</CardTitle>
-            <CardDescription>Title, abstract, and keywords for your paper.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form className="space-y-4" onSubmit={saveDetails}>
-              <div className="space-y-2">
-                <Label htmlFor="title">Title</Label>
-                <Input
-                  id="title"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="abstract">Abstract</Label>
-                <textarea
-                  id="abstract"
-                  className="flex min-h-32 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={abstract}
-                  onChange={(e) => setAbstract(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="keywords">Keywords (comma-separated)</Label>
-                <Input
-                  id="keywords"
-                  value={keywords}
-                  onChange={(e) => setKeywords(e.target.value)}
-                  placeholder="machine learning, peer review"
-                />
-              </div>
-              <Button type="submit">Continue to authors</Button>
-            </form>
-          </CardContent>
-        </Card>
+        <form
+          onSubmit={saveDetails}
+          className="overflow-hidden rounded-2xl border border-slate-200 bg-white"
+        >
+          <div className="space-y-6 p-6">
+            <FormField
+              label="Title"
+              htmlFor="title"
+              hint="Use the exact title from your manuscript."
+            >
+              <Input
+                id="title"
+                className="h-11 text-base"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                required
+              />
+            </FormField>
+            <FormField
+              label="Abstract"
+              htmlFor="abstract"
+              aside={<span className="tabular-nums">{abstractWords} words</span>}
+            >
+              <textarea
+                id="abstract"
+                className="flex min-h-44 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[15px] leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 focus-visible:border-indigo-500"
+                value={abstract}
+                onChange={(e) => setAbstract(e.target.value)}
+                required
+              />
+            </FormField>
+            <FormField
+              label="Keywords"
+              htmlFor="keywords"
+              hint="Separate with commas. Used to match reviewers."
+            >
+              <Input
+                id="keywords"
+                value={keywords}
+                onChange={(e) => setKeywords(e.target.value)}
+                placeholder="machine learning, peer review"
+              />
+              {keywordChips.length ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {keywordChips.map((chip, i) => (
+                    <span
+                      key={`${chip}-${i}`}
+                      className="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-700"
+                    >
+                      {chip}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </FormField>
+          </div>
+          <StepFooter>
+            <span />
+            <Button type="submit">Continue to authors</Button>
+          </StepFooter>
+        </form>
       ) : null}
 
       {step === 'authors' ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Co-authors</CardTitle>
-            <CardDescription>
-              You are already listed as corresponding author. Add optional co-authors below.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form className="space-y-4" onSubmit={saveAuthors}>
-              <div className="space-y-2">
-                <Label htmlFor="authorName">Co-author name</Label>
+        <form
+          onSubmit={saveAuthors}
+          className="overflow-hidden rounded-2xl border border-slate-200 bg-white"
+        >
+          <div className="space-y-6 p-6">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              You’re listed as the{' '}
+              <span className="font-medium text-slate-900">corresponding author</span>. Add a
+              co-author below, or continue if you’re the only author.
+            </div>
+            <div className="grid gap-5 sm:grid-cols-2">
+              <FormField label="Full name" htmlFor="authorName">
                 <Input
                   id="authorName"
                   value={authorName}
                   onChange={(e) => setAuthorName(e.target.value)}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="authorEmail">Co-author email</Label>
+              </FormField>
+              <FormField label="Email" htmlFor="authorEmail">
                 <Input
                   id="authorEmail"
                   type="email"
                   value={authorEmail}
                   onChange={(e) => setAuthorEmail(e.target.value)}
                 />
+              </FormField>
+              <div className="sm:col-span-2">
+                <FormField label="Affiliation" htmlFor="authorAffiliation" hint="Optional">
+                  <Input
+                    id="authorAffiliation"
+                    value={authorAffiliation}
+                    onChange={(e) => setAuthorAffiliation(e.target.value)}
+                  />
+                </FormField>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="authorAffiliation">Affiliation</Label>
-                <Input
-                  id="authorAffiliation"
-                  value={authorAffiliation}
-                  onChange={(e) => setAuthorAffiliation(e.target.value)}
-                />
-              </div>
-              <div className="flex gap-2">
-                <Button type="button" variant="outline" onClick={() => setStep('details')}>
-                  Back
-                </Button>
-                <Button type="submit">Continue to upload</Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
+            </div>
+          </div>
+          <StepFooter>
+            <Button type="button" variant="ghost" onClick={() => setStep('details')}>
+              Back
+            </Button>
+            <Button type="submit">
+              {authorName && authorEmail ? 'Add and continue' : 'Skip to upload'}
+            </Button>
+          </StepFooter>
+        </form>
       ) : null}
 
       {step === 'upload' ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Upload PDF</CardTitle>
-            <CardDescription>
-              Upload your manuscript first. Submit stays disabled until the security scan reports
-              clean.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+          <div className="space-y-5 p-6">
+            <p className="text-sm text-slate-600">
+              Upload your manuscript as a PDF. Every file is scanned for security before you can
+              submit.
+            </p>
             <PdfUploadField
               file={file}
               onFileChange={(next) => {
@@ -285,36 +321,34 @@ function SubmissionWizard() {
               }}
               disabled={busy !== null}
             />
-
             {uploadProgress ? <UploadProgressSteps current={uploadProgress} /> : null}
-
             {scanFailed ? (
               <p
-                className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
                 role="alert"
+                className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800"
               >
                 The uploaded PDF failed security scanning. Choose a different file and upload again.
               </p>
             ) : null}
-
             {error ? (
               <p
-                className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
                 role="alert"
+                className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800"
               >
                 {error}
               </p>
             ) : null}
-
-            <div className="flex flex-wrap gap-2 pt-1">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setStep('authors')}
-                disabled={busy !== null}
-              >
-                Back
-              </Button>
+          </div>
+          <StepFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setStep('authors')}
+              disabled={busy !== null}
+            >
+              Back
+            </Button>
+            <div className="flex gap-2">
               <Button
                 type="button"
                 variant="outline"
@@ -331,32 +365,78 @@ function SubmissionWizard() {
                 {busy === 'submitting' ? 'Submitting…' : 'Submit paper'}
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </StepFooter>
+        </div>
       ) : null}
+    </div>
+  );
+}
 
-      {error && step !== 'upload' ? <p className="text-sm text-destructive">{error}</p> : null}
+function FormField({
+  label,
+  htmlFor,
+  hint,
+  aside,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  hint?: string;
+  aside?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="mb-1.5 flex items-baseline justify-between gap-3">
+        <Label htmlFor={htmlFor} className="text-sm font-medium text-slate-900">
+          {label}
+        </Label>
+        {aside ? <span className="text-xs text-slate-400">{aside}</span> : null}
+      </div>
+      {children}
+      {hint ? <p className="mt-1.5 text-xs text-slate-500">{hint}</p> : null}
+    </div>
+  );
+}
+
+function StepFooter({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-3.5">
+      {children}
     </div>
   );
 }
 
 function WizardSteps({ current }: { current: Step }) {
-  const steps: { id: Step; label: string }[] = [
-    { id: 'details', label: 'Details' },
-    { id: 'authors', label: 'Authors' },
-    { id: 'upload', label: 'Upload' },
+  const steps: { id: Step; label: string; hint: string }[] = [
+    { id: 'details', label: 'Details', hint: 'Title & abstract' },
+    { id: 'authors', label: 'Authors', hint: 'Co-authors' },
+    { id: 'upload', label: 'Manuscript', hint: 'PDF & submit' },
   ];
+  const currentIndex = steps.findIndex((s) => s.id === current);
 
   return (
-    <ol className="flex gap-2 text-sm">
+    <ol className="grid grid-cols-3 gap-3" aria-label="Submission steps">
       {steps.map((step, index) => {
-        const active = step.id === current;
+        const state = index < currentIndex ? 'done' : index === currentIndex ? 'active' : 'todo';
         return (
-          <li
-            key={step.id}
-            className={`rounded-full px-3 py-1 ${active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
-          >
-            {index + 1}. {step.label}
+          <li key={step.id} aria-current={state === 'active' ? 'step' : undefined}>
+            <div
+              className={`h-1 rounded-full ${state === 'todo' ? 'bg-slate-200' : 'bg-indigo-600'}`}
+            />
+            <div className="mt-2.5 flex items-center gap-2">
+              <span
+                className={`flex size-5 items-center justify-center rounded-full text-[11px] font-semibold ${state === 'done' ? 'bg-indigo-600 text-white' : state === 'active' ? 'border-2 border-indigo-600 text-indigo-700' : 'border border-slate-300 text-slate-400'}`}
+              >
+                {state === 'done' ? '✓' : index + 1}
+              </span>
+              <span
+                className={`text-sm font-medium ${state === 'todo' ? 'text-slate-400' : 'text-slate-900'}`}
+              >
+                {step.label}
+              </span>
+            </div>
+            <p className="ml-7 text-xs text-slate-500">{step.hint}</p>
           </li>
         );
       })}

@@ -12,13 +12,19 @@ export const coiTypeSchema = z.enum([
   'OTHER',
 ]);
 export const coiSourceSchema = z.enum(['SELF', 'CHAIR', 'SYSTEM']);
-export const roundStatusSchema = z.enum(['OPEN', 'REVIEWING', 'REBUTTAL', 'DECIDING', 'CLOSED']);
+export const reviewStageSchema = z.enum([
+  'SUBMITTED',
+  'IN_REVIEW',
+  'FEEDBACK_RELEASED',
+  'DECIDED',
+  'REVISION_REQUESTED',
+]);
 export const invitationStatusSchema = z.enum(['PENDING', 'ACCEPTED', 'DECLINED', 'EXPIRED']);
 export const assignmentStatusSchema = z.enum(['ASSIGNED', 'ACCEPTED', 'DECLINED', 'COMPLETED']);
 
 export type BidValue = z.infer<typeof bidValueSchema>;
 export type CoiType = z.infer<typeof coiTypeSchema>;
-export type RoundStatus = z.infer<typeof roundStatusSchema>;
+export type ReviewStage = z.infer<typeof reviewStageSchema>;
 export type AssignmentStatus = z.infer<typeof assignmentStatusSchema>;
 export type InvitationStatus = z.infer<typeof invitationStatusSchema>;
 
@@ -26,11 +32,13 @@ export const reviewRoundSchema = z.object({
   id: z.string().uuid(),
   organizationId: z.string().uuid(),
   conferenceId: z.string().uuid(),
+  paperId: z.string().uuid(),
   roundNumber: z.number().int().positive(),
-  status: roundStatusSchema,
+  reviewStage: reviewStageSchema,
   reviewDueAt: z.string().datetime().nullable(),
   rebuttalDueAt: z.string().datetime().nullable(),
   revisionDueAt: z.string().datetime().nullable(),
+  reviewsReleasedAt: z.string().datetime().nullable(),
   version: z.number().int(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -43,19 +51,33 @@ export const reviewRoundListSchema = z.object({
   nextCursor: z.string().uuid().nullable(),
 });
 
-export const reviewRoundListQuerySchema = cursorPaginationQuerySchema;
-
-export const createReviewRoundSchema = z.object({
-  roundNumber: z.number().int().positive().default(1),
-  reviewDueAt: z.string().datetime().optional(),
-  rebuttalDueAt: z.string().datetime().optional(),
-  revisionDueAt: z.string().datetime().optional(),
+export const reviewRoundListQuerySchema = cursorPaginationQuerySchema.extend({
+  paperId: z.string().uuid().optional(),
 });
 
-export type CreateReviewRoundInput = z.infer<typeof createReviewRoundSchema>;
+export const paperReviewProgressSchema = z.object({
+  paperId: z.string().uuid(),
+  paperTitle: z.string(),
+  paperStatus: z.string(),
+  paperVersion: z.number().int(),
+  cycleId: z.string().uuid().nullable(),
+  roundNumber: z.number().int().positive().nullable(),
+  cycleVersion: z.number().int().nullable(),
+  reviewStage: reviewStageSchema,
+  assignmentCount: z.number().int().nonnegative(),
+  submittedReviewCount: z.number().int().nonnegative(),
+  reviewsReleasedAt: z.string().datetime().nullable(),
+  warning: z.string().nullable(),
+});
+
+export const paperReviewProgressListSchema = z.object({
+  data: z.array(paperReviewProgressSchema),
+  minimumReviews: z.number().int().positive(),
+});
+
+export type PaperReviewProgressDto = z.infer<typeof paperReviewProgressSchema>;
 
 export const updateReviewRoundSchema = z.object({
-  status: roundStatusSchema.optional(),
   reviewDueAt: z.string().datetime().nullable().optional(),
   rebuttalDueAt: z.string().datetime().nullable().optional(),
   revisionDueAt: z.string().datetime().nullable().optional(),
@@ -251,7 +273,7 @@ export const reviewerAssignmentSchema = z.object({
 export type ReviewerAssignmentDto = z.infer<typeof reviewerAssignmentSchema>;
 
 export const createAssignmentSchema = z.object({
-  roundId: z.string().uuid(),
+  roundId: z.string().uuid().optional(),
   reviewerUserId: z.string().uuid(),
   dueAt: z.string().datetime().optional(),
 });
@@ -265,6 +287,7 @@ export const assignmentListSchema = z.object({
       reviewerName: z.string().optional(),
       reviewerEmail: z.string().email().optional(),
       bidValue: bidValueSchema.nullable().optional(),
+      reviewProgress: z.enum(['NOT_STARTED', 'DRAFT', 'SUBMITTED']).optional(),
     }),
   ),
   nextCursor: z.string().uuid().nullable(),
@@ -334,6 +357,8 @@ export const reviewSchema = z.object({
   /** Present on assignment review payloads so reviewers can download the assigned PDF. */
   paperTitle: z.string().optional(),
   currentVersionId: z.string().uuid().nullable().optional(),
+  canEdit: z.boolean().optional(),
+  editLockReason: z.string().nullable().optional(),
   scores: z.record(z.string(), z.number()),
   recommendation: recommendationSchema.nullable(),
   confidence: z.number().int().min(1).max(5).nullable(),
@@ -373,7 +398,7 @@ export const reviewActionResponseSchema = z.object({
 export const reviewListSchema = z.object({
   data: z.array(reviewSchema),
   roundId: z.string().uuid().optional(),
-  roundStatus: roundStatusSchema.optional(),
+  reviewStage: reviewStageSchema.optional(),
   nextCursor: z.string().uuid().nullable(),
 });
 
@@ -387,7 +412,7 @@ export const myAssignmentItemSchema = reviewerAssignmentSchema.extend({
   paperTitle: z.string(),
   currentVersionId: z.string().uuid().nullable().optional(),
   roundNumber: z.number().int(),
-  roundStatus: roundStatusSchema,
+  reviewStage: reviewStageSchema,
   review: reviewSchema.nullable().optional(),
 });
 
@@ -402,6 +427,7 @@ export const myAssignmentsQuerySchema = cursorPaginationQuerySchema;
 
 export const releaseReviewsSchema = z.object({
   version: z.number().int().nonnegative(),
+  rebuttalDueAt: z.string().datetime().optional(),
 });
 
 export type ReleaseReviewsInput = z.infer<typeof releaseReviewsSchema>;
@@ -520,6 +546,7 @@ export type NotifyDecisionsInput = z.infer<typeof notifyDecisionsSchema>;
 export const decisionActionResponseSchema = z.object({
   decision: decisionSchema,
   message: z.string(),
+  warnings: z.array(z.string()),
   nextRound: reviewRoundSchema.nullable().optional(),
 });
 
@@ -527,6 +554,12 @@ export type DecisionActionResponse = z.infer<typeof decisionActionResponseSchema
 
 export const bulkDecisionResponseSchema = z.object({
   data: z.array(decisionSchema),
+  failures: z.array(
+    z.object({
+      paperId: z.string().uuid(),
+      reason: z.string(),
+    }),
+  ),
   message: z.string(),
 });
 

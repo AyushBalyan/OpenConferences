@@ -11,6 +11,8 @@ import type { AuthUser } from '../auth/auth.types';
 import { ConferenceService } from '../tenancy/conference.service';
 import { NotificationService } from './notification.service';
 import { TemplateService } from './template.service';
+import { InboxService } from './inbox.service';
+import { RequireMembership } from '../common/decorators/require-membership.decorator';
 
 @Controller()
 @UseGuards(AuthGuard, MembershipGuard)
@@ -19,7 +21,39 @@ export class MessagingController {
     private readonly conferences: ConferenceService,
     private readonly notifications: NotificationService,
     private readonly templates: TemplateService,
+    private readonly inbox: InboxService,
   ) {}
+
+  @TsRestHandler(messagingContract.listInbox)
+  @RequireMembership()
+  listInbox(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(messagingContract.listInbox, async ({ params, query }) => {
+      const conference = await this.conferences.loadConference(user.id, params.id, roles);
+      return {
+        status: 200 as const,
+        body: await this.inbox.list(
+          { userId: user.id, conferenceId: params.id, organizationId: conference.organizationId },
+          query.kind,
+          query.cursor,
+        ),
+      };
+    });
+  }
+
+  @TsRestHandler(messagingContract.readInbox)
+  @RequireMembership()
+  readInbox(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(messagingContract.readInbox, async ({ params, body }) => {
+      const conference = await this.conferences.loadConference(user.id, params.id, roles);
+      return {
+        status: 200 as const,
+        body: await this.inbox.acknowledge(
+          { userId: user.id, conferenceId: params.id, organizationId: conference.organizationId },
+          body,
+        ),
+      };
+    });
+  }
 
   @TsRestHandler(messagingContract.listNotificationLogs)
   @RequireRole('ORGANIZER', 'ORG_ADMIN', 'PLATFORM_ADMIN')

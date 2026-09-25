@@ -55,6 +55,12 @@ export class ProblemExceptionFilter implements ExceptionFilter {
           title: HttpStatus[status] ?? 'Error',
           status,
           detail,
+          ...(typeof response === 'object' &&
+          response !== null &&
+          'code' in response &&
+          typeof response.code === 'string'
+            ? { code: response.code }
+            : {}),
           instance,
         },
       };

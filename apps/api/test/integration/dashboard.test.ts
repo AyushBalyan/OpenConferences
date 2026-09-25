@@ -201,8 +201,8 @@ describe('Dashboard, pagination & analytics integration', () => {
           id: roundId,
           organizationId: orgId,
           conferenceId: confAId,
+          paperId: paperIds[0]!,
           roundNumber: 1,
-          status: 'REVIEWING',
         },
       });
 

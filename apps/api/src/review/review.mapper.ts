@@ -17,21 +17,24 @@ import type {
   RebuttalDto,
   ReviewDto,
   ReviewRoundDto,
+  ReviewStage,
   ReviewerAssignmentDto,
   ReviewerInvitationDto,
 } from '@openconferences/schemas';
 import type { Authorship } from '@openconferences/db';
 
-export function mapReviewRound(round: ReviewRound): ReviewRoundDto {
+export function mapReviewRound(round: ReviewRound, reviewStage: ReviewStage): ReviewRoundDto {
   return {
     id: round.id,
     organizationId: round.organizationId,
     conferenceId: round.conferenceId,
+    paperId: round.paperId,
     roundNumber: round.roundNumber,
-    status: round.status,
+    reviewStage,
     reviewDueAt: round.reviewDueAt?.toISOString() ?? null,
     rebuttalDueAt: round.rebuttalDueAt?.toISOString() ?? null,
     revisionDueAt: round.revisionDueAt?.toISOString() ?? null,
+    reviewsReleasedAt: round.reviewsReleasedAt?.toISOString() ?? null,
     version: round.version,
     createdAt: round.createdAt.toISOString(),
     updatedAt: round.updatedAt.toISOString(),

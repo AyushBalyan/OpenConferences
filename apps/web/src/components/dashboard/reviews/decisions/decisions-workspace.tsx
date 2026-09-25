@@ -1,7 +1,20 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { fetchDecisions, fetchPapers, fetchReviewRounds } from '@/lib/api-client';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  fetchDecisions,
+  fetchPapers,
+  fetchReviewProgress,
+  fetchReviewRounds,
+} from '@/lib/api-client';
 import { resolveDecisionRound } from '@/lib/review-rounds';
 import type { PaperDto } from '@/lib/submission-types';
 import type { DecisionDto, DecisionOutcome, ReviewRoundDto } from '@/lib/review-types';
@@ -11,10 +24,12 @@ type PaperRow = {
   title: string;
   status: PaperDto['status'];
   version: number;
+  cycleId: string | null;
+  warning: string | null;
 };
 
 export type PendingDecision = {
-  outcome: DecisionOutcome;
+  outcome: DecisionOutcome | '';
   rationale: string;
 };
 
@@ -30,8 +45,8 @@ type DecisionsWorkspaceValue = {
   setSelected: React.Dispatch<React.SetStateAction<Set<string>>>;
   pending: Record<string, PendingDecision>;
   setPending: React.Dispatch<React.SetStateAction<Record<string, PendingDecision>>>;
-  bulkOutcome: DecisionOutcome;
-  setBulkOutcome: React.Dispatch<React.SetStateAction<DecisionOutcome>>;
+  bulkOutcome: DecisionOutcome | '';
+  setBulkOutcome: React.Dispatch<React.SetStateAction<DecisionOutcome | ''>>;
   loading: boolean;
   error: string | null;
   message: string | null;
@@ -61,6 +76,7 @@ export function DecisionsWorkspaceProvider({
   children: React.ReactNode;
 }) {
   const [roundId, setRoundId] = useState('');
+  const roundRef = useRef('');
   const [rounds, setRounds] = useState<ReviewRoundDto[]>([]);
   const [papers, setPapers] = useState<PaperRow[]>([]);
   const [decisions, setDecisions] = useState<
@@ -68,7 +84,7 @@ export function DecisionsWorkspaceProvider({
   >([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Record<string, PendingDecision>>({});
-  const [bulkOutcome, setBulkOutcome] = useState<DecisionOutcome>('ACCEPT');
+  const [bulkOutcome, setBulkOutcome] = useState<DecisionOutcome | ''>('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -82,22 +98,33 @@ export function DecisionsWorkspaceProvider({
   );
 
   const refresh = useCallback(async () => {
-    const [roundList, paperList] = await Promise.all([
+    const [roundList, paperList, progress] = await Promise.all([
       fetchReviewRounds(conferenceId),
       fetchPapers(conferenceId),
+      fetchReviewProgress(conferenceId),
     ]);
 
     setRounds(roundList);
+    const progressByPaper = new Map(progress.data.map((row) => [row.paperId, row]));
     setPapers(
       paperList.data
         .filter((p) => p.status !== 'DRAFT')
-        .map((p) => ({ id: p.id, title: p.title, status: p.status, version: p.version })),
+        .map((p) => ({
+          id: p.id,
+          title: p.title,
+          status: p.status,
+          version: p.version,
+          cycleId: progressByPaper.get(p.id)?.cycleId ?? null,
+          warning: progressByPaper.get(p.id)?.warning ?? null,
+        })),
     );
 
-    const activeRound = resolveDecisionRound(roundList);
+    const activeRound =
+      roundList.find((round) => round.id === roundRef.current) ?? resolveDecisionRound(roundList);
     if (activeRound) {
       setRoundId(activeRound.id);
-      const decisionList = await fetchDecisions(conferenceId, activeRound.id);
+      roundRef.current = activeRound.id;
+      const decisionList = await fetchDecisions(conferenceId);
       setDecisions(decisionList.data);
     } else {
       setRoundId('');
@@ -108,6 +135,7 @@ export function DecisionsWorkspaceProvider({
 
   const onRoundChange = useCallback(
     async (nextRoundId: string) => {
+      roundRef.current = nextRoundId;
       setRoundId(nextRoundId);
       setSelected(new Set());
       setPending({});

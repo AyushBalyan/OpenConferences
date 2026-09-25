@@ -99,7 +99,6 @@ describe('Billing integration (Phase 8)', () => {
   const paperRegularId = generateId();
   const paperStudentId = generateId();
   const paperBId = generateId();
-  const roundId = generateId();
 
   const chairEmail = `chair-bill-${Date.now()}@example.com`;
   const authorRegularEmail = `author-reg-${Date.now()}@example.com`;
@@ -204,16 +203,6 @@ describe('Billing integration (Phase 8)', () => {
         });
       }
 
-      await tx.reviewRound.create({
-        data: {
-          id: roundId,
-          organizationId: orgId,
-          conferenceId: confId,
-          roundNumber: 1,
-          status: 'CLOSED',
-        },
-      });
-
       const createAcceptedPaper = async (
         paperId: string,
         track: string,
@@ -244,13 +233,24 @@ describe('Billing integration (Phase 8)', () => {
           },
         });
 
+        const cycleId = generateId();
+        await tx.reviewRound.create({
+          data: {
+            id: cycleId,
+            organizationId: orgId,
+            conferenceId: confId,
+            paperId,
+            roundNumber: 1,
+          },
+        });
+
         await tx.decision.create({
           data: {
             id: generateId(),
             organizationId: orgId,
             conferenceId: confId,
             paperId,
-            roundId,
+            roundId: cycleId,
             decidedById: chair.userId,
             outcome: 'ACCEPT',
             notifiedAt: new Date(),

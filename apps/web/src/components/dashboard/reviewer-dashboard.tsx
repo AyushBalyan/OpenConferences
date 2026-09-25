@@ -17,7 +17,8 @@ import { PageHeader } from '@/components/dashboard/page-header';
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
 import { fetchMyAssignments } from '@/lib/api-client';
 import type { MyAssignmentItemDto } from '@/lib/review-types';
-import { roundStatusLabel } from '@/lib/review-types';
+import { reviewStageLabel } from '@/lib/review-types';
+import { REVIEWER_BIDDING_ENABLED } from '@/lib/reviewer-features';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 type ReviewerDashboardProps = {
@@ -108,9 +109,11 @@ export function ReviewerDashboard({ conferenceId, conferenceName }: ReviewerDash
                 View all
               </Link>
             </Button>
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/dashboard/conferences/${conferenceId}/reviews/bidding`}>Bidding</Link>
-            </Button>
+            {REVIEWER_BIDDING_ENABLED ? (
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/dashboard/conferences/${conferenceId}/reviews/bidding`}>Bidding</Link>
+              </Button>
+            ) : null}
           </div>
         </div>
 
@@ -134,7 +137,7 @@ export function ReviewerDashboard({ conferenceId, conferenceName }: ReviewerDash
                 : 'Great work — you have completed all assigned reviews.'
             }
             action={
-              assignments.length === 0 ? (
+              REVIEWER_BIDDING_ENABLED && assignments.length === 0 ? (
                 <Button asChild variant="outline">
                   <Link href={`/dashboard/conferences/${conferenceId}/reviews/bidding`}>
                     Go to bidding
@@ -167,7 +170,7 @@ export function ReviewerDashboard({ conferenceId, conferenceName }: ReviewerDash
                       <p className="font-medium text-slate-900">{assignment.paperTitle}</p>
                     </DataTableCell>
                     <DataTableCell>
-                      Round {assignment.roundNumber} · {roundStatusLabel(assignment.roundStatus)}
+                      Cycle {assignment.roundNumber} · {reviewStageLabel(assignment.reviewStage)}
                     </DataTableCell>
                     <DataTableCell className="font-mono text-xs">
                       {assignment.dueAt ? new Date(assignment.dueAt).toLocaleDateString() : 'TBD'}
