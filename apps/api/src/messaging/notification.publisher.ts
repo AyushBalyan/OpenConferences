@@ -6,6 +6,7 @@ import {
   type AuthPasswordResetPayload,
   type DecisionNotifiedPayload,
   type PaperSubmittedPayload,
+  type PaperWithdrawnPayload,
   type PaymentCapturedPayload,
   type RegistrationAdditionalPaymentPayload,
   type RegistrationClarificationPayload,
@@ -109,6 +110,29 @@ export class NotificationPublisher {
       conferenceId: payload.conferenceId,
       idempotencyKey: `submission-ops-alert-${payload.paperId}`,
       tags: ['submission.ops_alert'],
+      relatedEntity: 'Paper',
+      relatedEntityId: payload.paperId,
+    });
+  }
+
+  async publishPaperWithdrawn(payload: PaperWithdrawnPayload): Promise<void> {
+    const templateKey =
+      payload.audience === 'organizer' ? 'paper.withdrawn.organizer' : 'paper.withdrawn';
+    await this.notifications.enqueue({
+      templateKey,
+      to: payload.to,
+      context: {
+        paperTitle: payload.paperTitle,
+        conferenceName: payload.conferenceName,
+        submissionNumber: payload.submissionNumber || 'Not assigned',
+        reason: payload.reason,
+        actorName: payload.actorName || 'An author',
+        refundNeeded: payload.refundNeeded ? 'Yes' : 'No',
+      },
+      organizationId: payload.organizationId,
+      conferenceId: payload.conferenceId,
+      idempotencyKey: payload.idempotencyKey,
+      tags: [templateKey],
       relatedEntity: 'Paper',
       relatedEntityId: payload.paperId,
     });

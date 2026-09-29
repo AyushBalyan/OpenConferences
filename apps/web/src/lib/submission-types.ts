@@ -43,6 +43,41 @@ export function paperHasCleanDownload(paper: PaperDto): boolean {
   return Boolean(paper.currentVersionId) && paper.currentVersion?.fileAsset?.scanStatus === 'CLEAN';
 }
 
+const COORDINATOR_WITHDRAW_STATUSES = new Set<PaperDto['status']>([
+  'SUBMITTED',
+  'UNDER_REVIEW',
+  'DECISION_MADE',
+  'CAMERA_READY',
+]);
+
+export function canWithdrawPaper(
+  status: PaperDto['status'],
+  access: { isAuthor: boolean; isCoordinator: boolean },
+): boolean {
+  if (access.isAuthor) return status === 'SUBMITTED';
+  if (access.isCoordinator) return COORDINATOR_WITHDRAW_STATUSES.has(status);
+  return false;
+}
+
+export function canDeleteDraft(status: PaperDto['status'], access: { isAuthor: boolean }): boolean {
+  return access.isAuthor && status === 'DRAFT';
+}
+
+export function withdrawConfirmationReady(reason: string, confirmText: string): boolean {
+  return reason.trim().length > 0 && confirmText === 'WITHDRAW';
+}
+
+export function authorMustAskOrganizersToWithdraw(
+  status: PaperDto['status'],
+  access: { isAuthor: boolean; isCoordinator: boolean },
+): boolean {
+  return (
+    access.isAuthor &&
+    !access.isCoordinator &&
+    (status === 'UNDER_REVIEW' || status === 'DECISION_MADE' || status === 'CAMERA_READY')
+  );
+}
+
 export function countActiveSubmissions(
   submissions: {
     total: number;

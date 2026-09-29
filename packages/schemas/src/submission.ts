@@ -181,6 +181,14 @@ export const submitPaperResponseSchema = z.object({
   message: z.string(),
 });
 
+export const withdrawPaperSchema = z.object({
+  reason: z.string().trim().min(1).max(1000),
+  version: z.number().int().nonnegative(),
+  confirm: z.literal('WITHDRAW'),
+});
+
+export type WithdrawPaperInput = z.infer<typeof withdrawPaperSchema>;
+
 /** Shared file scan job payload for pg-boss queue */
 export const fileScanJobPayloadSchema = z.object({
   fileAssetId: z.string().uuid(),

@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  authorMustAskOrganizersToWithdraw,
+  canDeleteDraft,
   canSubmitDraft,
+  canWithdrawPaper,
   countActiveSubmissions,
   latestScanStatus,
   paperHasCleanDownload,
+  withdrawConfirmationReady,
   type PaperDto,
 } from './submission-types';
 
@@ -113,5 +117,22 @@ describe('paperHasCleanDownload', () => {
         { status: 'CAMERA_READY' },
       ]),
     ).toBe(2);
+  });
+
+  it('allows authors to withdraw only submitted papers and delete only drafts', () => {
+    expect(canWithdrawPaper('SUBMITTED', { isAuthor: true, isCoordinator: false })).toBe(true);
+    expect(canWithdrawPaper('UNDER_REVIEW', { isAuthor: true, isCoordinator: true })).toBe(false);
+    expect(canWithdrawPaper('UNDER_REVIEW', { isAuthor: false, isCoordinator: true })).toBe(true);
+    expect(canWithdrawPaper('CAMERA_READY', { isAuthor: false, isCoordinator: true })).toBe(true);
+    expect(canWithdrawPaper('DRAFT', { isAuthor: true, isCoordinator: false })).toBe(false);
+    expect(canDeleteDraft('DRAFT', { isAuthor: true })).toBe(true);
+    expect(canDeleteDraft('SUBMITTED', { isAuthor: true })).toBe(false);
+    expect(canDeleteDraft('DRAFT', { isAuthor: false })).toBe(false);
+    expect(
+      authorMustAskOrganizersToWithdraw('DECISION_MADE', { isAuthor: true, isCoordinator: false }),
+    ).toBe(true);
+    expect(withdrawConfirmationReady('Changed plans', 'WITHDRAW')).toBe(true);
+    expect(withdrawConfirmationReady('Changed plans', 'withdraw')).toBe(false);
+    expect(withdrawConfirmationReady('   ', 'WITHDRAW')).toBe(false);
   });
 });

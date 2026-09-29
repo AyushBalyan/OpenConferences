@@ -313,6 +313,56 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
     variables: ['paperTitle', 'conferenceName', 'authorEmail', 'paperUrl'],
   }),
   letter({
+    key: 'paper.withdrawn',
+    subject: 'Submission withdrawn: {{paperTitle}}',
+    headline: 'Submission withdrawn',
+    paragraphs: [
+      'The paper below has been withdrawn from {{conferenceName}}.',
+      'This cannot be undone from the submission. Contact the organizers if this was a mistake.',
+    ],
+    details: [
+      { label: 'Paper', value: '{{paperTitle}}' },
+      { label: 'Submission code', value: '{{submissionNumber}}' },
+      { label: 'Reason', value: '{{reason}}' },
+    ],
+    variables: ['paperTitle', 'conferenceName', 'submissionNumber', 'reason'],
+  }),
+  letter({
+    key: 'paper.withdrawn.organizer',
+    subject: 'Paper withdrawn: {{paperTitle}} ({{conferenceName}})',
+    headline: 'A paper was withdrawn',
+    paragraphs: ['{{actorName}} withdrew a paper from {{conferenceName}}.'],
+    details: [
+      { label: 'Paper', value: '{{paperTitle}}' },
+      { label: 'Submission code', value: '{{submissionNumber}}' },
+      { label: 'Reason', value: '{{reason}}' },
+      { label: 'Paid registration needs a refund', value: '{{refundNeeded}}' },
+    ],
+    variables: [
+      'paperTitle',
+      'conferenceName',
+      'submissionNumber',
+      'reason',
+      'actorName',
+      'refundNeeded',
+    ],
+  }),
+  letter({
+    key: 'draft.reminder',
+    subject: 'Your draft for {{conferenceName}} is still open',
+    headline: 'Finish or remove your draft',
+    paragraphs: [
+      'A paper you started for {{conferenceName}} is still a draft.',
+      'You can finish it before the call closes, or delete it if you no longer plan to submit.',
+    ],
+    details: [
+      { label: 'Paper', value: '{{paperTitle}}' },
+      { label: 'Call closes', value: '{{deadlineAt}}' },
+    ],
+    cta: { label: 'Open draft', url: '{{draftUrl}}' },
+    variables: ['paperTitle', 'conferenceName', 'deadlineAt', 'draftUrl'],
+  }),
+  letter({
     key: 'reviewer.invitation',
     subject: 'Reviewer invitation for {{conferenceName}}',
     headline: 'Reviewer invitation',

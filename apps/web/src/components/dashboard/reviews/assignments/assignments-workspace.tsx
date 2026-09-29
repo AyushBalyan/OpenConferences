@@ -151,7 +151,7 @@ export function AssignmentsWorkspaceProvider({
     setConferenceName(conference.name);
     setPapers(
       paperList.data
-        .filter((p) => p.status !== 'DRAFT')
+        .filter((p) => p.status !== 'DRAFT' && !p.status.startsWith('WITHDRAWN'))
         .map((p) => ({ id: p.id, title: p.title, submissionNumber: p.submissionNumber })),
     );
     setReviewers(

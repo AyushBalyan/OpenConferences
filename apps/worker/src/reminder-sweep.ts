@@ -1,4 +1,5 @@
 import type PgBoss from 'pg-boss';
+import { getConfig } from '@openconferences/config/env';
 import { generateId, withTenantContext } from '@openconferences/db';
 import type { ReminderSweepJobPayload } from '@openconferences/schemas';
 import { NOTIFICATION_SEND_JOB_NAME, reviewerAssignmentDueAt } from '@openconferences/schemas';
@@ -110,6 +111,7 @@ export async function processReminderSweepJob(
         'cameraready.reminder',
         'registration.early_bird_ending',
         'registration.deadline_reminder',
+        'draft.reminder',
       ] as const);
 
   let enqueued = 0;
@@ -287,7 +289,72 @@ export async function processReminderSweepJob(
         }
       }
     }
+
+    if (kind === 'draft.reminder') {
+      const cutoff = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+      const drafts = await withTenantContext({}, async (tx) =>
+        tx.paper.findMany({
+          where: {
+            status: 'DRAFT',
+            createdAt: { lte: cutoff },
+            ...(payload.conferenceId ? { conferenceId: payload.conferenceId } : {}),
+            conference: {
+              status: 'CFP_OPEN',
+              OR: [{ cfpClosesAt: null }, { cfpClosesAt: { gt: now } }],
+            },
+          },
+          include: {
+            submittedBy: { select: { email: true } },
+            conference: { select: { name: true, status: true, cfpClosesAt: true } },
+          },
+          take: 200,
+        }),
+      );
+
+      const webUrl = getConfig().webUrl.replace(/\/$/, '');
+      for (const paper of drafts) {
+        if (!isAbandonedDraft(paper, now)) continue;
+        const email = paper.submittedBy.email?.trim();
+        if (!email) continue;
+        const sent = await enqueueDirect(boss, {
+          templateKey: 'draft.reminder',
+          to: email,
+          context: {
+            paperTitle: paper.title.trim() || 'Untitled draft',
+            conferenceName: paper.conference.name,
+            deadlineAt: paper.conference.cfpClosesAt
+              ? paper.conference.cfpClosesAt.toISOString()
+              : 'Not set',
+            draftUrl: `${webUrl}/dashboard/conferences/${paper.conferenceId}/submissions/${paper.id}`,
+          },
+          organizationId: paper.organizationId,
+          conferenceId: paper.conferenceId,
+          idempotencyKey: `draft-reminder-${paper.id}`,
+          relatedEntity: 'Paper',
+          relatedEntityId: paper.id,
+        });
+        if (sent) enqueued += 1;
+      }
+    }
   }
 
   return { enqueued };
+}
+
+const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+
+export function isAbandonedDraft(
+  paper: {
+    status: string;
+    createdAt: Date;
+    conference: { status: string; cfpClosesAt: Date | null };
+  },
+  now: Date,
+): boolean {
+  if (paper.status !== 'DRAFT') return false;
+  if (paper.conference.status !== 'CFP_OPEN') return false;
+  if (paper.conference.cfpClosesAt && paper.conference.cfpClosesAt.getTime() <= now.getTime()) {
+    return false;
+  }
+  return now.getTime() - paper.createdAt.getTime() >= THREE_DAYS_MS;
 }

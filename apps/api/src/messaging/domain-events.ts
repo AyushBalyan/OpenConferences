@@ -36,6 +36,21 @@ export type AuthMfaOtpPayload = {
   idempotencyKey: string;
 };
 
+export type PaperWithdrawnPayload = {
+  to: string;
+  audience: 'author' | 'organizer';
+  paperId: string;
+  paperTitle: string;
+  submissionNumber?: string | null;
+  conferenceName: string;
+  conferenceId: string;
+  organizationId: string;
+  reason: string;
+  actorName?: string;
+  refundNeeded?: boolean;
+  idempotencyKey: string;
+};
+
 export type PaperSubmittedPayload = {
   to: string;
   paperId: string;

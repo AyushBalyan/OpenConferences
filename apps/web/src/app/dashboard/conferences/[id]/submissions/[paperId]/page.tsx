@@ -22,6 +22,8 @@ import {
   uploadCameraReadyPdf,
   uploadPaperPdf,
   uploadRevisionPdf,
+  deletePaper,
+  withdrawPaper,
 } from '@/lib/api-client';
 import {
   decisionOutcomeLabel,
@@ -31,8 +33,17 @@ import {
   type ReviewDto,
 } from '@/lib/review-types';
 import { paperStatusLabel, paperStatusTone } from '@/lib/paper-status-styles';
-import { canDownloadConferencePapers } from '@/lib/roles';
-import { canSubmitDraft, latestScanStatus, scanStatusLabel } from '@/lib/submission-types';
+import { canDownloadConferencePapers, canCoordinateReview } from '@/lib/roles';
+import {
+  authorMustAskOrganizersToWithdraw,
+  canDeleteDraft,
+  canSubmitDraft,
+  canWithdrawPaper,
+  latestScanStatus,
+  scanStatusLabel,
+} from '@/lib/submission-types';
+import { WithdrawPaperDialog } from '@/components/dashboard/withdraw-paper-dialog';
+import { useSession } from '@/lib/auth-client';
 import { RegistrationCard } from '@/components/billing/registration-card';
 import type { PaperDto } from '@/lib/submission-types';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
@@ -190,6 +201,8 @@ function SubmissionDetail() {
   const section = sections.includes(selected as (typeof sections)[number]) ? selected : 'overview';
   const params = useParams<{ id: string; paperId: string }>();
   const { conference } = useConferenceWorkspace();
+  const { data: session } = useSession();
+  const userId = session?.user?.id;
   const conferenceId = params.id;
   const paperId = params.paperId;
   const canDownloadPapers = canDownloadConferencePapers(conference?.myRoles ?? []);
@@ -206,6 +219,8 @@ function SubmissionDetail() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
   const [draftFile, setDraftFile] = useState<File | null>(null);
   const [cameraReadyFile, setCameraReadyFile] = useState<File | null>(null);
   const [revisionFile, setRevisionFile] = useState<File | null>(null);
@@ -333,6 +348,39 @@ function SubmissionDetail() {
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Submit failed');
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onWithdraw(reason: string) {
+    if (!paper) return;
+    setBusy(true);
+    setWithdrawError(null);
+    try {
+      await withdrawPaper(conferenceId, paperId, {
+        reason,
+        version: paper.version,
+        confirm: 'WITHDRAW',
+      });
+      setWithdrawOpen(false);
+      await load();
+    } catch (err) {
+      setWithdrawError(err instanceof Error ? err.message : 'Withdraw failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onDeleteDraft() {
+    if (!paper) return;
+    if (!window.confirm('Delete this draft? This cannot be undone.')) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      await deletePaper(conferenceId, paperId);
+      router.push(`/dashboard/conferences/${conferenceId}/submissions`);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Delete failed');
       setBusy(false);
     }
   }
@@ -503,6 +551,18 @@ function SubmissionDetail() {
           paper.status.startsWith('WITHDRAWN') ? -1 : 0,
         );
   const withdrawn = paper.status.startsWith('WITHDRAWN');
+  const isAuthor = Boolean(
+    userId &&
+    (paper.submittedById === userId ||
+      paper.authorships?.some((author) => author.userId === userId)),
+  );
+  const isCoordinator = canCoordinateReview(conference?.myRoles ?? []) && !isAuthor;
+  const showWithdraw = canWithdrawPaper(paper.status, { isAuthor, isCoordinator });
+  const showDelete = canDeleteDraft(paper.status, { isAuthor });
+  const askOrganizers = authorMustAskOrganizersToWithdraw(paper.status, {
+    isAuthor,
+    isCoordinator,
+  });
 
   return (
     <div className="min-w-0 max-w-full space-y-6">
@@ -555,8 +615,53 @@ function SubmissionDetail() {
                 Submit paper
               </Button>
             ) : null}
+            {showDelete ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void onDeleteDraft()}
+              >
+                Delete draft
+              </Button>
+            ) : null}
+            {showWithdraw ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  setWithdrawError(null);
+                  setWithdrawOpen(true);
+                }}
+              >
+                Withdraw submission
+              </Button>
+            ) : null}
           </div>
         </div>
+
+        {withdrawn ? (
+          <p className="border-t border-slate-100 px-6 py-4 text-sm text-slate-600">
+            This paper has been withdrawn. The submission code is unchanged, and the record is
+            read-only.
+          </p>
+        ) : null}
+        {askOrganizers ? (
+          <p className="border-t border-slate-100 px-6 py-4 text-sm text-slate-600">
+            Contact the organizers to withdraw this paper.
+          </p>
+        ) : null}
+        {withdrawOpen ? (
+          <div className="border-t border-slate-100 px-6 py-4">
+            <WithdrawPaperDialog
+              busy={busy}
+              error={withdrawError}
+              onCancel={() => setWithdrawOpen(false)}
+              onConfirm={(reason) => void onWithdraw(reason)}
+            />
+          </div>
+        ) : null}
 
         {!withdrawn ? (
           <ol

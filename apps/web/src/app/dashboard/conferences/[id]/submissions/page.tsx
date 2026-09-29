@@ -21,7 +21,8 @@ import {
 import { SectionPageLayout } from '@/components/dashboard/section-page-layout';
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
 import { useConferenceWorkspace } from '@/components/dashboard/conference-workspace';
-import { fetchPapers } from '@/lib/api-client';
+import { deletePaper, fetchPapers } from '@/lib/api-client';
+import { useSession } from '@/lib/auth-client';
 import { paperStatusLabel, paperStatusTone } from '@/lib/paper-status-styles';
 import { canCoordinateReview, canDownloadConferencePapers } from '@/lib/roles';
 import type { PaperDto } from '@/lib/submission-types';
@@ -49,6 +50,8 @@ const STATUS_OPTIONS: Array<{ value: PaperDto['status'] | ''; label: string }> =
 
 export default function SubmissionsListPage() {
   const { conferenceId, conference } = useConferenceWorkspace();
+  const { data: session } = useSession();
+  const userId = session?.user?.id;
   const roles = conference?.myRoles ?? [];
   const showAllPapers = canCoordinateReview(roles);
   const canDownloadPapers = canDownloadConferencePapers(roles);
@@ -80,6 +83,16 @@ export default function SubmissionsListPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  async function onDeleteDraft(paperId: string) {
+    if (!window.confirm('Delete this draft? This cannot be undone.')) return;
+    try {
+      await deletePaper(conferenceId, paperId);
+      await refresh();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Delete failed');
+    }
+  }
 
   return (
     <SectionPageLayout
@@ -228,6 +241,18 @@ export default function SubmissionsListPage() {
                           View
                         </Link>
                       </Button>
+                      {paper.status === 'DRAFT' &&
+                      userId &&
+                      (paper.submittedById === userId ||
+                        paper.authorships?.some((author) => author.userId === userId)) ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void onDeleteDraft(paper.id)}
+                        >
+                          Delete draft
+                        </Button>
+                      ) : null}
                     </div>
                   </DataTableCell>
                 </DataTableRow>

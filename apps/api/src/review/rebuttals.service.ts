@@ -75,6 +75,9 @@ export class RebuttalsService {
     if (!this.isCorrespondingAuthor(paper, userId)) {
       throw new ForbiddenException('Only the corresponding author may submit a rebuttal');
     }
+    if (paper.status === 'WITHDRAWN' || paper.status === 'WITHDRAWN_NONPAYMENT') {
+      throw new ConflictException('This paper has been withdrawn');
+    }
 
     const roundId = await this.resolveRebuttalRound(userId, conferenceId, paperId);
 

@@ -114,7 +114,9 @@ export class ReviewsService {
             reviewerUserId: userId,
           },
           include: {
-            paper: { select: { title: true, submissionNumber: true, currentVersionId: true } },
+            paper: {
+              select: { title: true, status: true, submissionNumber: true, currentVersionId: true },
+            },
             round: {
               select: {
                 roundNumber: true,
@@ -228,6 +230,9 @@ export class ReviewsService {
     if (assignment.reviewerUserId !== userId || assignment.status === 'DECLINED') {
       throw new ForbiddenException('Only the assigned reviewer may edit this review');
     }
+    if (paper.status === 'WITHDRAWN' || paper.status === 'WITHDRAWN_NONPAYMENT') {
+      throw new ConflictException('This paper has been withdrawn');
+    }
     await this.rounds.loadRound(userId, conferenceId, assignment.roundId, roles);
 
     const saved = await withTenantContext(
@@ -338,6 +343,9 @@ export class ReviewsService {
 
     if (assignment.reviewerUserId !== userId || assignment.status === 'DECLINED') {
       throw new ForbiddenException('Only the assigned reviewer may submit this review');
+    }
+    if (paper.status === 'WITHDRAWN' || paper.status === 'WITHDRAWN_NONPAYMENT') {
+      throw new ConflictException('This paper has been withdrawn');
     }
     await this.rounds.loadRound(userId, conferenceId, assignment.roundId, roles);
 
@@ -672,7 +680,9 @@ export class ReviewsService {
         where: { id: assignmentId },
         include: {
           review: true,
-          paper: { select: { title: true, submissionNumber: true, currentVersionId: true } },
+          paper: {
+            select: { title: true, status: true, submissionNumber: true, currentVersionId: true },
+          },
         },
       }),
     );

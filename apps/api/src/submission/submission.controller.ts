@@ -168,6 +168,33 @@ export class SubmissionController {
     });
   }
 
+  @TsRestHandler(submissionContract.withdrawPaper)
+  @RequireMembership()
+  withdrawPaper(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(submissionContract.withdrawPaper, async ({ params, body }) => {
+      const paper = await this.papers.withdraw(
+        user.id,
+        params.conferenceId,
+        params.paperId,
+        body,
+        roles,
+      );
+      return {
+        status: 200 as const,
+        body: { paper, message: 'Paper withdrawn' },
+      };
+    });
+  }
+
+  @TsRestHandler(submissionContract.deletePaper)
+  @RequireMembership()
+  deletePaper(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(submissionContract.deletePaper, async ({ params }) => {
+      await this.papers.deleteDraft(user.id, params.conferenceId, params.paperId, roles);
+      return { status: 204 as const, body: undefined };
+    });
+  }
+
   @TsRestHandler(submissionContract.downloadVersion)
   @RequireMembership()
   downloadVersion(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {

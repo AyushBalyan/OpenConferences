@@ -15,6 +15,7 @@ import {
   paperVersionSchema,
   presignedDownloadSchema,
   submitPaperResponseSchema,
+  withdrawPaperSchema,
   problemEnvelopeSchema,
 } from '@openconferences/schemas';
 import { z } from 'zod';
@@ -199,6 +200,35 @@ export const submissionContract = c.router({
       409: problemEnvelopeSchema,
     },
     summary: 'Submit paper (DRAFT → SUBMITTED)',
+  },
+  withdrawPaper: {
+    method: 'POST',
+    path: '/conferences/:conferenceId/papers/:paperId/withdraw',
+    pathParams: paperParams,
+    body: withdrawPaperSchema,
+    responses: {
+      200: submitPaperResponseSchema,
+      400: problemEnvelopeSchema,
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+      409: problemEnvelopeSchema,
+    },
+    summary: 'Withdraw a submitted paper',
+  },
+  deletePaper: {
+    method: 'DELETE',
+    path: '/conferences/:conferenceId/papers/:paperId',
+    pathParams: paperParams,
+    body: c.noBody(),
+    responses: {
+      204: c.noBody(),
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+      409: problemEnvelopeSchema,
+    },
+    summary: 'Delete a draft paper',
   },
   downloadVersion: {
     method: 'GET',

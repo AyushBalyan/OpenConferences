@@ -15,7 +15,11 @@ import {
   type PaperVersion,
   type RoleKind,
 } from '@openconferences/db';
-import type { CreatePaperInput, UpdatePaperInput } from '@openconferences/schemas';
+import type {
+  CreatePaperInput,
+  UpdatePaperInput,
+  WithdrawPaperInput,
+} from '@openconferences/schemas';
 import {
   paginateItems,
   prismaCursorArgs,
@@ -26,6 +30,7 @@ import { assertScope } from '../common/scope/assert-scope';
 import { AuditService } from '../audit/audit.service';
 import { NotificationPublisher } from '../messaging/notification.publisher';
 import { ConferenceService } from '../tenancy/conference.service';
+import { canCoordinateReview } from '../tenancy/role-hierarchy';
 import { isPrivilegedReader, mapPaper } from './submission.mapper';
 
 const paperInclude = {
@@ -324,6 +329,227 @@ export class PapersService {
     }
 
     return mapPaper(updated);
+  }
+
+  async withdraw(
+    userId: string,
+    conferenceId: string,
+    paperId: string,
+    input: WithdrawPaperInput,
+    roles: RoleKind[],
+  ) {
+    const conference = await this.conferences.loadConference(userId, conferenceId, roles);
+    const paper = await this.loadPaperForMutation(userId, conferenceId, paperId);
+    const isAuthor = this.isPaperAuthor(userId, paper);
+    const coordinator = canCoordinateReview(roles) && !isAuthor;
+
+    if (!isAuthor && !canCoordinateReview(roles)) {
+      throw new ForbiddenException('Only an author or organizer can withdraw this paper');
+    }
+
+    if (isAuthor && paper.status !== 'SUBMITTED') {
+      if (paper.status === 'DRAFT') {
+        throw new ConflictException('Delete the draft instead of withdrawing it');
+      }
+      if (paper.status.startsWith('WITHDRAWN')) {
+        throw new ConflictException('This paper is already withdrawn');
+      }
+      throw new ForbiddenException('Contact the organizers to withdraw this paper');
+    }
+
+    if (coordinator && !this.coordinatorMayWithdraw(paper.status)) {
+      throw new ConflictException(
+        paper.status === 'DRAFT'
+          ? 'Organizers cannot withdraw a draft'
+          : 'This paper cannot be withdrawn',
+      );
+    }
+
+    const allowedStatuses = (
+      isAuthor ? ['SUBMITTED'] : ['SUBMITTED', 'UNDER_REVIEW', 'DECISION_MADE', 'CAMERA_READY']
+    ) as Array<'SUBMITTED' | 'UNDER_REVIEW' | 'DECISION_MADE' | 'CAMERA_READY'>;
+
+    const result = await withTenantContext(
+      { userId, conferenceId, organizationId: paper.organizationId },
+      async (tx) => {
+        const updated = await tx.paper.updateMany({
+          where: { id: paperId, version: input.version, status: { in: allowedStatuses } },
+          data: { status: 'WITHDRAWN', version: { increment: 1 } },
+        });
+        if (updated.count !== 1) {
+          return null;
+        }
+
+        await tx.reviewerAssignment.updateMany({
+          where: { paperId, status: { not: 'COMPLETED' } },
+          data: { status: 'DECLINED' },
+        });
+
+        const registration = await tx.registration.findFirst({ where: { paperId, conferenceId } });
+        const paid = registration?.status === 'PAID';
+        if (
+          registration &&
+          (registration.status === 'PENDING' ||
+            registration.status === 'AWAITING_VERIFICATION' ||
+            registration.status === 'ADDITIONAL_PAYMENT_REQUIRED')
+        ) {
+          await tx.registration.update({
+            where: { id: registration.id },
+            data: { status: 'CANCELLED', version: { increment: 1 } },
+          });
+        }
+
+        const fresh = await tx.paper.findFirst({
+          where: { id: paperId },
+          include: paperInclude,
+        });
+        return { paper: fresh, paid };
+      },
+    );
+
+    if (!result?.paper) {
+      throw new ConflictException('Paper was modified by another request');
+    }
+
+    await this.audit.log({
+      actorUserId: userId,
+      organizationId: paper.organizationId,
+      conferenceId,
+      action: 'paper.withdrawn',
+      entity: 'Paper',
+      entityId: paperId,
+      diff: {
+        previousStatus: paper.status,
+        reason: input.reason,
+        actor: isAuthor ? 'author' : 'organizer',
+        paidRegistration: result.paid,
+      },
+    });
+
+    const authorEmails = [
+      ...new Set(
+        paper.authorships.map((author) => author.email.trim().toLowerCase()).filter(Boolean),
+      ),
+    ];
+    for (const email of authorEmails) {
+      await this.notifications.publishPaperWithdrawn({
+        to: email,
+        audience: 'author',
+        paperId,
+        paperTitle: paper.title,
+        submissionNumber: paper.submissionNumber,
+        conferenceName: conference.name,
+        conferenceId,
+        organizationId: paper.organizationId,
+        reason: input.reason,
+        idempotencyKey: `paper-withdrawn-${paperId}-${email}`,
+      });
+    }
+
+    const staff = await withTenantContext(
+      { userId, conferenceId, organizationId: paper.organizationId },
+      async (tx) =>
+        tx.membership.findMany({
+          where: {
+            conferenceId,
+            roles: { some: { role: { in: ['ORGANIZER', 'CHAIR', 'ORG_ADMIN'] } } },
+          },
+          include: { user: { select: { email: true, name: true } } },
+        }),
+    );
+    const actorName =
+      staff.find((member) => member.userId === userId)?.user.name ??
+      paper.authorships.find((author) => author.userId === userId)?.fullName ??
+      'An author';
+    const alreadyTold = new Set(authorEmails);
+    for (const member of staff) {
+      const email = member.user.email.trim().toLowerCase();
+      if (!email || alreadyTold.has(email)) continue;
+      alreadyTold.add(email);
+      await this.notifications.publishPaperWithdrawn({
+        to: email,
+        audience: 'organizer',
+        paperId,
+        paperTitle: paper.title,
+        submissionNumber: paper.submissionNumber,
+        conferenceName: conference.name,
+        conferenceId,
+        organizationId: paper.organizationId,
+        reason: input.reason,
+        actorName,
+        refundNeeded: result.paid,
+        idempotencyKey: `paper-withdrawn-organizer-${paperId}-${email}`,
+      });
+    }
+
+    return mapPaper(result.paper);
+  }
+
+  async deleteDraft(userId: string, conferenceId: string, paperId: string, roles: RoleKind[]) {
+    await this.conferences.loadConference(userId, conferenceId, roles);
+    const paper = await this.loadPaperForMutation(userId, conferenceId, paperId);
+    if (!this.isPaperAuthor(userId, paper)) {
+      throw new ForbiddenException('Only an author can delete this draft');
+    }
+    if (paper.status !== 'DRAFT') {
+      throw new ConflictException('Only a draft can be deleted');
+    }
+
+    const deleted = await withTenantContext(
+      { userId, conferenceId, organizationId: paper.organizationId },
+      async (tx) => {
+        await tx.paper.updateMany({
+          where: { id: paperId, status: 'DRAFT' },
+          data: { currentVersionId: null },
+        });
+        return tx.paper.deleteMany({ where: { id: paperId, status: 'DRAFT' } });
+      },
+    );
+
+    if (deleted.count !== 1) {
+      throw new ConflictException('This draft can no longer be deleted');
+    }
+
+    await this.audit.log({
+      actorUserId: userId,
+      organizationId: paper.organizationId,
+      conferenceId,
+      action: 'paper.deleted',
+      entity: 'Paper',
+      entityId: paperId,
+      diff: { title: paper.title },
+    });
+  }
+
+  private isPaperAuthor(
+    userId: string,
+    paper: { submittedById: string; authorships: { userId: string | null }[] },
+  ) {
+    return (
+      paper.submittedById === userId || paper.authorships.some((author) => author.userId === userId)
+    );
+  }
+
+  private coordinatorMayWithdraw(status: string) {
+    return (
+      status === 'SUBMITTED' ||
+      status === 'UNDER_REVIEW' ||
+      status === 'DECISION_MADE' ||
+      status === 'CAMERA_READY'
+    );
+  }
+
+  private async loadPaperForMutation(userId: string, conferenceId: string, paperId: string) {
+    const paper = await withTenantContext({ userId, conferenceId }, async (tx) =>
+      tx.paper.findFirst({
+        where: { id: paperId, conferenceId },
+        include: paperInclude,
+      }),
+    );
+    if (!paper) {
+      throw new NotFoundException('Paper not found');
+    }
+    return paper;
   }
 
   private async assignSubmissionNumber(

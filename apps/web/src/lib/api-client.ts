@@ -520,6 +520,38 @@ export async function submitPaper(conferenceId: string, paperId: string) {
   throw new Error('Failed to submit paper');
 }
 
+export async function withdrawPaper(
+  conferenceId: string,
+  paperId: string,
+  body: { reason: string; version: number; confirm: 'WITHDRAW' },
+) {
+  const result = await apiClient.submission.withdrawPaper({
+    params: { conferenceId, paperId },
+    body,
+  });
+  if (result.status === 200) return result.body;
+  if (
+    result.status === 400 ||
+    result.status === 403 ||
+    result.status === 404 ||
+    result.status === 409
+  ) {
+    throw new Error(result.body.detail ?? 'Cannot withdraw this paper');
+  }
+  throw new Error('Failed to withdraw paper');
+}
+
+export async function deletePaper(conferenceId: string, paperId: string) {
+  const result = await apiClient.submission.deletePaper({
+    params: { conferenceId, paperId },
+  });
+  if (result.status === 204) return;
+  if (result.status === 403 || result.status === 404 || result.status === 409) {
+    throw new Error(result.body.detail ?? 'Cannot delete this draft');
+  }
+  throw new Error('Failed to delete draft');
+}
+
 export async function downloadPaperVersion(
   conferenceId: string,
   paperId: string,

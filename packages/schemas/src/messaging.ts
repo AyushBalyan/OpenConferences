@@ -102,6 +102,7 @@ export const reminderSweepJobPayloadSchema = z.object({
       'cameraready.reminder',
       'registration.early_bird_ending',
       'registration.deadline_reminder',
+      'draft.reminder',
     ])
     .optional(),
   conferenceId: z.string().uuid().optional(),

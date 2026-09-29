@@ -68,6 +68,15 @@ export class PaymentsService {
     if (registration.status === 'DISCARDED_NONPAYMENT' || registration.status === 'CANCELLED') {
       throw new ConflictException('Registration is no longer payable');
     }
+    const payablePaper = await withTenantContext({ userId, conferenceId }, async (tx) =>
+      tx.paper.findFirst({
+        where: { id: paperId, conferenceId },
+        select: { status: true },
+      }),
+    );
+    if (payablePaper?.status === 'WITHDRAWN' || payablePaper?.status === 'WITHDRAWN_NONPAYMENT') {
+      throw new ConflictException('This paper has been withdrawn');
+    }
 
     if (new Date() > registration.deadlineAt) {
       throw new ConflictException('Registration deadline has passed');

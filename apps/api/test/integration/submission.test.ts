@@ -1264,4 +1264,179 @@ describe('Paper submission integration', () => {
       expect(await prisma.reviewRound.count({ where: { paperId } })).toBe(2);
     });
   });
+
+  describe('withdraw and draft delete', () => {
+    async function createDraft() {
+      const create = await request(app.getHttpServer())
+        .post(`/api/v1/conferences/${confId}/papers`)
+        .set('Cookie', authorCookie)
+        .send({
+          trackId,
+          title: 'Withdraw Draft',
+          abstract: 'Draft used by withdraw tests.',
+          keywords: [],
+        });
+      expect(create.status).toBe(201);
+      return create.body as { id: string; version: number; status: string };
+    }
+
+    it('lets an author delete a draft and refuses a submitted paper or another user', async () => {
+      const draft = await createDraft();
+      const removed = await request(app.getHttpServer())
+        .delete(`/api/v1/conferences/${confId}/papers/${draft.id}`)
+        .set('Cookie', authorCookie);
+      expect(removed.status).toBe(204);
+
+      const kept = await createDraft();
+      await prisma.paper.update({
+        where: { id: kept.id },
+        data: { status: 'SUBMITTED' },
+      });
+      const blocked = await request(app.getHttpServer())
+        .delete(`/api/v1/conferences/${confId}/papers/${kept.id}`)
+        .set('Cookie', authorCookie);
+      expect(blocked.status).toBe(409);
+
+      const fresh = await createDraft();
+      const outsiderDelete = await request(app.getHttpServer())
+        .delete(`/api/v1/conferences/${confId}/papers/${fresh.id}`)
+        .set('Cookie', outsiderCookie);
+      expect(outsiderDelete.status).toBe(403);
+    });
+
+    it('lets an author withdraw only a submitted paper after typing WITHDRAW', async () => {
+      const draft = await createDraft();
+      const missingConfirm = await request(app.getHttpServer())
+        .post(`/api/v1/conferences/${confId}/papers/${draft.id}/withdraw`)
+        .set('Cookie', authorCookie)
+        .send({ reason: 'Changed plans', version: draft.version, confirm: 'withdraw' });
+      expect(missingConfirm.status).toBe(400);
+
+      const draftWithdraw = await request(app.getHttpServer())
+        .post(`/api/v1/conferences/${confId}/papers/${draft.id}/withdraw`)
+        .set('Cookie', authorCookie)
+        .send({ reason: 'Changed plans', version: draft.version, confirm: 'WITHDRAW' });
+      expect(draftWithdraw.status).toBe(409);
+
+      await prisma.paper.update({ where: { id: draft.id }, data: { status: 'SUBMITTED' } });
+      const current = await prisma.paper.findUniqueOrThrow({ where: { id: draft.id } });
+      const withdrawn = await request(app.getHttpServer())
+        .post(`/api/v1/conferences/${confId}/papers/${draft.id}/withdraw`)
+        .set('Cookie', authorCookie)
+        .send({ reason: 'Changed plans', version: current.version, confirm: 'WITHDRAW' });
+      expect(withdrawn.status).toBe(200);
+      expect(withdrawn.body.paper.status).toBe('WITHDRAWN');
+
+      const again = await request(app.getHttpServer())
+        .post(`/api/v1/conferences/${confId}/papers/${draft.id}/withdraw`)
+        .set('Cookie', authorCookie)
+        .send({
+          reason: 'Again',
+          version: withdrawn.body.paper.version,
+          confirm: 'WITHDRAW',
+        });
+      expect(again.status).toBe(409);
+
+      const otherConference = await request(app.getHttpServer())
+        .post(`/api/v1/conferences/${confBId}/papers/${draft.id}/withdraw`)
+        .set('Cookie', authorCookie)
+        .send({ reason: 'Nope', version: current.version, confirm: 'WITHDRAW' });
+      expect(otherConference.status).toBe(404);
+    });
+
+    it('refuses an author after review starts and lets an organizer withdraw', async () => {
+      const draft = await createDraft();
+      const outsider = await prisma.user.findUniqueOrThrow({ where: { email: outsiderEmail } });
+      const roundId = generateId();
+      const assignmentId = generateId();
+      await withTenantContext({}, async (tx) => {
+        await tx.paper.update({ where: { id: draft.id }, data: { status: 'UNDER_REVIEW' } });
+        await tx.reviewRound.create({
+          data: {
+            id: roundId,
+            organizationId: orgId,
+            conferenceId: confId,
+            paperId: draft.id,
+            roundNumber: 1,
+          },
+        });
+        await tx.reviewerAssignment.create({
+          data: {
+            id: assignmentId,
+            organizationId: orgId,
+            conferenceId: confId,
+            roundId,
+            paperId: draft.id,
+            reviewerUserId: outsider.id,
+            status: 'ASSIGNED',
+          },
+        });
+        await tx.membership.create({
+          data: {
+            id: generateId(),
+            userId: outsider.id,
+            organizationId: orgId,
+            conferenceId: confId,
+            scope: 'CONFERENCE',
+            roles: { create: { id: generateId(), role: 'REVIEWER' } },
+          },
+        });
+      });
+
+      const current = await prisma.paper.findUniqueOrThrow({ where: { id: draft.id } });
+      const authorDenied = await request(app.getHttpServer())
+        .post(`/api/v1/conferences/${confId}/papers/${draft.id}/withdraw`)
+        .set('Cookie', authorCookie)
+        .send({ reason: 'Too late', version: current.version, confirm: 'WITHDRAW' });
+      expect(authorDenied.status).toBe(403);
+
+      const stale = await request(app.getHttpServer())
+        .post(`/api/v1/conferences/${confId}/papers/${draft.id}/withdraw`)
+        .set('Cookie', organizerCookie)
+        .send({ reason: 'Program change', version: current.version + 9, confirm: 'WITHDRAW' });
+      expect(stale.status).toBe(409);
+
+      const withdrawn = await request(app.getHttpServer())
+        .post(`/api/v1/conferences/${confId}/papers/${draft.id}/withdraw`)
+        .set('Cookie', organizerCookie)
+        .send({ reason: 'Program change', version: current.version, confirm: 'WITHDRAW' });
+      expect(withdrawn.status).toBe(200);
+
+      const assignment = await prisma.reviewerAssignment.findUniqueOrThrow({
+        where: { id: assignmentId },
+      });
+      expect(assignment.status).toBe('DECLINED');
+
+      const reviewSave = await request(app.getHttpServer())
+        .put(`/api/v1/conferences/${confId}/assignments/${assignmentId}/review`)
+        .set('Cookie', outsiderCookie)
+        .send({ version: 0, scores: {}, commentsToAuthors: 'Late' });
+      expect(reviewSave.status).toBe(409);
+    });
+
+    it('treats an organizer who is also an author as an author', async () => {
+      const draft = await createDraft();
+      const organizer = await prisma.user.findUniqueOrThrow({ where: { email: organizerEmail } });
+      await withTenantContext({}, async (tx) => {
+        await tx.authorship.create({
+          data: {
+            id: generateId(),
+            paperId: draft.id,
+            userId: organizer.id,
+            order: 2,
+            isCorresponding: false,
+            fullName: 'Organizer Author',
+            email: organizerEmail,
+          },
+        });
+        await tx.paper.update({ where: { id: draft.id }, data: { status: 'UNDER_REVIEW' } });
+      });
+      const current = await prisma.paper.findUniqueOrThrow({ where: { id: draft.id } });
+      const denied = await request(app.getHttpServer())
+        .post(`/api/v1/conferences/${confId}/papers/${draft.id}/withdraw`)
+        .set('Cookie', organizerCookie)
+        .send({ reason: 'Own paper', version: current.version, confirm: 'WITHDRAW' });
+      expect(denied.status).toBe(403);
+    });
+  });
 });

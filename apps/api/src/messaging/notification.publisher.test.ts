@@ -83,3 +83,36 @@ describe('NotificationPublisher.publishPaperSubmitted', () => {
     expect(enqueue.mock.calls[0]?.[0].templateKey).toBe('submission.confirmed');
   });
 });
+
+describe('NotificationPublisher.publishPaperWithdrawn', () => {
+  const enqueue = vi.fn();
+  const publisher = new NotificationPublisher({ enqueue } as never);
+
+  beforeEach(() => {
+    enqueue.mockReset();
+    enqueue.mockResolvedValue('log-1');
+  });
+
+  it('uses a per-recipient idempotency key and the author template', async () => {
+    await publisher.publishPaperWithdrawn({
+      to: 'author@example.com',
+      audience: 'author',
+      paperId: 'paper-1',
+      paperTitle: 'A Study',
+      submissionNumber: 'SUBCONF-K7Q4',
+      conferenceName: 'ICAM 2026',
+      conferenceId: 'conf-1',
+      organizationId: 'org-1',
+      reason: 'Submitting elsewhere',
+      idempotencyKey: 'paper-withdrawn-paper-1-author@example.com',
+    });
+
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        templateKey: 'paper.withdrawn',
+        idempotencyKey: 'paper-withdrawn-paper-1-author@example.com',
+        context: expect.objectContaining({ reason: 'Submitting elsewhere' }),
+      }),
+    );
+  });
+});

@@ -1126,23 +1126,26 @@ The requested flow had several under-specified or conflicting points; each is re
 
 ### 11.1 Catalogue of notifications (MVP)
 
-| Key                                        | Trigger (event)                           | To                                         |
-| ------------------------------------------ | ----------------------------------------- | ------------------------------------------ |
-| `submission.confirmed`                     | `PaperSubmitted`                          | corresponding author                       |
-| `submission.ops_alert`                     | `PaperSubmitted`                          | ops env address (`SUBMISSION_ALERT_EMAIL`) |
-| `reviewer.invitation`                      | invitation created                        | invitee                                    |
-| `assignment.notified`                      | `ReviewerAssigned`                        | reviewer                                   |
-| `review.reminder`                          | scheduled (due soon / overdue)            | reviewer                                   |
-| `decision.notified`                        | `DecisionMade`                            | authors                                    |
-| `cameraready.reminder`                     | scheduled before CR deadline              | accepted authors                           |
-| `registration.window_open`                 | `PaperAccepted` (acceptance notified)     | accepted author                            |
-| `registration.early_bird_ending`           | scheduled before `earlyBirdEndsAt`        | unpaid accepted authors                    |
-| `registration.confirmed`                   | `PaymentCaptured` (registration `PAID`)   | payer                                      |
-| `registration.verification_approved`       | student verification `APPROVED`           | payer                                      |
-| `registration.clarification_requested`     | verification `CLARIFICATION_REQUESTED`    | payer                                      |
-| `registration.additional_payment_required` | verification `REJECTED` → difference owed | payer                                      |
-| `registration.deadline_reminder`           | scheduled before `registrationDeadlineAt` | unpaid accepted authors                    |
-| `registration.discarded`                   | discard sweep → `WITHDRAWN_NONPAYMENT`    | author                                     |
+| Key                                        | Trigger (event)                            | To                                         |
+| ------------------------------------------ | ------------------------------------------ | ------------------------------------------ |
+| `submission.confirmed`                     | `PaperSubmitted`                           | corresponding author                       |
+| `submission.ops_alert`                     | `PaperSubmitted`                           | ops env address (`SUBMISSION_ALERT_EMAIL`) |
+| `paper.withdrawn`                          | author or chair withdraws a paper          | paper authors                              |
+| `paper.withdrawn.organizer`                | author or chair withdraws a paper          | chairs and organizers                      |
+| `draft.reminder`                           | daily sweep, draft still open after 3 days | submitting author                          |
+| `reviewer.invitation`                      | invitation created                         | invitee                                    |
+| `assignment.notified`                      | `ReviewerAssigned`                         | reviewer                                   |
+| `review.reminder`                          | scheduled (due soon / overdue)             | reviewer                                   |
+| `decision.notified`                        | `DecisionMade`                             | authors                                    |
+| `cameraready.reminder`                     | scheduled before CR deadline               | accepted authors                           |
+| `registration.window_open`                 | `PaperAccepted` (acceptance notified)      | accepted author                            |
+| `registration.early_bird_ending`           | scheduled before `earlyBirdEndsAt`         | unpaid accepted authors                    |
+| `registration.confirmed`                   | `PaymentCaptured` (registration `PAID`)    | payer                                      |
+| `registration.verification_approved`       | student verification `APPROVED`            | payer                                      |
+| `registration.clarification_requested`     | verification `CLARIFICATION_REQUESTED`     | payer                                      |
+| `registration.additional_payment_required` | verification `REJECTED` → difference owed  | payer                                      |
+| `registration.deadline_reminder`           | scheduled before `registrationDeadlineAt`  | unpaid accepted authors                    |
+| `registration.discarded`                   | discard sweep → `WITHDRAWN_NONPAYMENT`     | author                                     |
 
 ### 11.2 Architecture (extensible by design)
 
@@ -1196,7 +1199,9 @@ A single app with a **conference switcher**; the visible nav adapts to the user'
 - _Camera-ready upload_ — for accepted papers (parallel to registration).
 - _Registration & payment_ — per accepted paper: choose audience; for student tier, **upload supporting document first** (pay button disabled until uploaded); then shows `amountDueMinor`, early-bird countdown, locked timing once paid, verification status, and any additional payment owed; pay / pay difference; download invoice.
 
-**Actions:** create paper, edit (while CFP open), add/reorder authors, upload version, submit, withdraw, upload camera-ready, submit rebuttal, choose audience, upload student proof, pay registration, pay additional difference, download invoice, read decision/reviews.
+**Actions:** create paper, edit (while CFP open), add/reorder authors, upload version, submit, delete own draft, withdraw (authors only while `SUBMITTED`; chairs and organizers from `SUBMITTED` through `CAMERA_READY`), upload camera-ready, submit rebuttal, choose audience, upload student proof, pay registration, pay additional difference, download invoice, read decision/reviews.
+
+Withdrawal sets the paper to `WITHDRAWN` and keeps `submissionNumber`. The caller must send `confirm: "WITHDRAW"`. Open reviewer assignments become `DECLINED`; submitted reviews stay. An unpaid registration is cancelled; a paid one is left for a manual refund. A person who is both an author and a chair follows the author rule on that paper. Drafts are deleted by their authors and are not withdrawn. A draft still open three days after creation, while the call for papers is open, gets one `draft.reminder` email.
 
 > The registration card opens automatically on acceptance and stays visible alongside camera-ready until paid or the deadline passes. For student registrations, the **Pay** action is disabled until a supporting document is uploaded. It surfaces a clear warning that **non-payment by the deadline withdraws the paper**.
 
