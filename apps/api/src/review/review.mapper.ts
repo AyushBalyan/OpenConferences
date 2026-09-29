@@ -23,12 +23,17 @@ import type {
 } from '@openconferences/schemas';
 import type { Authorship } from '@openconferences/db';
 
-export function mapReviewRound(round: ReviewRound, reviewStage: ReviewStage): ReviewRoundDto {
+export function mapReviewRound(
+  round: ReviewRound,
+  reviewStage: ReviewStage,
+  submissionNumber?: string | null,
+): ReviewRoundDto {
   return {
     id: round.id,
     organizationId: round.organizationId,
     conferenceId: round.conferenceId,
     paperId: round.paperId,
+    submissionNumber: submissionNumber ?? null,
     roundNumber: round.roundNumber,
     reviewStage,
     reviewDueAt: round.reviewDueAt?.toISOString() ?? null,

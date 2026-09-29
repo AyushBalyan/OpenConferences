@@ -174,6 +174,11 @@ export function BiddingOversightTable({ papers }: BiddingOversightTableProps) {
                     onClick={() => canExpand && toggleExpanded(paper.id)}
                   >
                     <p className="font-medium text-slate-900">{paper.title}</p>
+                    {paper.submissionNumber ? (
+                      <p className="mt-1 font-mono text-xs text-slate-500">
+                        {paper.submissionNumber}
+                      </p>
+                    ) : null}
                     <p className="mt-0.5 line-clamp-1 text-xs text-slate-500">{paper.abstract}</p>
                   </button>
                 </DataTableCell>

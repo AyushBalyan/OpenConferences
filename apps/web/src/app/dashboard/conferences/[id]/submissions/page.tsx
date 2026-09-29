@@ -186,6 +186,11 @@ export default function SubmissionsListPage() {
                       >
                         {paper.title}
                       </Link>
+                      {paper.submissionNumber ? (
+                        <p className="mt-1 font-mono text-xs text-slate-500">
+                          {paper.submissionNumber}
+                        </p>
+                      ) : null}
                       <p className="mt-1 line-clamp-1 max-w-xl text-xs text-slate-500">
                         {paper.abstract}
                       </p>

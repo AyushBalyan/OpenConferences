@@ -15,6 +15,7 @@ import type { BidValue, ReviewerAssignmentDto, ReviewRoundDto } from '@/lib/revi
 export type BidRow = {
   paperId: string;
   paperTitle: string;
+  submissionNumber?: string | null;
   reviewerUserId: string;
   reviewerName: string;
   reviewerEmail: string;
@@ -38,17 +39,18 @@ type AssignmentsWorkspaceValue = {
   selectedRound: ReviewRoundDto | undefined;
   assignments: (ReviewerAssignmentDto & {
     paperTitle?: string;
+    submissionNumber?: string | null;
     reviewerName?: string;
     reviewerEmail?: string;
     bidValue?: string | null;
     reviewProgress?: 'NOT_STARTED' | 'DRAFT' | 'SUBMITTED';
   })[];
   bids: BidRow[];
-  papers: { id: string; title: string }[];
+  papers: { id: string; title: string; submissionNumber?: string | null }[];
   reviewers: { userId: string; name: string; email: string }[];
   assignmentKeys: Set<string>;
   bidsByPaper: { title: string; paperId: string; bids: BidRow[] }[];
-  papersWithoutBids: { id: string; title: string }[];
+  papersWithoutBids: { id: string; title: string; submissionNumber?: string | null }[];
   canCopyFromPrevious: boolean;
   loading: boolean;
   error: string | null;
@@ -89,7 +91,9 @@ export function AssignmentsWorkspaceProvider({
   const [roundId, setRoundId] = useState('');
   const [assignments, setAssignments] = useState<AssignmentsWorkspaceValue['assignments']>([]);
   const [bids, setBids] = useState<BidRow[]>([]);
-  const [papers, setPapers] = useState<{ id: string; title: string }[]>([]);
+  const [papers, setPapers] = useState<
+    { id: string; title: string; submissionNumber?: string | null }[]
+  >([]);
   const [reviewers, setReviewers] = useState<{ userId: string; name: string; email: string }[]>([]);
   const [selectedPaper, setSelectedPaper] = useState('');
   const [selectedReviewer, setSelectedReviewer] = useState('');
@@ -146,7 +150,9 @@ export function AssignmentsWorkspaceProvider({
 
     setConferenceName(conference.name);
     setPapers(
-      paperList.data.filter((p) => p.status !== 'DRAFT').map((p) => ({ id: p.id, title: p.title })),
+      paperList.data
+        .filter((p) => p.status !== 'DRAFT')
+        .map((p) => ({ id: p.id, title: p.title, submissionNumber: p.submissionNumber })),
     );
     setReviewers(
       members
@@ -157,6 +163,7 @@ export function AssignmentsWorkspaceProvider({
       bidList.map((b) => ({
         paperId: b.paperId,
         paperTitle: b.paperTitle ?? b.paperId,
+        submissionNumber: b.submissionNumber,
         reviewerUserId: b.reviewerUserId,
         reviewerName: b.reviewerName ?? 'Unknown reviewer',
         reviewerEmail: b.reviewerEmail ?? '',

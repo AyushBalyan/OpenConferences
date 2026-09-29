@@ -64,6 +64,7 @@ export class RoundsService {
       async (tx) =>
         tx.reviewRound.findMany({
           where: { conferenceId, ...(options.paperId ? { paperId: options.paperId } : {}) },
+          include: { paper: { select: { submissionNumber: true } } },
           orderBy: [{ paperId: 'asc' }, { roundNumber: 'asc' }],
           ...prismaCursorArgs(options, limit),
         }),
@@ -73,7 +74,9 @@ export class RoundsService {
     const stages = await this.stagesFor(userId, conferenceId, conference.organizationId, page.data);
 
     return {
-      data: page.data.map((row) => mapReviewRound(row, stages.get(row.id) ?? 'IN_REVIEW')),
+      data: page.data.map((row) =>
+        mapReviewRound(row, stages.get(row.id) ?? 'IN_REVIEW', row.paper.submissionNumber),
+      ),
       nextCursor: page.nextCursor,
     };
   }
@@ -162,6 +165,7 @@ export class RoundsService {
         return {
           paperId: paper.id,
           paperTitle: paper.title,
+          submissionNumber: paper.submissionNumber,
           paperStatus: String(paper.status),
           paperVersion: paper.version,
           cycleId: cycle?.id ?? null,

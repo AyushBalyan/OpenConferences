@@ -84,6 +84,9 @@ export function AssignmentsBidsPanel() {
               <DataTableRow key={`${bid.paperId}:${bid.reviewerUserId}`}>
                 <DataTableCell>
                   <p className="font-medium text-slate-900">{bid.paperTitle}</p>
+                  {bid.submissionNumber ? (
+                    <p className="mt-1 font-mono text-xs text-slate-500">{bid.submissionNumber}</p>
+                  ) : null}
                 </DataTableCell>
                 <DataTableCell>{bid.reviewerName}</DataTableCell>
                 <DataTableCell className="text-slate-500">{bid.reviewerEmail}</DataTableCell>

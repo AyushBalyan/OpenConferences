@@ -154,6 +154,11 @@ export default function MeDashboardPage() {
                 <DataTableRow key={paper.id}>
                   <DataTableCell>
                     <p className="font-medium text-slate-900">{paper.title}</p>
+                    {paper.submissionNumber ? (
+                      <p className="mt-1 font-mono text-xs text-slate-500">
+                        {paper.submissionNumber}
+                      </p>
+                    ) : null}
                   </DataTableCell>
                   <DataTableCell>{paper.conferenceName}</DataTableCell>
                   <DataTableCell>

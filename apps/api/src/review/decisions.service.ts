@@ -87,7 +87,7 @@ export class DecisionsService {
             ...(options.outcome ? { outcome: options.outcome } : {}),
           },
           include: {
-            paper: { select: { title: true } },
+            paper: { select: { title: true, submissionNumber: true } },
             round: { select: { roundNumber: true } },
           },
           orderBy: { createdAt: 'desc' },
@@ -101,6 +101,7 @@ export class DecisionsService {
       data: page.data.map((d) => ({
         ...mapDecision(d),
         paperTitle: d.paper.title,
+        submissionNumber: d.paper.submissionNumber,
         roundNumber: d.round.roundNumber,
       })),
       roundId: options.roundId,

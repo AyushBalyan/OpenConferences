@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   canSubmitDraft,
+  countActiveSubmissions,
   latestScanStatus,
   paperHasCleanDownload,
   type PaperDto,
@@ -90,5 +91,27 @@ describe('paperHasCleanDownload', () => {
         }),
       ),
     ).toBe(true);
+  });
+
+  it('counts active submissions without drafts', () => {
+    expect(
+      countActiveSubmissions(
+        {
+          total: 5,
+          byStatus: [
+            { status: 'DRAFT', count: 2 },
+            { status: 'SUBMITTED', count: 3 },
+          ],
+        },
+        [],
+      ),
+    ).toBe(3);
+    expect(
+      countActiveSubmissions(null, [
+        { status: 'DRAFT' },
+        { status: 'UNDER_REVIEW' },
+        { status: 'CAMERA_READY' },
+      ]),
+    ).toBe(2);
   });
 });

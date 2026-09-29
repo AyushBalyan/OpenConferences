@@ -158,6 +158,7 @@ function MyAssignments() {
                         {assignment.paperTitle}
                       </p>
                       <p className="mt-0.5 text-xs text-slate-500">
+                        {assignment.submissionNumber ? `${assignment.submissionNumber} · ` : ''}
                         Cycle {assignment.roundNumber} · {reviewStageLabel(assignment.reviewStage)}
                       </p>
                     </div>

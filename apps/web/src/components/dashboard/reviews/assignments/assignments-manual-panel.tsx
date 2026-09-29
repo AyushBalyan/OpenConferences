@@ -71,7 +71,7 @@ export function AssignmentsManualPanel() {
               <option value="">Select paper…</option>
               {papers.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.title}
+                  {p.submissionNumber ? `${p.submissionNumber} · ${p.title}` : p.title}
                 </option>
               ))}
             </select>

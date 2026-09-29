@@ -7,8 +7,12 @@ import type { ConflictOfInterestDto } from '@/lib/review-types';
 type CoiWorkspaceValue = {
   conferenceId: string;
   conferenceName: string;
-  cois: (ConflictOfInterestDto & { userName?: string; paperTitle?: string | null })[];
-  papers: { id: string; title: string }[];
+  cois: (ConflictOfInterestDto & {
+    userName?: string;
+    paperTitle?: string | null;
+    submissionNumber?: string | null;
+  })[];
+  papers: { id: string; title: string; submissionNumber?: string | null }[];
   error: string | null;
   setError: (error: string | null) => void;
   busy: boolean;
@@ -35,10 +39,8 @@ export function CoiWorkspaceProvider({
   children: React.ReactNode;
 }) {
   const [conferenceName, setConferenceName] = useState('');
-  const [cois, setCois] = useState<
-    (ConflictOfInterestDto & { userName?: string; paperTitle?: string | null })[]
-  >([]);
-  const [papers, setPapers] = useState<{ id: string; title: string }[]>([]);
+  const [cois, setCois] = useState<CoiWorkspaceValue['cois']>([]);
+  const [papers, setPapers] = useState<CoiWorkspaceValue['papers']>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);

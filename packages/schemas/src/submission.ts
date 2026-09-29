@@ -50,6 +50,12 @@ export const authorshipInputSchema = z.object({
 
 export type AuthorshipInput = z.infer<typeof authorshipInputSchema>;
 
+export const updateAuthorshipSchema = z.object({
+  affiliation: z.string().max(500),
+});
+
+export type UpdateAuthorshipInput = z.infer<typeof updateAuthorshipSchema>;
+
 export const authorshipSchema = z.object({
   id: z.string().uuid(),
   paperId: z.string().uuid(),
@@ -111,6 +117,7 @@ export const paperSchema = z.object({
   abstract: z.string(),
   keywords: z.array(z.string()),
   status: paperStatusSchema,
+  submissionNumber: z.string().nullable().optional(),
   version: z.number().int(),
   authorships: z.array(authorshipSchema).optional(),
   currentVersion: paperVersionSchema.nullable().optional(),

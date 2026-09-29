@@ -42,3 +42,17 @@ export function canSubmitDraft(paper: PaperDto): boolean {
 export function paperHasCleanDownload(paper: PaperDto): boolean {
   return Boolean(paper.currentVersionId) && paper.currentVersion?.fileAsset?.scanStatus === 'CLEAN';
 }
+
+export function countActiveSubmissions(
+  submissions: {
+    total: number;
+    byStatus: { status: PaperDto['status']; count: number }[];
+  } | null,
+  papers: Pick<PaperDto, 'status'>[],
+): number {
+  if (submissions) {
+    const drafts = submissions.byStatus.find((item) => item.status === 'DRAFT')?.count ?? 0;
+    return Math.max(submissions.total - drafts, 0);
+  }
+  return papers.filter((paper) => paper.status !== 'DRAFT').length;
+}

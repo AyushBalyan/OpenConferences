@@ -81,6 +81,7 @@ export function mapPaper(paper: PaperWithRelations): PaperDto {
     abstract: paper.abstract,
     keywords: paper.keywords,
     status: paper.status,
+    submissionNumber: paper.submissionNumber,
     version: paper.version,
     authorships: paper.authorships?.map(mapAuthorship),
     currentVersion: paper.currentVersion ? mapPaperVersion(paper.currentVersion) : null,

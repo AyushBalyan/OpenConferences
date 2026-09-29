@@ -60,7 +60,7 @@ export function CoiDeclarePanel() {
               <option value="">Select paper…</option>
               {papers.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.title}
+                  {p.submissionNumber ? `${p.submissionNumber} · ${p.title}` : p.title}
                 </option>
               ))}
             </select>
@@ -152,6 +152,9 @@ export function CoiListPanel({ title, description }: { title: string; descriptio
                   <p className="font-medium text-slate-900">
                     {coi.paperTitle ?? 'General conflict'}
                   </p>
+                  {coi.submissionNumber ? (
+                    <p className="mt-1 font-mono text-xs text-slate-500">{coi.submissionNumber}</p>
+                  ) : null}
                 </DataTableCell>
                 <DataTableCell>{coi.userName ?? '—'}</DataTableCell>
                 <DataTableCell>

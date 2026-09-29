@@ -13,14 +13,22 @@ import {
   addAuthorship,
   createPaper,
   fetchPaper,
+  removeAuthorship,
   submitPaper,
+  updateAuthorship,
   updatePaper,
   uploadPaperPdf,
 } from '@/lib/api-client';
 import { getStoredAuthorAffiliation } from '@/lib/author-join-pending';
+import {
+  emptyCoAuthorDraft,
+  isBlankCoAuthor,
+  validateCoAuthorDrafts,
+  type CoAuthorDraft,
+} from '@/lib/co-author-drafts';
 import { canSubmitDraft, latestScanStatus, type PaperDto } from '@/lib/submission-types';
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 type Step = 'details' | 'authors' | 'upload';
 
@@ -40,9 +48,17 @@ function SubmissionWizard() {
   const [abstract, setAbstract] = useState('');
   const [keywords, setKeywords] = useState('');
 
-  const [authorName, setAuthorName] = useState('');
-  const [authorEmail, setAuthorEmail] = useState('');
-  const [authorAffiliation, setAuthorAffiliation] = useState('');
+  const [coAuthors, setCoAuthors] = useState<CoAuthorDraft[]>(() => [emptyCoAuthorDraft()]);
+  const [correspondingAffiliation, setCorrespondingAffiliation] = useState(
+    () => getStoredAuthorAffiliation() ?? '',
+  );
+  const [correspondingAffiliationError, setCorrespondingAffiliationError] = useState<string | null>(
+    null,
+  );
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+  const [authorsBusy, setAuthorsBusy] = useState(false);
+  const authorsBusyRef = useRef(false);
+  const [focusCoAuthorKey, setFocusCoAuthorKey] = useState<string | null>(null);
 
   const [file, setFile] = useState<File | null>(null);
   const [pdfUploaded, setPdfUploaded] = useState(false);
@@ -121,21 +137,131 @@ function SubmissionWizard() {
     }
   }
 
+  function updateCoAuthor(key: string, patch: Partial<CoAuthorDraft>) {
+    setCoAuthors((current) => current.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+    setRowErrors((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }
+
+  function addCoAuthorRow() {
+    const row = emptyCoAuthorDraft();
+    setCoAuthors((current) => [...current, row]);
+    setFocusCoAuthorKey(row.key);
+  }
+
+  async function removeCoAuthor(key: string) {
+    const row = coAuthors.find((candidate) => candidate.key === key);
+    if (!row || !paper || authorsBusyRef.current) return;
+
+    if (!row.authorshipId) {
+      setCoAuthors((current) => current.filter((candidate) => candidate.key !== key));
+      setRowErrors((current) => {
+        if (!current[key]) return current;
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      return;
+    }
+
+    setError(null);
+    authorsBusyRef.current = true;
+    setAuthorsBusy(true);
+    try {
+      await removeAuthorship(conferenceId, paper.id, row.authorshipId);
+      setCoAuthors((current) => current.filter((candidate) => candidate.key !== key));
+      setPaper((current) =>
+        current
+          ? {
+              ...current,
+              authorships: current.authorships?.filter((author) => author.id !== row.authorshipId),
+            }
+          : current,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove author');
+    } finally {
+      authorsBusyRef.current = false;
+      setAuthorsBusy(false);
+    }
+  }
+
   async function saveAuthors(event: React.FormEvent) {
     event.preventDefault();
-    if (!paper) return;
+    if (!paper || authorsBusyRef.current) return;
     setError(null);
+
+    const takenEmails = [
+      ...(paper.authorships ?? []).map((author) => author.email),
+      ...coAuthors.filter((row) => row.authorshipId).map((row) => row.email),
+    ];
+    const validation = validateCoAuthorDrafts(coAuthors, takenEmails);
+    setRowErrors(validation.errors);
+    const affiliation = correspondingAffiliation.trim();
+    if (affiliation.length > 500) {
+      setCorrespondingAffiliationError('Affiliation must be 500 characters or fewer.');
+    } else {
+      setCorrespondingAffiliationError(null);
+    }
+    if (!validation.ok || affiliation.length > 500) {
+      setError('Fix the author details below before continuing.');
+      return;
+    }
+
+    authorsBusyRef.current = true;
+    setAuthorsBusy(true);
     try {
-      if (authorName && authorEmail) {
-        await addAuthorship(conferenceId, paper.id, {
-          fullName: authorName,
-          email: authorEmail,
-          affiliation: authorAffiliation || undefined,
+      let nextRows = coAuthors;
+      let nextPaper = paper;
+      const correspondingAuthor = nextPaper.authorships?.find((author) => author.isCorresponding);
+      if (correspondingAuthor && affiliation !== (correspondingAuthor.affiliation?.trim() ?? '')) {
+        const updated = await updateAuthorship(conferenceId, paper.id, correspondingAuthor.id, {
+          affiliation,
         });
+        nextPaper = {
+          ...nextPaper,
+          authorships: nextPaper.authorships?.map((author) =>
+            author.id === updated.id ? updated : author,
+          ),
+        };
+        setPaper(nextPaper);
       }
+      for (const row of validation.toSave) {
+        const created = await addAuthorship(conferenceId, paper.id, {
+          fullName: row.fullName,
+          email: row.email,
+          affiliation: row.affiliation,
+          isCorresponding: false,
+        });
+        nextRows = nextRows.map((candidate) =>
+          candidate.key === row.key
+            ? {
+                ...candidate,
+                authorshipId: created.id,
+                fullName: row.fullName,
+                email: row.email,
+                affiliation: row.affiliation ?? '',
+              }
+            : candidate,
+        );
+        nextPaper = {
+          ...nextPaper,
+          authorships: [...(nextPaper.authorships ?? []), created],
+        };
+        setCoAuthors(nextRows);
+        setPaper(nextPaper);
+      }
+      setCoAuthors(nextRows.filter((row) => row.authorshipId || !isBlankCoAuthor(row)));
       setStep('upload');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add author');
+      setError(err instanceof Error ? err.message : 'Failed to save authors');
+    } finally {
+      authorsBusyRef.current = false;
+      setAuthorsBusy(false);
     }
   }
 
@@ -174,6 +300,15 @@ function SubmissionWizard() {
     .map((k) => k.trim())
     .filter(Boolean);
   const abstractWords = abstract.trim() ? abstract.trim().split(/\s+/).length : 0;
+  const hasPendingCoAuthor = coAuthors.some((row) => !row.authorshipId && !isBlankCoAuthor(row));
+  const hasSavedCoAuthor = coAuthors.some((row) => row.authorshipId);
+  const authorsContinueLabel = authorsBusy
+    ? 'Saving…'
+    : hasPendingCoAuthor
+      ? 'Add and continue'
+      : hasSavedCoAuthor
+        ? 'Continue to upload'
+        : 'Skip to upload';
 
   return (
     <div className="mx-auto max-w-3xl space-y-8">
@@ -263,44 +398,55 @@ function SubmissionWizard() {
           className="overflow-hidden rounded-2xl border border-slate-200 bg-white"
         >
           <div className="space-y-6 p-6">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-              You’re listed as the{' '}
-              <span className="font-medium text-slate-900">corresponding author</span>. Add a
-              co-author below, or continue if you’re the only author.
-            </div>
-            <div className="grid gap-5 sm:grid-cols-2">
-              <FormField label="Full name" htmlFor="authorName">
-                <Input
-                  id="authorName"
-                  value={authorName}
-                  onChange={(e) => setAuthorName(e.target.value)}
-                />
-              </FormField>
-              <FormField label="Email" htmlFor="authorEmail">
-                <Input
-                  id="authorEmail"
-                  type="email"
-                  value={authorEmail}
-                  onChange={(e) => setAuthorEmail(e.target.value)}
-                />
-              </FormField>
-              <div className="sm:col-span-2">
-                <FormField label="Affiliation" htmlFor="authorAffiliation" hint="Optional">
-                  <Input
-                    id="authorAffiliation"
-                    value={authorAffiliation}
-                    onChange={(e) => setAuthorAffiliation(e.target.value)}
-                  />
-                </FormField>
-              </div>
-            </div>
+            <CorrespondingAuthorFields
+              name={paper?.authorships?.find((author) => author.isCorresponding)?.fullName}
+              email={paper?.authorships?.find((author) => author.isCorresponding)?.email}
+              affiliation={correspondingAffiliation}
+              error={correspondingAffiliationError}
+              disabled={authorsBusy}
+              onAffiliationChange={(value) => {
+                setCorrespondingAffiliation(value);
+                if (correspondingAffiliationError) setCorrespondingAffiliationError(null);
+              }}
+            />
+            <p className="text-sm text-slate-600">
+              Add co-authors below, or continue if you’re the only author. Co-authors don’t need an
+              account.
+            </p>
+            {coAuthors.length ? (
+              <ul className="space-y-4">
+                {coAuthors.map((row, index) => (
+                  <li key={row.key}>
+                    <CoAuthorFields
+                      index={index}
+                      row={row}
+                      error={rowErrors[row.key]}
+                      disabled={authorsBusy}
+                      autoFocusName={focusCoAuthorKey === row.key}
+                      onChange={(patch) => updateCoAuthor(row.key, patch)}
+                      onRemove={() => void removeCoAuthor(row.key)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-slate-600">No co-authors yet.</p>
+            )}
+            <Button type="button" variant="outline" onClick={addCoAuthorRow} disabled={authorsBusy}>
+              Add co-author
+            </Button>
           </div>
           <StepFooter>
-            <Button type="button" variant="ghost" onClick={() => setStep('details')}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setStep('details')}
+              disabled={authorsBusy}
+            >
               Back
             </Button>
-            <Button type="submit">
-              {authorName && authorEmail ? 'Add and continue' : 'Skip to upload'}
+            <Button type="submit" disabled={authorsBusy}>
+              {authorsContinueLabel}
             </Button>
           </StepFooter>
         </form>
@@ -367,6 +513,157 @@ function SubmissionWizard() {
             </div>
           </StepFooter>
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+function CorrespondingAuthorFields({
+  name,
+  email,
+  affiliation,
+  error,
+  disabled,
+  onAffiliationChange,
+}: {
+  name?: string;
+  email?: string;
+  affiliation: string;
+  error: string | null;
+  disabled: boolean;
+  onAffiliationChange: (value: string) => void;
+}) {
+  const errorId = 'corresponding-affiliation-error';
+
+  return (
+    <div className="rounded-xl border border-slate-200 p-4">
+      <h3 className="text-sm font-medium text-slate-900">Corresponding author</h3>
+      {name || email ? (
+        <div className="mt-3 text-sm">
+          {name ? <p className="font-medium text-slate-900">{name}</p> : null}
+          {email ? <p className="break-all text-slate-600">{email}</p> : null}
+        </div>
+      ) : null}
+      <div className="mt-4">
+        <FormField
+          label="Affiliation / Institution"
+          htmlFor="corresponding-affiliation"
+          hint="Optional"
+        >
+          <Input
+            id="corresponding-affiliation"
+            value={affiliation}
+            onChange={(event) => onAffiliationChange(event.target.value)}
+            disabled={disabled}
+            autoComplete="organization"
+            maxLength={500}
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? errorId : undefined}
+          />
+        </FormField>
+      </div>
+      {error ? (
+        <p id={errorId} className="mt-3 text-xs text-rose-700">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function CoAuthorFields({
+  index,
+  row,
+  error,
+  disabled,
+  autoFocusName,
+  onChange,
+  onRemove,
+}: {
+  index: number;
+  row: CoAuthorDraft;
+  error?: string;
+  disabled: boolean;
+  autoFocusName: boolean;
+  onChange: (patch: Partial<CoAuthorDraft>) => void;
+  onRemove: () => void;
+}) {
+  const label = `Co-author ${index + 1}`;
+  const labelId = `${row.key}-label`;
+  const errorId = `${row.key}-error`;
+
+  return (
+    <div className="rounded-xl border border-slate-200 p-4">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h3 id={labelId} className="text-sm font-medium text-slate-900">
+          {label}
+        </h3>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onRemove}
+          disabled={disabled}
+          aria-label={`Remove ${label}`}
+        >
+          Remove
+        </Button>
+      </div>
+      {row.authorshipId ? (
+        <div className="text-sm" aria-labelledby={labelId}>
+          <p className="font-medium text-slate-900">{row.fullName}</p>
+          <p className="break-all text-slate-600">{row.email}</p>
+          {row.affiliation ? <p className="mt-1 text-slate-500">{row.affiliation}</p> : null}
+        </div>
+      ) : (
+        <div className="grid gap-5 sm:grid-cols-2" role="group" aria-labelledby={labelId}>
+          <FormField label="Full name" htmlFor={`${row.key}-name`}>
+            <Input
+              id={`${row.key}-name`}
+              value={row.fullName}
+              onChange={(event) => onChange({ fullName: event.target.value })}
+              autoFocus={autoFocusName}
+              disabled={disabled}
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? errorId : undefined}
+              maxLength={255}
+            />
+          </FormField>
+          <FormField label="Email" htmlFor={`${row.key}-email`}>
+            <Input
+              id={`${row.key}-email`}
+              type="email"
+              value={row.email}
+              onChange={(event) => onChange({ email: event.target.value })}
+              disabled={disabled}
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? errorId : undefined}
+              maxLength={255}
+            />
+          </FormField>
+          <div className="sm:col-span-2">
+            <FormField
+              label="Affiliation / Institution"
+              htmlFor={`${row.key}-affiliation`}
+              hint="Optional"
+            >
+              <Input
+                id={`${row.key}-affiliation`}
+                value={row.affiliation}
+                onChange={(event) => onChange({ affiliation: event.target.value })}
+                disabled={disabled}
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? errorId : undefined}
+                maxLength={500}
+              />
+            </FormField>
+          </div>
+        </div>
+      )}
+      {error ? (
+        <p id={errorId} className="mt-3 text-xs text-rose-700">
+          {error}
+        </p>
       ) : null}
     </div>
   );

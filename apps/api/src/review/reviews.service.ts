@@ -114,7 +114,7 @@ export class ReviewsService {
             reviewerUserId: userId,
           },
           include: {
-            paper: { select: { title: true, currentVersionId: true } },
+            paper: { select: { title: true, submissionNumber: true, currentVersionId: true } },
             round: {
               select: {
                 roundNumber: true,
@@ -136,6 +136,7 @@ export class ReviewsService {
         ...mapReviewerAssignment(a),
         dueAt: reviewerAssignmentDueAt(a.createdAt, conference.reviewDueAt).toISOString(),
         paperTitle: a.paper.title,
+        submissionNumber: a.paper.submissionNumber,
         currentVersionId: a.paper.currentVersionId,
         roundNumber: a.round.roundNumber,
         reviewStage: deriveReviewStage({
@@ -169,6 +170,7 @@ export class ReviewsService {
 
     const paperMeta = {
       paperTitle: paper.title,
+      submissionNumber: paper.submissionNumber,
       currentVersionId: paper.currentVersionId,
     };
 
@@ -314,6 +316,7 @@ export class ReviewsService {
       ...mapReview(reviewVisibleToOwner(saved)),
       hasPendingEdit: Boolean(saved.submittedAt && saved.pendingEdit),
       paperTitle: paper.title,
+      submissionNumber: paper.submissionNumber,
       currentVersionId: paper.currentVersionId,
     };
   }
@@ -413,6 +416,7 @@ export class ReviewsService {
         ...mapReview(submitted),
         hasPendingEdit: false,
         paperTitle: paper.title,
+        submissionNumber: paper.submissionNumber,
         currentVersionId: paper.currentVersionId,
       },
       message: 'Review submitted successfully',
@@ -668,7 +672,7 @@ export class ReviewsService {
         where: { id: assignmentId },
         include: {
           review: true,
-          paper: { select: { title: true, currentVersionId: true } },
+          paper: { select: { title: true, submissionNumber: true, currentVersionId: true } },
         },
       }),
     );

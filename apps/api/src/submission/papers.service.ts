@@ -4,8 +4,17 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { Authorship, FileAsset, Paper, PaperVersion, RoleKind } from '@openconferences/db';
-import { generateId, withTenantContext } from '@openconferences/db';
+import {
+  Prisma,
+  generateId,
+  generateSubmissionNumber,
+  withTenantContext,
+  type Authorship,
+  type FileAsset,
+  type Paper,
+  type PaperVersion,
+  type RoleKind,
+} from '@openconferences/db';
 import type { CreatePaperInput, UpdatePaperInput } from '@openconferences/schemas';
 import {
   paginateItems,
@@ -286,15 +295,7 @@ export class PapersService {
       throw new ConflictException('Current version must be scanned and clean before submission');
     }
 
-    const updated = await withTenantContext(
-      { userId, conferenceId, organizationId: paper.organizationId },
-      async (tx) =>
-        tx.paper.update({
-          where: { id: paperId },
-          data: { status: 'SUBMITTED', version: { increment: 1 } },
-          include: paperInclude,
-        }),
-    );
+    const updated = await this.assignSubmissionNumber(userId, paper, conference.slug);
 
     await this.audit.log({
       actorUserId: userId,
@@ -323,6 +324,56 @@ export class PapersService {
     }
 
     return mapPaper(updated);
+  }
+
+  private async assignSubmissionNumber(
+    userId: string,
+    paper: LoadedPaper,
+    conferenceSlug: string,
+  ): Promise<LoadedPaper> {
+    const attempts = 5;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const submissionNumber = generateSubmissionNumber(conferenceSlug);
+      try {
+        const assigned = await withTenantContext(
+          { userId, conferenceId: paper.conferenceId, organizationId: paper.organizationId },
+          async (tx) => {
+            const result = await tx.paper.updateMany({
+              where: { id: paper.id, status: 'DRAFT', submissionNumber: null },
+              data: {
+                status: 'SUBMITTED',
+                submissionNumber,
+                version: { increment: 1 },
+              },
+            });
+            if (result.count !== 1) {
+              return null;
+            }
+            return tx.paper.findFirst({
+              where: { id: paper.id },
+              include: paperInclude,
+            });
+          },
+        );
+
+        if (!assigned) {
+          throw new ConflictException('Paper has already been submitted');
+        }
+        return assigned;
+      } catch (error) {
+        const duplicate =
+          error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+        if (duplicate && attempt < attempts - 1) {
+          continue;
+        }
+        if (duplicate) {
+          throw new ConflictException('Could not assign a unique submission number');
+        }
+        throw error;
+      }
+    }
+
+    throw new ConflictException('Could not assign a unique submission number');
   }
 
   async loadPaper(

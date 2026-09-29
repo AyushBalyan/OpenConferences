@@ -106,6 +106,7 @@ export const meDashboardPaperSchema = z.object({
   conferenceName: z.string(),
   conferenceSlug: z.string(),
   title: z.string(),
+  submissionNumber: z.string().nullable().optional(),
   status: paperStatusSchema,
   updatedAt: z.string().datetime(),
 });

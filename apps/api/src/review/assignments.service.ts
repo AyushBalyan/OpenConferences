@@ -76,7 +76,7 @@ export class AssignmentsService {
         tx.reviewerAssignment.findMany({
           where: { roundId, conferenceId },
           include: {
-            paper: { select: { title: true } },
+            paper: { select: { title: true, submissionNumber: true } },
             reviewer: { select: { name: true, email: true } },
             review: { select: { submittedAt: true } },
           },
@@ -111,6 +111,7 @@ export class AssignmentsService {
             ? ('DRAFT' as const)
             : ('NOT_STARTED' as const),
         paperTitle: a.paper.title,
+        submissionNumber: a.paper.submissionNumber,
         reviewerName: a.reviewer.name,
         reviewerEmail: a.reviewer.email,
         bidValue: bidMap.get(`${a.paperId}:${a.reviewerUserId}`) ?? null,

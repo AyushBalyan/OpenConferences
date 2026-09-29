@@ -153,6 +153,11 @@ function ReviewBidding() {
               <DataTableRow key={paper.id}>
                 <DataTableCell>
                   <p className="font-medium text-slate-900">{paper.title}</p>
+                  {paper.submissionNumber ? (
+                    <p className="mt-1 font-mono text-xs text-slate-500">
+                      {paper.submissionNumber}
+                    </p>
+                  ) : null}
                   <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{paper.abstract}</p>
                 </DataTableCell>
                 <DataTableCell className="text-sm text-slate-600">

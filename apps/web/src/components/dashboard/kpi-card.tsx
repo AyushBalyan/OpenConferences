@@ -5,7 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 type KpiCardProps = {
   label: string;
   value: string | number;
-  hint?: string;
+  hint?: React.ReactNode;
   tone?: 'default' | 'warning' | 'success';
   loading?: boolean;
   footer?: React.ReactNode;

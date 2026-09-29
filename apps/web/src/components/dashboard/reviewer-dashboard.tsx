@@ -168,6 +168,11 @@ export function ReviewerDashboard({ conferenceId, conferenceName }: ReviewerDash
                   <DataTableRow key={assignment.id}>
                     <DataTableCell>
                       <p className="font-medium text-slate-900">{assignment.paperTitle}</p>
+                      {assignment.submissionNumber ? (
+                        <p className="mt-1 font-mono text-xs text-slate-500">
+                          {assignment.submissionNumber}
+                        </p>
+                      ) : null}
                     </DataTableCell>
                     <DataTableCell>
                       Cycle {assignment.roundNumber} · {reviewStageLabel(assignment.reviewStage)}

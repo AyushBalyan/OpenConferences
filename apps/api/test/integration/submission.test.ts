@@ -316,6 +316,7 @@ describe('Paper submission integration', () => {
       });
 
     expect(create.status).toBe(201);
+    expect(create.body.submissionNumber ?? null).toBeNull();
     const paperId = create.body.id as string;
 
     const initiate = await request(app.getHttpServer())
@@ -351,6 +352,23 @@ describe('Paper submission integration', () => {
 
     expect(submit.status).toBe(200);
     expect(submit.body.paper.status).toBe('SUBMITTED');
+    expect(submit.body.paper.submissionNumber).toMatch(/^SUBCONF-[2-9A-HJ-NP-Z]{4}$/);
+    const submissionNumber = submit.body.paper.submissionNumber as string;
+
+    const resubmit = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/papers/${paperId}/submit`)
+      .set('Cookie', authorCookie);
+    expect(resubmit.status).toBe(409);
+
+    await prisma.paper.update({
+      where: { id: paperId },
+      data: { status: 'UNDER_REVIEW' },
+    });
+    const afterStatusChange = await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/papers/${paperId}`)
+      .set('Cookie', authorCookie);
+    expect(afterStatusChange.body.status).toBe('UNDER_REVIEW');
+    expect(afterStatusChange.body.submissionNumber).toBe(submissionNumber);
     expect(lastTestNotifications[0]?.templateKey).toBe('submission.confirmed');
     expect(lastTestNotifications[0]?.to).toBe(authorEmail.toLowerCase());
     if (config.mail.submissionAlertEmail) {
@@ -558,6 +576,32 @@ describe('Paper submission integration', () => {
 
     expect(reorder.status).toBe(200);
     expect(reorder.body.data[0].id).toBe(reversed[0]);
+  });
+
+  it('updates the corresponding author affiliation', async () => {
+    const create = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/papers`)
+      .set('Cookie', authorCookie)
+      .send({
+        trackId,
+        title: 'Affiliation Paper',
+        abstract: 'Testing corresponding author affiliation.',
+        keywords: [],
+      });
+
+    const paperId = create.body.id as string;
+    const corresponding = (
+      create.body.authorships as { id: string; isCorresponding: boolean }[]
+    ).find((author) => author.isCorresponding);
+
+    const update = await request(app.getHttpServer())
+      .patch(`/api/v1/conferences/${confId}/papers/${paperId}/authorships/${corresponding?.id}`)
+      .set('Cookie', authorCookie)
+      .send({ affiliation: 'Example University' });
+
+    expect(update.status).toBe(200);
+    expect(update.body.affiliation).toBe('Example University');
+    expect(update.body.isCorresponding).toBe(true);
   });
 
   it('returns 404 for cross-conference paper access (IDOR)', async () => {

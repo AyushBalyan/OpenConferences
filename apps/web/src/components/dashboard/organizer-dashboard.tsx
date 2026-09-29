@@ -18,7 +18,7 @@ import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
 import { fetchAnalyticsOverview, fetchPapers, transitionConferenceStatus } from '@/lib/api-client';
 import type { Conference } from '@/lib/conference-types';
 import { paperStatusLabel, paperStatusTone } from '@/lib/paper-status-styles';
-import type { PaperDto } from '@/lib/submission-types';
+import { countActiveSubmissions, type PaperDto } from '@/lib/submission-types';
 import { canCoordinateReview, canManageConference } from '@/lib/roles';
 import type { ConferenceAnalyticsOverview } from '@openconferences/schemas';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -78,12 +78,19 @@ export function OrganizerDashboard({
     return papers.filter((paper) => paper.status === 'UNDER_REVIEW').length;
   }, [analytics, papers]);
 
+  const draftCount = useMemo(() => {
+    if (analytics) {
+      return analytics.submissions.byStatus.find((item) => item.status === 'DRAFT')?.count ?? 0;
+    }
+    return papers.filter((paper) => paper.status === 'DRAFT').length;
+  }, [analytics, papers]);
+
   const pendingReviews =
     analytics != null
       ? Math.max(analytics.reviews.assigned - analytics.reviews.completed, 0)
       : null;
   const registrationCount = analytics?.registrations.paid ?? null;
-  const submissionCount = analytics?.submissions.total ?? papers.length;
+  const submissionCount = countActiveSubmissions(analytics?.submissions ?? null, papers);
 
   async function openCfp() {
     setActionError(null);
@@ -123,7 +130,13 @@ export function OrganizerDashboard({
         <KpiCard
           label="Active submissions"
           value={loading ? '—' : submissionCount}
-          hint={`${underReviewCount} under review`}
+          hint={
+            <>
+              {underReviewCount} under review
+              <br />
+              {draftCount} {draftCount === 1 ? 'draft' : 'drafts'}
+            </>
+          }
           loading={loading}
         />
         <KpiCard
@@ -177,6 +190,11 @@ export function OrganizerDashboard({
                     <DataTableRow key={paper.id}>
                       <DataTableCell>
                         <p className="font-medium text-slate-900">{paper.title}</p>
+                        {paper.submissionNumber ? (
+                          <p className="mt-1 font-mono text-xs text-slate-500">
+                            {paper.submissionNumber}
+                          </p>
+                        ) : null}
                       </DataTableCell>
                       <DataTableCell>
                         <WorkflowBadge

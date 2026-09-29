@@ -112,6 +112,7 @@ export class MeDashboardService {
         conferenceName: paper.conference.name,
         conferenceSlug: paper.conference.slug,
         title: paper.title,
+        submissionNumber: paper.submissionNumber,
         status: paper.status,
         updatedAt: paper.updatedAt.toISOString(),
       })),

@@ -405,8 +405,9 @@ Below, each table lists **purpose / PK / FKs / indexes / constraints**. Represen
 
 - **Purpose:** submission metadata (not bytes).
 - **PK:** `id`. **FKs:** `conferenceId`, `trackId`, `organizationId`, nullable `currentVersionId`, `submittedById → users.id`.
-- **Indexes:** `(conferenceId, status)`, `(trackId)`, `(submittedById)`, GIN on `keywords`.
-- **Constraints:** `title` not empty; `status` non-null; `version int` for optimistic locking.
+- **Columns:** nullable `submissionNumber` text. Assigned once when status becomes `SUBMITTED`. Format is the conference slug with hyphens removed and uppercased, a hyphen, then 4 random characters from `23456789ABCDEFGHJKLMNPQRSTUVWXYZ` (example `MECHCONF2026-K7Q4`). The suffix is not a counter, so the code does not reveal how many papers the conference has. Drafts stay null. The value is frozen if the slug later changes.
+- **Indexes:** `(conferenceId, status)`, `(trackId)`, `(submittedById)`, GIN on `keywords`; unique `(conferenceId, submissionNumber)`.
+- **Constraints:** `title` not empty; `status` non-null; `version int` for optimistic locking. Postgres unique indexes allow multiple null `submissionNumber` values, so drafts do not collide.
 
 #### `file_assets`
 

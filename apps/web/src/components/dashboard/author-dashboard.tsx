@@ -128,7 +128,7 @@ export function AuthorDashboard({ conferenceId, conference }: AuthorDashboardPro
                       <div>
                         <p className="font-medium text-slate-900">{paper.title}</p>
                         <p className="font-mono text-xs text-slate-400">
-                          {paper.id.slice(0, 8).toUpperCase()}
+                          {paper.submissionNumber ?? paper.id.slice(0, 8).toUpperCase()}
                         </p>
                       </div>
                     </DataTableCell>

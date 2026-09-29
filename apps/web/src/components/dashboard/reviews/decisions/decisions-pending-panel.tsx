@@ -370,7 +370,8 @@ export function DecisionsPendingPanel() {
                       className="min-w-0 flex-1 text-left"
                     >
                       <span className="block text-[11px] font-medium tabular-nums text-slate-400">
-                        #{String(index + 1).padStart(2, '0')} · v{paper.version}
+                        {paper.submissionNumber ?? `#${String(index + 1).padStart(2, '0')}`} · v
+                        {paper.version}
                       </span>
                       <span
                         className={`mt-0.5 block truncate text-sm ${isActive ? 'font-semibold text-slate-900' : 'font-medium text-slate-700'}`}

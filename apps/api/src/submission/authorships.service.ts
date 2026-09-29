@@ -7,7 +7,11 @@ import {
 } from '@nestjs/common';
 import type { RoleKind } from '@openconferences/db';
 import { generateId, withTenantContext } from '@openconferences/db';
-import type { AuthorshipInput, ReorderAuthorshipsInput } from '@openconferences/schemas';
+import type {
+  AuthorshipInput,
+  ReorderAuthorshipsInput,
+  UpdateAuthorshipInput,
+} from '@openconferences/schemas';
 import { PapersService } from './papers.service';
 import { isPrivilegedReader, mapAuthorship } from './submission.mapper';
 
@@ -57,6 +61,35 @@ export class AuthorshipsService {
     } catch {
       throw new ConflictException('Could not add authorship (duplicate corresponding author?)');
     }
+  }
+
+  async update(
+    userId: string,
+    conferenceId: string,
+    paperId: string,
+    authorshipId: string,
+    input: UpdateAuthorshipInput,
+    roles: RoleKind[],
+  ) {
+    const paper = await this.papers.loadPaper(userId, conferenceId, paperId, roles);
+    this.assertEditable(paper.status, userId, paper, roles);
+
+    const authorship = paper.authorships.find((candidate) => candidate.id === authorshipId);
+    if (!authorship) {
+      throw new NotFoundException('Authorship not found');
+    }
+
+    const affiliation = input.affiliation.trim();
+    const updated = await withTenantContext(
+      { userId, conferenceId, organizationId: paper.organizationId },
+      async (tx) =>
+        tx.authorship.update({
+          where: { id: authorshipId },
+          data: { affiliation: affiliation.length > 0 ? affiliation : null },
+        }),
+    );
+
+    return mapAuthorship(updated);
   }
 
   async reorder(

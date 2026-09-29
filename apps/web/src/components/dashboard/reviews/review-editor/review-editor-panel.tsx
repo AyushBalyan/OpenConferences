@@ -109,6 +109,7 @@ export function ReviewEditorPanel({ conferenceId, assignmentId }: ReviewEditorPa
       submittedAt: saved.submittedAt,
       visibility: saved.visibility,
       paperTitle: saved.paperTitle ?? prev?.paperTitle,
+      submissionNumber: saved.submissionNumber ?? prev?.submissionNumber,
       currentVersionId: saved.currentVersionId ?? prev?.currentVersionId,
     }));
   }, []);
@@ -462,6 +463,9 @@ export function ReviewEditorPanel({ conferenceId, assignmentId }: ReviewEditorPa
           <h1 className="mt-1.5 text-2xl font-semibold tracking-tight text-slate-900 [text-wrap:balance]">
             {review.paperTitle ?? 'Assigned manuscript'}
           </h1>
+          {review.submissionNumber ? (
+            <p className="mt-1 font-mono text-xs text-slate-500">{review.submissionNumber}</p>
+          ) : null}
         </div>
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-2 text-xs text-slate-500" aria-live="polite">

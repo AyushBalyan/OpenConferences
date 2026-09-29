@@ -22,6 +22,7 @@ import type { DecisionDto, DecisionOutcome, ReviewRoundDto } from '@/lib/review-
 type PaperRow = {
   id: string;
   title: string;
+  submissionNumber?: string | null;
   status: PaperDto['status'];
   version: number;
   cycleId: string | null;
@@ -38,9 +39,16 @@ type DecisionsWorkspaceValue = {
   roundId: string;
   rounds: ReviewRoundDto[];
   papers: PaperRow[];
-  decisions: (DecisionDto & { paperTitle?: string; roundNumber?: number })[];
+  decisions: (DecisionDto & {
+    paperTitle?: string;
+    submissionNumber?: string | null;
+    roundNumber?: number;
+  })[];
   undecidedPapers: PaperRow[];
-  decisionByPaper: Map<string, DecisionDto & { paperTitle?: string; roundNumber?: number }>;
+  decisionByPaper: Map<
+    string,
+    DecisionDto & { paperTitle?: string; submissionNumber?: string | null; roundNumber?: number }
+  >;
   selected: Set<string>;
   setSelected: React.Dispatch<React.SetStateAction<Set<string>>>;
   pending: Record<string, PendingDecision>;
@@ -79,12 +87,8 @@ export function DecisionsWorkspaceProvider({
   const roundRef = useRef('');
   const [rounds, setRounds] = useState<ReviewRoundDto[]>([]);
   const [papers, setPapers] = useState<PaperRow[]>([]);
-  const [decisions, setDecisions] = useState<
-    (DecisionDto & { paperTitle?: string; roundNumber?: number })[]
-  >([]);
-  const [allDecisions, setAllDecisions] = useState<
-    (DecisionDto & { paperTitle?: string; roundNumber?: number })[]
-  >([]);
+  const [decisions, setDecisions] = useState<DecisionsWorkspaceValue['decisions']>([]);
+  const [allDecisions, setAllDecisions] = useState<DecisionsWorkspaceValue['decisions']>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Record<string, PendingDecision>>({});
   const [bulkOutcome, setBulkOutcome] = useState<DecisionOutcome | ''>('');
@@ -118,6 +122,7 @@ export function DecisionsWorkspaceProvider({
         .map((p) => ({
           id: p.id,
           title: p.title,
+          submissionNumber: p.submissionNumber,
           status: p.status,
           version: p.version,
           cycleId: progressByPaper.get(p.id)?.cycleId ?? null,

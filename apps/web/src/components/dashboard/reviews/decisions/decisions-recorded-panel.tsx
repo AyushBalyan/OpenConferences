@@ -55,6 +55,9 @@ export function DecisionsRecordedPanel() {
               <p className="font-medium text-slate-900">
                 {decision.paperTitle ?? decision.paperId}
               </p>
+              {decision.submissionNumber ? (
+                <p className="mt-1 font-mono text-xs text-slate-500">{decision.submissionNumber}</p>
+              ) : null}
             </DataTableCell>
             <DataTableCell>
               <WorkflowBadge

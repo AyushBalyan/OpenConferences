@@ -90,6 +90,9 @@ export default function ReviewProgressPage() {
             <DataTableRow key={row.paperId}>
               <DataTableCell>
                 <div className="font-medium">{row.paperTitle}</div>
+                {row.submissionNumber ? (
+                  <div className="font-mono text-xs text-slate-500">{row.submissionNumber}</div>
+                ) : null}
                 {row.roundNumber ? (
                   <div className="text-xs text-slate-500">Cycle {row.roundNumber}</div>
                 ) : null}

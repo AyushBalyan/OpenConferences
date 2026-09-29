@@ -7,6 +7,7 @@ export type ReviewRoundOption = {
   roundNumber: number;
   reviewStage: string;
   paperId?: string;
+  submissionNumber?: string | null;
 };
 
 type ReviewRoundSelectorProps = {
@@ -32,7 +33,7 @@ export function ReviewRoundSelector({
 
   return (
     <div className={`mb-6 flex flex-col gap-3 sm:flex-row sm:items-end ${className ?? ''}`}>
-      <div className="max-w-xs flex-1">
+      <div className="max-w-lg flex-1">
         <Label htmlFor={id}>{label}</Label>
         <select
           id={id}
@@ -40,11 +41,15 @@ export function ReviewRoundSelector({
           value={roundId}
           onChange={(e) => onRoundChange(e.target.value)}
         >
-          {rounds.map((round) => (
-            <option key={round.id} value={round.id}>
-              Cycle {round.roundNumber} ({round.reviewStage.replaceAll('_', ' ').toLowerCase()})
-            </option>
-          ))}
+          {rounds.map((round) => {
+            const stage = round.reviewStage.replaceAll('_', ' ').toLowerCase();
+            const cycle = `Cycle ${round.roundNumber} (${stage})`;
+            return (
+              <option key={round.id} value={round.id}>
+                {round.submissionNumber ? `${round.submissionNumber} · ${cycle}` : cycle}
+              </option>
+            );
+          })}
         </select>
       </div>
       {actions}

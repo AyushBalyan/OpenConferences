@@ -23,6 +23,7 @@
     "migrate:reset": "dotenv -e ../../.env -- prisma migrate reset --force",
     "generate": "dotenv -e ../../.env -- prisma generate",
     "seed": "dotenv -e ../../.env -- tsx prisma/seed.ts",
+    "backfill:submission-numbers": "dotenv -e ../../.env -- tsx src/backfill-submission-numbers.ts",
     "studio": "dotenv -e ../../.env -- prisma studio",
     "postinstall": "prisma generate"
   },

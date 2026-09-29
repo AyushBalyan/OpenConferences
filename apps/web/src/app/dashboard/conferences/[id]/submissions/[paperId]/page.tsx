@@ -536,9 +536,15 @@ function SubmissionDetail() {
             <h1 className="break-words text-2xl font-semibold tracking-tight text-slate-900 [text-wrap:balance]">
               {paper.title}
             </h1>
-            <p className="text-xs text-slate-400" title={paper.id}>
-              Submission ID {paper.id.slice(0, 8)}
-            </p>
+            {paper.submissionNumber ? (
+              <p className="font-mono text-xs text-slate-500" title={paper.id}>
+                {paper.submissionNumber}
+              </p>
+            ) : (
+              <p className="text-xs text-slate-400" title={paper.id}>
+                Submission ID {paper.id.slice(0, 8)}
+              </p>
+            )}
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             {canDownloadPapers ? (

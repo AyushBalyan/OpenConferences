@@ -135,16 +135,17 @@ function SignUpContent() {
         </div>
         {authorJoin ? (
           <div className="space-y-2">
-            <Label htmlFor="affiliation">Affiliation</Label>
+            <Label htmlFor="affiliation">Affiliation / Institution</Label>
             <Input
               id="affiliation"
               value={affiliation}
               onChange={(e) => setAffiliation(e.target.value)}
-              placeholder="University or organization"
+              placeholder="University or institution"
               autoComplete="organization"
+              maxLength={500}
             />
             <p className="text-xs text-muted-foreground">
-              Used as your corresponding-author affiliation on submissions.
+              Optional. Used as your corresponding-author affiliation on submissions.
             </p>
           </div>
         ) : null}

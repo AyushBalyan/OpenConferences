@@ -102,6 +102,7 @@ export async function withTenantContext<T>(
 
 export { PrismaClient, Prisma };
 export { generateId } from './id.js';
+export { conferenceCodePrefix, generateSubmissionNumber } from './submission-number.js';
 export { rollupOutreachCampaignCounts } from './outreach-rollup.js';
 export { syncPlatformNotificationTemplates } from './sync-notification-templates.js';
 export { PLATFORM_NOTIFICATION_TEMPLATES } from './notification-templates.js';

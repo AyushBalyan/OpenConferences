@@ -381,7 +381,54 @@ export async function addAuthorship(
     body,
   });
   if (result.status === 201) return result.body;
+  if (
+    result.status === 400 ||
+    result.status === 401 ||
+    result.status === 403 ||
+    result.status === 404 ||
+    result.status === 409
+  ) {
+    throw new Error(result.body.detail ?? 'Failed to add author');
+  }
   throw new Error('Failed to add author');
+}
+
+export async function updateAuthorship(
+  conferenceId: string,
+  paperId: string,
+  authorshipId: string,
+  body: { affiliation: string },
+) {
+  const result = await apiClient.submission.updateAuthorship({
+    params: { conferenceId, paperId, authorshipId },
+    body,
+  });
+  if (result.status === 200) return result.body;
+  if (
+    result.status === 400 ||
+    result.status === 401 ||
+    result.status === 403 ||
+    result.status === 404 ||
+    result.status === 409
+  ) {
+    throw new Error(result.body.detail ?? 'Failed to update author');
+  }
+  throw new Error('Failed to update author');
+}
+
+export async function removeAuthorship(
+  conferenceId: string,
+  paperId: string,
+  authorshipId: string,
+) {
+  const result = await apiClient.submission.removeAuthorship({
+    params: { conferenceId, paperId, authorshipId },
+  });
+  if (result.status === 204) return;
+  if (result.status === 401 || result.status === 403 || result.status === 404) {
+    throw new Error(result.body.detail ?? 'Failed to remove author');
+  }
+  throw new Error('Failed to remove author');
 }
 
 export async function initiateVersionUpload(
