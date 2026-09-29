@@ -15,7 +15,7 @@ import {
   DataTableRow,
 } from '@/components/dashboard/data-table';
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
-import { grantRole, revokeRole } from '@/lib/api-client';
+import { fetchMembers, grantRole, revokeRole } from '@/lib/api-client';
 import type { Member } from '@/lib/conference-types';
 import { useState } from 'react';
 import { useMembersWorkspace } from './members-workspace';
@@ -54,12 +54,12 @@ export function MembersGrantPanel() {
     event.preventDefault();
     setError(null);
     try {
-      const updated = await grantRole(conferenceId, {
+      await grantRole(conferenceId, {
         userId,
         role,
         scope: 'CONFERENCE',
       });
-      setMembers(updated);
+      setMembers(await fetchMembers(conferenceId));
       setUserId('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to grant role');
@@ -130,12 +130,12 @@ export function MembersTablePanel({ category, emptyMessage }: MembersTablePanelP
     setError(null);
     setRevokingKey(key);
     try {
-      const updated = await revokeRole(conferenceId, {
+      await revokeRole(conferenceId, {
         userId: member.userId,
         role: roleToRevoke as GrantableRole | 'ORG_ADMIN',
         scope: member.scope,
       });
-      setMembers(updated);
+      setMembers(await fetchMembers(conferenceId));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to revoke role');
     } finally {

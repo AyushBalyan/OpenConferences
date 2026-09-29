@@ -9,6 +9,24 @@ export type PaginatedResult<T> = {
   nextCursor: string | null;
 };
 
+export const PAGE_SIZE = 100;
+const MAX_PAGES = 50;
+
+export async function fetchAllPages<T>(
+  fetchPage: (query: { limit: number; cursor?: string }) => Promise<PaginatedResult<T>>,
+  maxPages = MAX_PAGES,
+): Promise<T[]> {
+  const items: T[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < maxPages; page += 1) {
+    const result = await fetchPage({ limit: PAGE_SIZE, ...(cursor ? { cursor } : {}) });
+    items.push(...result.data);
+    if (!result.nextCursor) return items;
+    cursor = result.nextCursor;
+  }
+  throw new Error('Result is larger than the page cap. Narrow the query.');
+}
+
 export const apiClient = initClient(apiContract, {
   baseUrl,
   baseHeaders: {},
@@ -64,17 +82,22 @@ export async function fetchAnalyticsOverview(conferenceId: string) {
 }
 
 export async function fetchOrganizations() {
-  const result = await apiClient.organizations.list({ query: {} });
-  if (result.status === 200) return result.body.data;
-  throw new Error('Failed to load organizations');
+  return fetchAllPages(async (query) => {
+    const result = await apiClient.organizations.list({ query });
+    if (result.status !== 200) throw new Error('Failed to load organizations');
+    return result.body;
+  });
 }
 
 export async function fetchConferences(organizationId?: string) {
-  const result = await apiClient.conferences.list({
-    query: organizationId ? { organizationId } : {},
+  const data = await fetchAllPages(async (query) => {
+    const result = await apiClient.conferences.list({
+      query: { ...query, ...(organizationId ? { organizationId } : {}) },
+    });
+    if (result.status !== 200) throw new Error('Failed to load conferences');
+    return result.body;
   });
-  if (result.status === 200) return result.body;
-  throw new Error('Failed to load conferences');
+  return { data, nextCursor: null };
 }
 
 export async function fetchConference(id: string) {
@@ -145,9 +168,14 @@ export async function updateConferenceSettings(id: string, body: Record<string, 
 }
 
 export async function fetchTracks(conferenceId: string) {
-  const result = await apiClient.conferences.listTracks({ params: { id: conferenceId } });
-  if (result.status === 200) return result.body.data;
-  throw new Error('Failed to load tracks');
+  return fetchAllPages(async (query) => {
+    const result = await apiClient.conferences.listTracks({
+      params: { id: conferenceId },
+      query,
+    });
+    if (result.status !== 200) throw new Error('Failed to load tracks');
+    return result.body;
+  });
 }
 
 export async function createTrack(
@@ -162,10 +190,37 @@ export async function createTrack(
   throw new Error('Failed to create track');
 }
 
-export async function fetchMembers(conferenceId: string) {
-  const result = await apiClient.conferences.listMembers({ params: { id: conferenceId } });
-  if (result.status === 200) return result.body.data;
-  throw new Error('Failed to load members');
+export async function fetchMembers(
+  conferenceId: string,
+  role?: 'PLATFORM_ADMIN' | 'ORG_ADMIN' | 'ORGANIZER' | 'CHAIR' | 'REVIEWER' | 'AUTHOR',
+) {
+  return fetchAllPages(async (query) => {
+    const result = await apiClient.conferences.listMembers({
+      params: { id: conferenceId },
+      query: { ...query, ...(role ? { role } : {}) },
+    });
+    if (result.status !== 200) throw new Error('Failed to load members');
+    return result.body;
+  });
+}
+
+export async function fetchAllPapers(
+  conferenceId: string,
+  query?: {
+    mine?: boolean;
+    status?: import('@openconferences/schemas').PaperDto['status'];
+    trackId?: string;
+    q?: string;
+  },
+) {
+  return fetchAllPages(async (page) => {
+    const result = await apiClient.submission.listPapers({
+      params: { conferenceId },
+      query: { ...page, ...query },
+    });
+    if (result.status !== 200) throw new Error('Failed to load submissions');
+    return result.body;
+  });
 }
 
 export async function grantRole(
@@ -221,6 +276,8 @@ export async function fetchNotificationLogs(
     status?: 'QUEUED' | 'SENT' | 'FAILED' | 'BOUNCED';
     templateKey?: string;
     search?: string;
+    cursor?: string;
+    limit?: number;
   },
 ) {
   const result = await apiClient.messaging.listNotificationLogs({
@@ -240,12 +297,14 @@ export async function resendNotification(conferenceId: string, logId: string) {
 }
 
 export async function fetchNotificationTemplates(conferenceId: string) {
-  const result = await apiClient.messaging.listNotificationTemplates({
-    params: { id: conferenceId },
-    query: {},
+  return fetchAllPages(async (query) => {
+    const result = await apiClient.messaging.listNotificationTemplates({
+      params: { id: conferenceId },
+      query,
+    });
+    if (result.status !== 200) throw new Error('Failed to load notification templates');
+    return result.body;
   });
-  if (result.status === 200) return result.body.data;
-  throw new Error('Failed to load notification templates');
 }
 
 export async function createNotificationTemplate(
@@ -684,18 +743,14 @@ export async function uploadCameraReadyPdf(
 // --- Review (Phase 4) ---
 
 export async function fetchReviewRounds(conferenceId: string) {
-  const rounds: import('./review-types').ReviewRoundDto[] = [];
-  let cursor: string | undefined;
-  do {
+  return fetchAllPages(async (query) => {
     const result = await apiClient.review.listRounds({
       params: { conferenceId },
-      query: { ...(cursor ? { cursor } : {}) },
+      query,
     });
     if (result.status !== 200) throw new Error('Failed to load review rounds');
-    rounds.push(...result.body.data);
-    cursor = result.body.nextCursor ?? undefined;
-  } while (cursor);
-  return rounds;
+    return result.body;
+  });
 }
 
 export async function fetchReviewProgress(conferenceId: string) {
@@ -724,9 +779,14 @@ export async function updateReviewRound(
 }
 
 export async function fetchReviewerInvitations(conferenceId: string) {
-  const result = await apiClient.review.listInvitations({ params: { conferenceId } });
-  if (result.status === 200) return result.body.data;
-  throw new Error('Failed to load invitations');
+  return fetchAllPages(async (query) => {
+    const result = await apiClient.review.listInvitations({
+      params: { conferenceId },
+      query,
+    });
+    if (result.status !== 200) throw new Error('Failed to load invitations');
+    return result.body;
+  });
 }
 
 export async function issueReviewerInvitation(
@@ -778,10 +838,22 @@ export async function declineReviewerInvitation(token: string) {
   throw new Error('Failed to decline invitation');
 }
 
-export async function fetchPaperPool(conferenceId: string) {
-  const result = await apiClient.review.getPaperPool({ params: { conferenceId }, query: {} });
-  if (result.status === 200) return result.body;
-  throw new Error('Failed to load paper pool');
+export async function fetchPaperPool(conferenceId: string): Promise<{
+  data: import('@openconferences/schemas').BlindedPaperPoolItemDto[];
+  mode?: 'reviewer' | 'oversight';
+  blindingMode: 'SINGLE' | 'DOUBLE' | 'OPEN';
+  nextCursor: null;
+}> {
+  let mode: 'reviewer' | 'oversight' | undefined;
+  let blindingMode: 'SINGLE' | 'DOUBLE' | 'OPEN' | undefined;
+  const data = await fetchAllPages(async (query) => {
+    const result = await apiClient.review.getPaperPool({ params: { conferenceId }, query });
+    if (result.status !== 200) throw new Error('Failed to load paper pool');
+    mode = result.body.mode;
+    blindingMode = result.body.blindingMode;
+    return result.body;
+  });
+  return { data, mode, blindingMode: blindingMode ?? 'DOUBLE', nextCursor: null };
 }
 
 export async function upsertBid(
@@ -799,9 +871,11 @@ export async function upsertBid(
 }
 
 export async function fetchCoiList(conferenceId: string) {
-  const result = await apiClient.review.listCoi({ params: { conferenceId } });
-  if (result.status === 200) return result.body.data;
-  throw new Error('Failed to load conflicts of interest');
+  return fetchAllPages(async (query) => {
+    const result = await apiClient.review.listCoi({ params: { conferenceId }, query });
+    if (result.status !== 200) throw new Error('Failed to load conflicts of interest');
+    return result.body;
+  });
 }
 
 export async function fetchCoiDeclareTargets(conferenceId: string) {
@@ -830,27 +904,26 @@ export async function deleteCoi(conferenceId: string, coiId: string) {
   throw new Error('Failed to remove conflict');
 }
 
-export async function fetchBids(
-  conferenceId: string,
-  options?: { paperId?: string; limit?: number },
-) {
-  const result = await apiClient.review.listBids({
-    params: { conferenceId },
-    query: {
-      ...(options?.paperId ? { paperId: options.paperId } : {}),
-      ...(options?.limit ? { limit: options.limit } : {}),
-    },
+export async function fetchBids(conferenceId: string, options?: { paperId?: string }) {
+  return fetchAllPages(async (query) => {
+    const result = await apiClient.review.listBids({
+      params: { conferenceId },
+      query: { ...query, ...(options?.paperId ? { paperId: options.paperId } : {}) },
+    });
+    if (result.status !== 200) throw new Error('Failed to load bids');
+    return result.body;
   });
-  if (result.status === 200) return result.body.data;
-  throw new Error('Failed to load bids');
 }
 
 export async function fetchAssignments(conferenceId: string, roundId: string) {
-  const result = await apiClient.review.listAssignments({
-    params: { conferenceId, roundId },
+  return fetchAllPages(async (query) => {
+    const result = await apiClient.review.listAssignments({
+      params: { conferenceId, roundId },
+      query,
+    });
+    if (result.status !== 200) throw new Error('Failed to load assignments');
+    return result.body;
   });
-  if (result.status === 200) return result.body.data;
-  throw new Error('Failed to load assignments');
 }
 
 export async function createAssignment(
@@ -893,16 +966,16 @@ export async function deleteAssignment(conferenceId: string, assignmentId: strin
 
 // --- Reviews (Phase 5) ---
 
-export async function fetchMyAssignments(
-  conferenceId: string,
-  query?: { cursor?: string; limit?: number },
-) {
-  const result = await apiClient.review.listMyAssignments({
-    params: { conferenceId },
-    query: query ?? {},
+export async function fetchMyAssignments(conferenceId: string) {
+  const data = await fetchAllPages(async (query) => {
+    const result = await apiClient.review.listMyAssignments({
+      params: { conferenceId },
+      query,
+    });
+    if (result.status !== 200) throw new Error('Failed to load assignments');
+    return result.body;
   });
-  if (result.status === 200) return result.body;
-  throw new Error('Failed to load assignments');
+  return { data, nextCursor: null };
 }
 
 export async function fetchAssignmentReview(conferenceId: string, assignmentId: string) {
@@ -970,6 +1043,26 @@ export async function fetchPaperReviews(
   throw new Error('Failed to load reviews');
 }
 
+export async function fetchAllPaperReviews(
+  conferenceId: string,
+  paperId: string,
+  roundId?: string,
+) {
+  let reviewStage: import('@openconferences/schemas').ReviewStage | undefined;
+  let resolvedRoundId: string | undefined;
+  const data = await fetchAllPages(async (query) => {
+    const result = await apiClient.review.listPaperReviews({
+      params: { conferenceId, paperId },
+      query: { ...query, ...(roundId ? { roundId } : {}) },
+    });
+    if (result.status !== 200) throw new Error('Failed to load reviews');
+    reviewStage = result.body.reviewStage;
+    resolvedRoundId = result.body.roundId;
+    return result.body;
+  });
+  return { data, reviewStage, roundId: resolvedRoundId, nextCursor: null };
+}
+
 export async function releaseReviews(
   conferenceId: string,
   paperId: string,
@@ -1012,21 +1105,15 @@ export async function submitRebuttal(
 // --- Decisions (Phase 6) ---
 
 export async function fetchDecisions(conferenceId: string, roundId?: string) {
-  const decisions: (import('./review-types').DecisionDto & {
-    paperTitle?: string;
-    roundNumber?: number;
-  })[] = [];
-  let cursor: string | undefined;
-  do {
+  const data = await fetchAllPages(async (query) => {
     const result = await apiClient.review.listDecisions({
       params: { conferenceId },
-      query: { ...(roundId ? { roundId } : {}), ...(cursor ? { cursor } : {}) },
+      query: { ...query, ...(roundId ? { roundId } : {}) },
     });
     if (result.status !== 200) throw new Error('Failed to load decisions');
-    decisions.push(...result.body.data);
-    cursor = result.body.nextCursor ?? undefined;
-  } while (cursor);
-  return { data: decisions, nextCursor: null };
+    return result.body;
+  });
+  return { data, nextCursor: null };
 }
 
 export async function fetchPaperDecision(conferenceId: string, paperId: string, roundId?: string) {
@@ -1172,11 +1259,15 @@ export async function fetchRegistrations(
 }
 
 export async function fetchStudentVerifications(conferenceId: string) {
-  const result = await apiClient.billing.listStudentVerifications({
-    params: { conferenceId },
+  const data = await fetchAllPages(async (query) => {
+    const result = await apiClient.billing.listStudentVerifications({
+      params: { conferenceId },
+      query,
+    });
+    if (result.status !== 200) throw new Error('Failed to load student verifications');
+    return result.body;
   });
-  if (result.status === 200) return result.body;
-  throw new Error('Failed to load student verifications');
+  return { data, nextCursor: null };
 }
 
 export async function reviewStudentVerification(
@@ -1297,20 +1388,21 @@ export async function fetchOutreachRecipients(
   conferenceId: string,
   campaignId: string,
   query?: {
-    cursor?: string;
-    limit?: number;
     status?: 'PENDING' | 'SKIPPED' | 'QUEUED' | 'SENT' | 'FAILED';
   },
 ) {
-  const result = await apiClient.outreach.listRecipients({
-    params: { conferenceId, campaignId },
-    query: query ?? {},
+  const data = await fetchAllPages(async (page) => {
+    const result = await apiClient.outreach.listRecipients({
+      params: { conferenceId, campaignId },
+      query: { ...page, ...query },
+    });
+    if (result.status === 200) return result.body;
+    if (result.status === 401 || result.status === 403 || result.status === 404) {
+      throwOutreachError(result, 'Failed to load recipients');
+    }
+    throw new Error('Failed to load recipients');
   });
-  if (result.status === 200) return result.body;
-  if (result.status === 401 || result.status === 403 || result.status === 404) {
-    throwOutreachError(result, 'Failed to load recipients');
-  }
-  throw new Error('Failed to load recipients');
+  return { data, nextCursor: null };
 }
 
 export async function fetchOutreachTemplates(conferenceId: string) {

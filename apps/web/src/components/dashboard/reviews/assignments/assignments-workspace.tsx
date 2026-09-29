@@ -6,7 +6,7 @@ import {
   fetchBids,
   fetchConference,
   fetchMembers,
-  fetchPapers,
+  fetchAllPapers,
   fetchReviewRounds,
 } from '@/lib/api-client';
 import { resolveActiveReviewRound } from '@/lib/review-rounds';
@@ -143,22 +143,18 @@ export function AssignmentsWorkspaceProvider({
     const [conference, roundList, paperList, members, bidList] = await Promise.all([
       fetchConference(conferenceId),
       fetchReviewRounds(conferenceId),
-      fetchPapers(conferenceId),
-      fetchMembers(conferenceId),
-      fetchBids(conferenceId, { limit: 100 }),
+      fetchAllPapers(conferenceId),
+      fetchMembers(conferenceId, 'REVIEWER'),
+      fetchBids(conferenceId),
     ]);
 
     setConferenceName(conference.name);
     setPapers(
-      paperList.data
+      paperList
         .filter((p) => p.status !== 'DRAFT' && !p.status.startsWith('WITHDRAWN'))
         .map((p) => ({ id: p.id, title: p.title, submissionNumber: p.submissionNumber })),
     );
-    setReviewers(
-      members
-        .filter((m) => m.roles.includes('REVIEWER'))
-        .map((m) => ({ userId: m.userId, name: m.name, email: m.email })),
-    );
+    setReviewers(members.map((m) => ({ userId: m.userId, name: m.name, email: m.email })));
     setBids(
       bidList.map((b) => ({
         paperId: b.paperId,

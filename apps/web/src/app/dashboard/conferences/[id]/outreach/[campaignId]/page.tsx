@@ -61,7 +61,7 @@ export default function OutreachCampaignDetailPage() {
   const load = useCallback(async () => {
     const [campaignResult, recipientResult] = await Promise.all([
       fetchOutreachCampaign(conferenceId, campaignId),
-      fetchOutreachRecipients(conferenceId, campaignId, { limit: 100 }),
+      fetchOutreachRecipients(conferenceId, campaignId),
     ]);
     setCampaign(campaignResult);
     setRecipients(recipientResult.data);

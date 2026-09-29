@@ -15,7 +15,9 @@ import {
   DataTableSkeleton,
   DataTableToolbar,
 } from '@/components/dashboard/data-table';
+import { DataTablePagination } from '@/components/dashboard/data-table';
 import { SectionPageLayout } from '@/components/dashboard/section-page-layout';
+import { useCursorList } from '@/hooks/dashboard/use-cursor-list';
 import { fetchNotificationLogs, resendNotification } from '@/lib/api-client';
 import type { NotificationLogEntry } from '@/lib/conference-types';
 import Link from 'next/link';
@@ -35,34 +37,36 @@ const statusVariant: Record<
 export default function ConferenceNotificationsPage() {
   const params = useParams<{ id: string }>();
   const conferenceId = params.id;
-  const [logs, setLogs] = useState<NotificationLogEntry[]>([]);
   const [search, setSearch] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [resendingId, setResendingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    const result = await fetchNotificationLogs(conferenceId, {
-      search: search.trim() || undefined,
-    });
-    setLogs(result.data);
-  }, [conferenceId, search]);
+  const fetchPage = useCallback(
+    async (cursor?: string) => {
+      const result = await fetchNotificationLogs(conferenceId, {
+        search: search.trim() || undefined,
+        ...(cursor ? { cursor } : { limit: 50 }),
+      });
+      return { data: result.data, nextCursor: result.nextCursor };
+    },
+    [conferenceId, search],
+  );
+
+  const { items, nextCursor, loading, loadingMore, error, loadMore, refresh } =
+    useCursorList<NotificationLogEntry>({ fetchPage });
 
   useEffect(() => {
-    setLoading(true);
-    load()
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
-      .finally(() => setLoading(false));
-  }, [load]);
+    void refresh();
+  }, [refresh]);
 
   async function handleResend(logId: string) {
     setResendingId(logId);
-    setError(null);
+    setActionError(null);
     try {
       await resendNotification(conferenceId, logId);
-      await load();
+      await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Resend failed');
+      setActionError(err instanceof Error ? err.message : 'Resend failed');
     } finally {
       setResendingId(null);
     }
@@ -72,7 +76,7 @@ export default function ConferenceNotificationsPage() {
     <SectionPageLayout
       title="Email log"
       description="Delivery status for transactional emails sent from this conference."
-      error={error}
+      error={error ?? actionError}
       actions={
         <Button variant="outline" asChild>
           <Link href={`/dashboard/conferences/${conferenceId}/notifications/templates`}>
@@ -92,61 +96,70 @@ export default function ConferenceNotificationsPage() {
 
       {loading ? (
         <DataTableSkeleton rows={6} />
-      ) : logs.length === 0 ? (
+      ) : items.length === 0 ? (
         <DataTableEmpty title="No emails logged yet" />
       ) : (
-        <DataTable
-          footer={
-            <DataTableFooter>
-              {logs.length} email{logs.length === 1 ? '' : 's'}
-            </DataTableFooter>
-          }
-        >
-          <DataTableHeader>
-            <tr>
-              <DataTableHead>Subject</DataTableHead>
-              <DataTableHead>Recipient</DataTableHead>
-              <DataTableHead>Template</DataTableHead>
-              <DataTableHead>Status</DataTableHead>
-              <DataTableHead>Sent</DataTableHead>
-              <DataTableHead className="text-right">Actions</DataTableHead>
-            </tr>
-          </DataTableHeader>
-          <DataTableBody>
-            {logs.map((log) => (
-              <DataTableRow key={log.id}>
-                <DataTableCell>
-                  <div>
-                    <p className="font-medium text-slate-900">{log.subject}</p>
-                    {log.error ? <p className="mt-0.5 text-xs text-rose-600">{log.error}</p> : null}
-                  </div>
-                </DataTableCell>
-                <DataTableCell>{log.toEmail}</DataTableCell>
-                <DataTableCell className="font-mono text-xs text-slate-500">
-                  {log.templateKey}
-                </DataTableCell>
-                <DataTableCell>
-                  <Badge variant={statusVariant[log.status]}>{log.status}</Badge>
-                </DataTableCell>
-                <DataTableCell className="font-mono text-xs text-slate-500">
-                  {new Date(log.createdAt).toLocaleString()}
-                </DataTableCell>
-                <DataTableCell className="text-right">
-                  {log.status !== 'QUEUED' ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={resendingId === log.id}
-                      onClick={() => void handleResend(log.id)}
-                    >
-                      Resend
-                    </Button>
-                  ) : null}
-                </DataTableCell>
-              </DataTableRow>
-            ))}
-          </DataTableBody>
-        </DataTable>
+        <>
+          <DataTable
+            footer={
+              <DataTableFooter>
+                Showing {items.length} email{items.length === 1 ? '' : 's'}
+              </DataTableFooter>
+            }
+          >
+            <DataTableHeader>
+              <tr>
+                <DataTableHead>Subject</DataTableHead>
+                <DataTableHead>Recipient</DataTableHead>
+                <DataTableHead>Template</DataTableHead>
+                <DataTableHead>Status</DataTableHead>
+                <DataTableHead>Sent</DataTableHead>
+                <DataTableHead className="text-right">Actions</DataTableHead>
+              </tr>
+            </DataTableHeader>
+            <DataTableBody>
+              {items.map((log) => (
+                <DataTableRow key={log.id}>
+                  <DataTableCell>
+                    <div>
+                      <p className="font-medium text-slate-900">{log.subject}</p>
+                      {log.error ? (
+                        <p className="mt-0.5 text-xs text-rose-600">{log.error}</p>
+                      ) : null}
+                    </div>
+                  </DataTableCell>
+                  <DataTableCell>{log.toEmail}</DataTableCell>
+                  <DataTableCell className="font-mono text-xs text-slate-500">
+                    {log.templateKey}
+                  </DataTableCell>
+                  <DataTableCell>
+                    <Badge variant={statusVariant[log.status]}>{log.status}</Badge>
+                  </DataTableCell>
+                  <DataTableCell className="font-mono text-xs text-slate-500">
+                    {new Date(log.createdAt).toLocaleString()}
+                  </DataTableCell>
+                  <DataTableCell className="text-right">
+                    {log.status !== 'QUEUED' ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={resendingId === log.id}
+                        onClick={() => void handleResend(log.id)}
+                      >
+                        Resend
+                      </Button>
+                    ) : null}
+                  </DataTableCell>
+                </DataTableRow>
+              ))}
+            </DataTableBody>
+          </DataTable>
+          <DataTablePagination
+            nextCursor={nextCursor}
+            onLoadMore={loadMore}
+            loading={loadingMore}
+          />
+        </>
       )}
     </SectionPageLayout>
   );

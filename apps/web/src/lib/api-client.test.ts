@@ -4,7 +4,7 @@ const review = vi.hoisted(() => ({ listRounds: vi.fn(), listDecisions: vi.fn() }
 vi.mock('@ts-rest/core', () => ({ initClient: () => ({ review }) }));
 vi.mock('@openconferences/contracts', () => ({ apiContract: {} }));
 
-import { fetchDecisions, fetchReviewRounds } from './api-client';
+import { fetchAllPages, fetchDecisions, fetchReviewRounds } from './api-client';
 
 beforeEach(() => vi.resetAllMocks());
 
@@ -24,7 +24,7 @@ describe('review pagination', () => {
     expect(await fetchReviewRounds('conference')).toHaveLength(22);
     expect(review.listRounds).toHaveBeenNthCalledWith(2, {
       params: { conferenceId: 'conference' },
-      query: { cursor: 'page-2' },
+      query: { limit: 100, cursor: 'page-2' },
     });
     expect(review.listRounds).toHaveBeenCalledTimes(3);
   });
@@ -45,7 +45,7 @@ describe('review pagination', () => {
     expect((await fetchDecisions('conference')).data).toEqual([old, current]);
     expect(review.listDecisions).toHaveBeenLastCalledWith({
       params: { conferenceId: 'conference' },
-      query: { cursor: 'page-2' },
+      query: { limit: 100, cursor: 'page-2' },
     });
     review.listDecisions.mockResolvedValueOnce({
       status: 200,
@@ -54,7 +54,32 @@ describe('review pagination', () => {
     await fetchDecisions('conference', 'current-cycle');
     expect(review.listDecisions).toHaveBeenLastCalledWith({
       params: { conferenceId: 'conference' },
-      query: { roundId: 'current-cycle' },
+      query: { limit: 100, roundId: 'current-cycle' },
     });
+  });
+});
+
+describe('fetchAllPages', () => {
+  it('returns a single page and an empty list', async () => {
+    const fetchPage = vi.fn().mockResolvedValueOnce({ data: [{ id: 'a' }], nextCursor: null });
+    expect(await fetchAllPages(fetchPage)).toEqual([{ id: 'a' }]);
+    expect(await fetchAllPages(vi.fn().mockResolvedValue({ data: [], nextCursor: null }))).toEqual(
+      [],
+    );
+  });
+
+  it('follows every cursor', async () => {
+    const fetchPage = vi
+      .fn()
+      .mockResolvedValueOnce({ data: [{ id: 'a' }], nextCursor: 'page-2' })
+      .mockResolvedValueOnce({ data: [{ id: 'b' }], nextCursor: null });
+    expect(await fetchAllPages(fetchPage)).toEqual([{ id: 'a' }, { id: 'b' }]);
+    expect(fetchPage).toHaveBeenLastCalledWith({ limit: 100, cursor: 'page-2' });
+  });
+
+  it('throws at the page cap instead of returning a partial list', async () => {
+    const fetchPage = vi.fn().mockResolvedValue({ data: [{ id: 'a' }], nextCursor: 'again' });
+    await expect(fetchAllPages(fetchPage, 2)).rejects.toThrow('page cap');
+    expect(fetchPage).toHaveBeenCalledTimes(2);
   });
 });

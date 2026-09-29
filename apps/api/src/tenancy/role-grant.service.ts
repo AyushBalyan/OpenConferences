@@ -37,7 +37,7 @@ export class RoleGrantService {
     userId: string,
     conferenceId: string,
     userRoles: RoleKind[],
-    options: CursorPaginationOptions = {},
+    options: CursorPaginationOptions & { role?: RoleKind } = {},
   ): Promise<{ data: MemberDto[]; nextCursor: string | null }> {
     const conference = await this.conferenceService.loadConference(userId, conferenceId, userRoles);
     const limit = resolveLimit(options.limit);
@@ -55,6 +55,7 @@ export class RoleGrantService {
               { conferenceId, scope: 'CONFERENCE' },
               { organizationId: conference.organizationId, scope: 'ORGANIZATION' },
             ],
+            ...(options.role ? { roles: { some: { role: options.role } } } : {}),
           },
           include: {
             roles: true,

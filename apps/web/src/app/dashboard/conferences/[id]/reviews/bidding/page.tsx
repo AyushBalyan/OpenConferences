@@ -47,7 +47,7 @@ function ReviewBidding() {
     const pool = await fetchPaperPool(conferenceId);
     setPapers(pool.data);
     setPoolMode(pool.mode ?? (oversight ? 'oversight' : 'reviewer'));
-    setBlindingMode(pool.blindingMode ?? conference?.blindingMode ?? 'DOUBLE');
+    setBlindingMode(pool.blindingMode);
     setError(null);
   }, [conference?.blindingMode, conferenceId, oversight]);
 

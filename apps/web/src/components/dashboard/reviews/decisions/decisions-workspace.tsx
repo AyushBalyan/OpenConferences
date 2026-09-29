@@ -11,7 +11,7 @@ import {
 } from 'react';
 import {
   fetchDecisions,
-  fetchPapers,
+  fetchAllPapers,
   fetchReviewProgress,
   fetchReviewRounds,
 } from '@/lib/api-client';
@@ -110,14 +110,14 @@ export function DecisionsWorkspaceProvider({
   const refresh = useCallback(async () => {
     const [roundList, paperList, progress] = await Promise.all([
       fetchReviewRounds(conferenceId),
-      fetchPapers(conferenceId),
+      fetchAllPapers(conferenceId),
       fetchReviewProgress(conferenceId),
     ]);
 
     setRounds(roundList);
     const progressByPaper = new Map(progress.data.map((row) => [row.paperId, row]));
     setPapers(
-      paperList.data
+      paperList
         .filter((p) => p.status !== 'DRAFT')
         .map((p) => ({
           id: p.id,

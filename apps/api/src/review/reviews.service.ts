@@ -74,7 +74,7 @@ function reviewVisibleToOwner(review: Review): Review {
   const pending = review.pendingEdit as PendingEdit;
   return {
     ...review,
-    scores: pending.scores ?? review.scores,
+    scores: (pending.scores ?? review.scores) as Review['scores'],
     recommendation: pending.recommendation ?? null,
     confidence: pending.confidence ?? null,
     commentsToAuthors: pending.commentsToAuthors ?? null,

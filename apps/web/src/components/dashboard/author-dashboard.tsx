@@ -16,7 +16,7 @@ import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { ManuscriptTemplateButton } from '@/components/dashboard/manuscript-template-button';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
-import { fetchPapers } from '@/lib/api-client';
+import { fetchAllPapers } from '@/lib/api-client';
 import type { Conference } from '@/lib/conference-types';
 import { paperStatusLabel, paperStatusTone } from '@/lib/paper-status-styles';
 import type { PaperDto } from '@/lib/submission-types';
@@ -32,8 +32,7 @@ export function AuthorDashboard({ conferenceId, conference }: AuthorDashboardPro
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const result = await fetchPapers(conferenceId, { mine: true });
-    setPapers(result.data);
+    setPapers(await fetchAllPapers(conferenceId, { mine: true }));
   }, [conferenceId]);
 
   useEffect(() => {

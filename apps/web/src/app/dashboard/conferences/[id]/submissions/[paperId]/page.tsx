@@ -15,7 +15,7 @@ import {
   fetchConference,
   fetchPaper,
   fetchPaperDecision,
-  fetchPaperReviews,
+  fetchAllPaperReviews,
   fetchRebuttal,
   submitPaper,
   submitRebuttal,
@@ -248,7 +248,7 @@ function SubmissionDetail() {
     setRevisionResponse(submission.revisionVersion?.note ?? '');
 
     try {
-      const reviewData = await fetchPaperReviews(conferenceId, paperId, selectedRound);
+      const reviewData = await fetchAllPaperReviews(conferenceId, paperId, selectedRound);
       setReviews(reviewData.data);
       setReviewStage(reviewData.reviewStage);
     } catch {

@@ -180,7 +180,9 @@ export const memberListSchema = z.object({
   nextCursor: z.string().uuid().nullable(),
 });
 
-export const memberListQuerySchema = cursorPaginationQuerySchema;
+export const memberListQuerySchema = cursorPaginationQuerySchema.extend({
+  role: roleKindSchema.optional(),
+});
 
 export const transitionStatusSchema = z.object({
   status: conferenceStatusSchema,

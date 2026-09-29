@@ -15,6 +15,7 @@ import {
   grantRoleSchema,
   revokeRoleSchema,
   memberListSchema,
+  memberListQuerySchema,
   transitionStatusSchema,
   auditLogListSchema,
   auditLogListQuerySchema,
@@ -229,7 +230,7 @@ export const conferencesContract = c.router({
     method: 'GET',
     path: '/conferences/:id/members',
     pathParams: conferenceIdParams,
-    query: cursorPaginationQuerySchema,
+    query: memberListQuerySchema,
     responses: {
       200: memberListSchema,
       401: problemEnvelopeSchema,
