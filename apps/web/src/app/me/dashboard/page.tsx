@@ -11,6 +11,7 @@ import {
 } from '@/components/dashboard/data-table';
 import { EmptyState } from '@/components/dashboard/empty-state';
 import { DashboardConferenceCards } from '@/components/dashboard/dashboard-conference-cards';
+import { ManuscriptTemplateButton } from '@/components/dashboard/manuscript-template-button';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
 import { Button } from '@/components/ui/button';
@@ -59,6 +60,12 @@ export default function MeDashboardPage() {
       <PageHeader
         title="Your dashboard"
         description="Cross-conference summary with links to full workspaces."
+        actions={
+          dashboard &&
+          (dashboard.authorConferences.length > 0 || dashboard.authoredPapers.length > 0) ? (
+            <ManuscriptTemplateButton />
+          ) : undefined
+        }
       />
 
       {error ? <p className="mb-4 text-sm text-rose-600">{error}</p> : null}

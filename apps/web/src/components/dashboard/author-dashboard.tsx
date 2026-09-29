@@ -13,6 +13,7 @@ import {
 } from '@/components/dashboard/data-table';
 import { EmptyState } from '@/components/dashboard/empty-state';
 import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
+import { ManuscriptTemplateButton } from '@/components/dashboard/manuscript-template-button';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
 import { fetchPapers } from '@/lib/api-client';
@@ -56,11 +57,14 @@ export function AuthorDashboard({ conferenceId, conference }: AuthorDashboardPro
         title="Author dashboard"
         description="Track your submissions and required actions for this conference."
         actions={
-          <Button asChild>
-            <Link href={`/dashboard/conferences/${conferenceId}/submissions/new`}>
-              New submission
-            </Link>
-          </Button>
+          <>
+            <ManuscriptTemplateButton />
+            <Button asChild>
+              <Link href={`/dashboard/conferences/${conferenceId}/submissions/new`}>
+                New submission
+              </Link>
+            </Button>
+          </>
         }
       />
 
