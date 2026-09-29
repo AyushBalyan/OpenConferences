@@ -391,6 +391,7 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
       'Your valuable feedback will help us ensure the quality of the conference programme and assist the authors in improving their work.',
       'Thank you for your time and valuable contribution to the conference.',
       'You can access the review portal by going on the given link: <a href="https://app.fresi.org/me/dashboard">View Review Portal</a>',
+      'This manuscript is confidential and is shared with you only for review. Please do not copy, forward, or discuss it with anyone outside the review, and do not use its unpublished ideas in your own work. Kindly review the file as received, without altering it.',
     ],
     extraParagraphs: ['With regards,', 'Organizing Committee', '({{conferenceName}})'],
     variables: ['reviewerName', 'paperTitle', 'conferenceName'],

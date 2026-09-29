@@ -73,6 +73,16 @@ describe('platform notification templates', () => {
     }
   });
 
+  it('includes a confidentiality note on assignment.notified', () => {
+    const template = PLATFORM_NOTIFICATION_TEMPLATES.find(
+      (row) => row.key === 'assignment.notified',
+    );
+    const note =
+      'This manuscript is confidential and is shared with you only for review. Please do not copy, forward, or discuss it with anyone outside the review, and do not use its unpublished ideas in your own work. Kindly review the file as received, without altering it.';
+    expect(template?.bodyHtml).toContain(note);
+    expect(template?.bodyText).toContain(note);
+  });
+
   it('includes simple accept steps on reviewer.invitation', () => {
     const template = PLATFORM_NOTIFICATION_TEMPLATES.find(
       (row) => row.key === 'reviewer.invitation',
