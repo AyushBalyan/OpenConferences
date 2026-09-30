@@ -412,6 +412,21 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
     variables: ['paperTitle', 'dueAt', 'conferenceName'],
   }),
   letter({
+    key: 'review.thank_you',
+    subject: 'Thank you for your review — {{conferenceName}}',
+    headline: 'Thank you for your review',
+    paragraphs: [
+      'Dear {{reviewerName}},',
+      'Thank you for submitting your review of "{{paperTitle}}" for {{conferenceName}}.',
+      'Your comments have been received. The program committee will use them when it reaches a decision.',
+    ],
+    details: [
+      { label: 'Paper', value: '{{paperTitle}}' },
+      { label: 'Submission', value: '{{submissionNumber}}' },
+    ],
+    variables: ['reviewerName', 'paperTitle', 'conferenceName', 'submissionNumber'],
+  }),
+  letter({
     key: 'decision.notified',
     subject: 'Editorial decision — {{outcomeLabel}}: {{paperTitle}}',
     headline: 'Editorial decision: {{outcomeLabel}}',

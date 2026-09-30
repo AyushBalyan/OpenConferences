@@ -60,13 +60,18 @@ const assignment = {
   createdAt: new Date(),
   updatedAt: new Date(),
   review: null,
-  paper: { title: 'Test paper', currentVersionId: null },
+  paper: { title: 'Test paper', currentVersionId: null, submissionNumber: 'TEST-K7Q4' },
+  reviewer: { email: 'reviewer@example.edu', name: 'Ada Lovelace' },
 };
+
+const publishReviewThankYou = vi.fn();
 
 function service(_status: string) {
   return new ReviewsService(
     {
-      loadConference: vi.fn().mockResolvedValue({ organizationId: 'org', reviewConfig: {} }),
+      loadConference: vi
+        .fn()
+        .mockResolvedValue({ organizationId: 'org', name: 'Test Conference', reviewConfig: {} }),
     } as never,
     {
       loadRound: vi
@@ -75,7 +80,7 @@ function service(_status: string) {
     } as never,
     { checkReviewerPaperConflict: vi.fn().mockResolvedValue({ hasConflict: false }) } as never,
     { log: vi.fn() } as never,
-    {} as never,
+    { publishReviewThankYou } as never,
   );
 }
 
@@ -282,6 +287,16 @@ describe('review phase capabilities', () => {
           where: { id: 'assignment' },
           data: { status: 'COMPLETED' },
         });
+        expect(publishReviewThankYou).toHaveBeenCalledWith(
+          expect.objectContaining({
+            to: 'reviewer@example.edu',
+            reviewerName: 'Ada Lovelace',
+            conferenceName: 'Test Conference',
+            paperTitle: 'Test paper',
+            submissionNumber: 'TEST-K7Q4',
+            idempotencyKey: 'review-thank-you-review',
+          }),
+        );
       } else {
         const result = await reviews.saveReview(
           'reviewer',

@@ -14,6 +14,7 @@ import {
   type RegistrationVerificationApprovedPayload,
   type RegistrationWindowOpenPayload,
   type ReviewReleasedPayload,
+  type ReviewThankYouPayload,
   type ReviewerAssignedPayload,
   type ReviewerInvitationPayload,
 } from './domain-events';
@@ -177,6 +178,25 @@ export class NotificationPublisher {
       tags: ['assignment.notified'],
       relatedEntity: 'ReviewerAssignment',
       relatedEntityId: payload.assignmentId,
+    });
+  }
+
+  async publishReviewThankYou(payload: ReviewThankYouPayload): Promise<void> {
+    await this.notifications.enqueue({
+      templateKey: 'review.thank_you',
+      to: payload.to,
+      context: {
+        reviewerName: payload.reviewerName,
+        conferenceName: payload.conferenceName,
+        paperTitle: payload.paperTitle,
+        submissionNumber: payload.submissionNumber,
+      },
+      organizationId: payload.organizationId,
+      conferenceId: payload.conferenceId,
+      idempotencyKey: payload.idempotencyKey,
+      tags: ['review.thank_you'],
+      relatedEntity: 'Review',
+      relatedEntityId: payload.reviewId,
     });
   }
 

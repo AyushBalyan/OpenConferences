@@ -140,6 +140,12 @@ function buildSampleContext(templateKey: string, webUrl: string): Record<string,
       roundNumber: '1',
       dueAt: deadline,
     },
+    'review.thank_you': {
+      reviewerName: 'Ada Lovelace',
+      paperTitle: 'Deliverability Test Paper',
+      conferenceName: 'ICAM Test Conference',
+      submissionNumber: 'EXAMPLE-K7Q4',
+    },
     'review.reminder': {
       paperTitle: 'Deliverability Test Paper',
       dueAt: deadline,

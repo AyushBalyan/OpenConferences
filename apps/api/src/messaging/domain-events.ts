@@ -90,6 +90,18 @@ export type ReviewerAssignedPayload = {
   idempotencyKey: string;
 };
 
+export type ReviewThankYouPayload = {
+  to: string;
+  conferenceId: string;
+  organizationId: string;
+  reviewerName: string;
+  conferenceName: string;
+  paperTitle: string;
+  submissionNumber: string;
+  reviewId: string;
+  idempotencyKey: string;
+};
+
 export type ReviewReleasedPayload = {
   to: string;
   conferenceId: string;

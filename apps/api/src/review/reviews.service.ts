@@ -419,6 +419,20 @@ export class ReviewsService {
       diff: { assignmentId, paperId: assignment.paperId },
     });
 
+    if (assignment.reviewer.email) {
+      await this.notifications.publishReviewThankYou({
+        to: assignment.reviewer.email,
+        conferenceId,
+        organizationId: conference.organizationId,
+        reviewerName: assignment.reviewer.name.trim() || 'Reviewer',
+        conferenceName: conference.name,
+        paperTitle: paper.title,
+        submissionNumber: paper.submissionNumber ?? '—',
+        reviewId: submitted.id,
+        idempotencyKey: `review-thank-you-${submitted.id}`,
+      });
+    }
+
     return {
       review: {
         ...mapReview(submitted),
@@ -683,6 +697,7 @@ export class ReviewsService {
           paper: {
             select: { title: true, status: true, submissionNumber: true, currentVersionId: true },
           },
+          reviewer: { select: { email: true, name: true } },
         },
       }),
     );

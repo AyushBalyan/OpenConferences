@@ -1138,6 +1138,7 @@ The requested flow had several under-specified or conflicting points; each is re
 | `reviewer.invitation`                      | invitation created                         | invitee                                    |
 | `assignment.notified`                      | `ReviewerAssigned`                         | reviewer                                   |
 | `review.reminder`                          | scheduled (due soon / overdue)             | reviewer                                   |
+| `review.thank_you`                         | reviewer submits a review                  | reviewer                                   |
 | `decision.notified`                        | `DecisionMade`                             | authors                                    |
 | `cameraready.reminder`                     | scheduled before CR deadline               | accepted authors                           |
 | `registration.window_open`                 | `PaperAccepted` (acceptance notified)      | accepted author                            |

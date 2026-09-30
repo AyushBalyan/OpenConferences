@@ -98,6 +98,15 @@ describe('platform notification templates', () => {
     expect(template?.bodyText).toContain('1. Open the invitation link below.');
   });
 
+  it('thanks the reviewer after a review is submitted', () => {
+    const template = PLATFORM_NOTIFICATION_TEMPLATES.find((row) => row.key === 'review.thank_you');
+    expect(template?.subject).toContain('Thank you for your review');
+    expect(template?.bodyHtml).toContain('Thank you for submitting your review');
+    expect(template?.variables).toEqual(
+      expect.arrayContaining(['reviewerName', 'paperTitle', 'conferenceName', 'submissionNumber']),
+    );
+  });
+
   it('white-labels conference mail with conferenceName', () => {
     for (const template of PLATFORM_NOTIFICATION_TEMPLATES) {
       if (template.key.startsWith('auth.')) {
