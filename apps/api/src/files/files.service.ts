@@ -25,6 +25,26 @@ const STUDENT_DOC_MIMES = new Set(['application/pdf', 'image/jpeg', 'image/png']
 const MAX_UPLOAD_BYTES = 52_428_800;
 const MAX_STUDENT_DOC_BYTES = 10_485_760;
 const PRESIGN_TTL_SECONDS = 900;
+const SUBMISSION_CODE_FILENAME = /^[A-Z0-9]+-[2-9A-HJ-NP-Z]{4}$/;
+
+/** Paper downloads use the public submission code. Drafts keep the uploaded name. */
+export function manuscriptDownloadFilename(
+  submissionNumber: string | null | undefined,
+  originalFilename: string,
+): string {
+  const code = submissionNumber?.trim() ?? '';
+  if (SUBMISSION_CODE_FILENAME.test(code)) return `${code}.pdf`;
+  return sanitizeContentDispositionFilename(originalFilename);
+}
+
+function sanitizeContentDispositionFilename(filename: string): string {
+  const cleaned = filename.replace(/["\r\n\\]/g, '').trim();
+  return cleaned || 'manuscript.pdf';
+}
+
+function contentDisposition(disposition: 'attachment' | 'inline', filename: string): string {
+  return `${disposition}; filename="${sanitizeContentDispositionFilename(filename)}"`;
+}
 
 type PaperVersionWithAsset = PaperVersion & { fileAsset: FileAsset };
 
@@ -297,6 +317,7 @@ export class FilesService {
     userId: string,
     organizationId: string,
     disposition: 'attachment' | 'inline' = 'attachment',
+    downloadFilename?: string | null,
   ) {
     const asset = await withTenantContext({ userId, organizationId }, async (tx) =>
       tx.fileAsset.findFirst({
@@ -315,10 +336,11 @@ export class FilesService {
     const command = new GetObjectCommand({
       Bucket: resolveStorageBucket(asset.bucket),
       Key: asset.objectKey,
-      ResponseContentDisposition:
-        disposition === 'inline'
-          ? 'inline; filename="manuscript.pdf"'
-          : `attachment; filename="${asset.originalFilename.replace(/"/g, '')}"`,
+      ResponseContentDisposition: contentDisposition(
+        disposition,
+        downloadFilename?.trim() ||
+          (disposition === 'inline' ? 'manuscript.pdf' : asset.originalFilename),
+      ),
       ...(disposition === 'inline' ? { ResponseContentType: 'application/pdf' } : {}),
     });
 

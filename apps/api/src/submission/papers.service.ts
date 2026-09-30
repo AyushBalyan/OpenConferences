@@ -154,18 +154,36 @@ export class PapersService {
     const privileged = isPrivilegedReader(roles);
     const mineOnly = options.mine ?? !privileged;
 
+    const search = options.q?.trim();
+    const filters = [
+      ...(mineOnly
+        ? [{ OR: [{ submittedById: userId }, { authorships: { some: { userId } } }] }]
+        : []),
+      ...(search
+        ? [
+            {
+              OR: [
+                { title: { contains: search, mode: 'insensitive' as const } },
+                {
+                  authorships: {
+                    some: { fullName: { contains: search, mode: 'insensitive' as const } },
+                  },
+                },
+              ],
+            },
+          ]
+        : []),
+    ];
+
     const rows = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.paper.findMany({
           where: {
             conferenceId,
-            ...(mineOnly
-              ? { OR: [{ submittedById: userId }, { authorships: { some: { userId } } }] }
-              : {}),
             ...(options.status ? { status: options.status } : {}),
             ...(options.trackId ? { trackId: options.trackId } : {}),
-            ...(options.q ? { title: { contains: options.q, mode: 'insensitive' } } : {}),
+            ...(filters.length > 0 ? { AND: filters } : {}),
           },
           include: paperInclude,
           orderBy: { createdAt: 'desc' },

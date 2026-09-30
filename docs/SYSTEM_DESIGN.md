@@ -626,6 +626,8 @@ model RoleGrant {
 - **Email verification** required before submitting papers or accepting reviewer invites. Product UX uses a **same-tab email OTP** (Better Auth `emailOTP` with `overrideDefaultEmailVerification`); magic verification links are not the primary path.
 - **Password reset, account recovery, login lockout** enabled via Better Auth.
 - **Mandatory MFA** for `ORGANIZER`, `CHAIR`, `ORG_ADMIN`, `PLATFORM_ADMIN` (anyone who moves money or grants roles). Product UX uses **email OTP** (Better Auth two-factor `otpOptions`); authenticator TOTP is not required in the UI.
+- **Remember me** keeps the session cookie after the browser closes. Leaving it unchecked uses a cookie that ends when the browser closes. A later remembered sign-in clears any earlier “don’t remember” cookie so the session refresh does not drop the expiry.
+- **Trust this device** skips the email OTP for 30 days. The trust record is read from Postgres. Redis is not used for verification rows, because those cached dates are strings and Better Auth would treat every trusted device as expired.
 - **CSRF:** SameSite cookies + CSRF tokens on state-changing routes; strict CORS allow-list.
 - **The API never trusts the frontend** for identity.
 
@@ -1000,7 +1002,7 @@ Example: `org/o_1/conf/c_1/papers/p_123/versions/SUBMISSION/1/9f...e2.pdf`
 
 ### 9.5 Naming conventions
 
-- Object names use UUIDs, never user-supplied filenames (which are kept as `originalFilename` metadata for download `Content-Disposition`). This prevents path traversal, collisions, and PII leakage in keys.
+- Object names use UUIDs, never user-supplied filenames. `originalFilename` stays metadata. Once a paper has a public submission code, its PDF download `Content-Disposition` is `{submissionNumber}.pdf` (preview and attachment). Drafts, which have no code, and other files such as invoices keep `originalFilename`. This prevents path traversal, collisions, and PII leakage in keys.
 
 ## 10. Payment System
 
@@ -1221,6 +1223,7 @@ Withdrawal sets the paper to `WITHDRAWN` and keeps `submissionNumber`. The calle
 **Pages**
 
 - _Overview_ — funnel: submissions, reviews completed, decisions, registrations, revenue.
+- _Analytics_ — the same funnel as counts, plus submission status, review progress (not started, draft, submitted, overdue), papers under the minimum review count, reviewer load, decision outcomes and accept rate, registrations, revenue split by fee timing and audience, submissions over time, and paper counts by author and institution. Counts and money stay on separate charts. Drafts are left out of the timeline and the author and institution charts. The author list includes every corresponding author, not co-authors and not a short ranking. It leaves out withdrawn papers, and counts one paper per corresponding author when several records share a title. Author and institution names come from the authorship snapshot (`fullName`, `affiliation`).
 - _Conference settings_ — phase windows, tracks, `blindingMode`, `reviewConfig`, `feeSchedule`.
 - _Submissions_ — all papers, filter by track/status, bulk actions.
 - _Bidding & COI_ — reviewer bids, declared conflicts, assignment input.

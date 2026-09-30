@@ -1,5 +1,7 @@
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
+import { createAuthMiddleware } from 'better-auth/api';
+import { expireCookie } from 'better-auth/cookies';
 import { magicLink, twoFactor, emailOTP } from 'better-auth/plugins';
 import type Redis from 'ioredis';
 import { getConfig } from '@openconferences/config/env';
@@ -12,6 +14,11 @@ import type {
   AuthMfaOtpPayload,
   AuthPasswordResetPayload,
 } from '../messaging/domain-events';
+import {
+  readSecondaryStorageValue,
+  shouldClearDontRememberCookie,
+  shouldWriteSecondaryStorage,
+} from './auth-session-preferences';
 
 export type ReviewerInvitationMagicLinkMetadata = {
   reviewerInvitationId: string;
@@ -108,11 +115,9 @@ export function createAuthInstance(deps: AuthDependencies): AuthInstance {
       provider: 'postgresql',
     }),
     secondaryStorage: {
-      get: async (key) => {
-        const value = await deps.redis.get(key);
-        return value ?? null;
-      },
+      get: async (key) => readSecondaryStorageValue(key, await deps.redis.get(key)),
       set: async (key, value, ttl) => {
+        if (!shouldWriteSecondaryStorage(key)) return;
         if (ttl) {
           await deps.redis.set(key, value, 'EX', ttl);
         } else {
@@ -279,6 +284,24 @@ export function createAuthInstance(deps: AuthDependencies): AuthInstance {
         },
       }),
     ],
+    hooks: {
+      after: createAuthMiddleware(async (ctx) => {
+        const rememberMe =
+          ctx.body && typeof ctx.body === 'object' && 'rememberMe' in ctx.body
+            ? ctx.body.rememberMe
+            : undefined;
+        if (
+          !shouldClearDontRememberCookie({
+            path: ctx.path,
+            rememberMe,
+            hasNewSession: Boolean(ctx.context.newSession),
+          })
+        ) {
+          return;
+        }
+        expireCookie(ctx, ctx.context.authCookies.dontRememberToken);
+      }),
+    },
     databaseHooks: {
       user: {
         create: {

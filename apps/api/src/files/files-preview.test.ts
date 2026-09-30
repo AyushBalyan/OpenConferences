@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { FilesService } from './files.service';
+import { FilesService, manuscriptDownloadFilename } from './files.service';
 
 const { lookup, sign } = vi.hoisted(() => ({ lookup: vi.fn(), sign: vi.fn() }));
 vi.mock('@openconferences/db', () => ({
@@ -37,11 +37,36 @@ describe('PDF preview response headers', () => {
       'attachment; filename="original.pdf"',
     );
   });
+  it('names a paper download with the public submission code', async () => {
+    await service.presignDownload('asset', 'user', 'org', 'attachment', 'MECHCONF2026-K7Q4.pdf');
+    expect(sign.mock.calls[0]?.[1].input.ResponseContentDisposition).toBe(
+      'attachment; filename="MECHCONF2026-K7Q4.pdf"',
+    );
+  });
+  it('uses the submission code for inline previews too', async () => {
+    await service.presignDownload('asset', 'user', 'org', 'inline', 'MECHCONF2026-K7Q4.pdf');
+    expect(sign.mock.calls[0]?.[1].input).toMatchObject({
+      ResponseContentDisposition: 'inline; filename="MECHCONF2026-K7Q4.pdf"',
+      ResponseContentType: 'application/pdf',
+    });
+  });
   it('does not sign a preview for an unscanned asset', async () => {
     lookup.mockResolvedValue({ scanStatus: 'PENDING_SCAN' });
     await expect(service.presignDownload('asset', 'user', 'org', 'inline')).rejects.toMatchObject({
       status: 403,
     });
     expect(sign).not.toHaveBeenCalled();
+  });
+});
+
+describe('manuscript download filename', () => {
+  it('uses the public submission code when one exists', () => {
+    expect(manuscriptDownloadFilename('MECHCONF2026-K7Q4', 'my-draft.pdf')).toBe(
+      'MECHCONF2026-K7Q4.pdf',
+    );
+  });
+
+  it('keeps the uploaded name for drafts', () => {
+    expect(manuscriptDownloadFilename(null, 'my-draft.pdf')).toBe('my-draft.pdf');
   });
 });

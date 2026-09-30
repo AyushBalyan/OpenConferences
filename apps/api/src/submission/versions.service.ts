@@ -8,7 +8,7 @@ import {
 import type { RoleKind, TenantContext, VersionKind } from '@openconferences/db';
 import { withTenantContext } from '@openconferences/db';
 import type { CompleteVersionInput, InitiateVersionInput } from '@openconferences/schemas';
-import { FilesService } from '../files/files.service';
+import { FilesService, manuscriptDownloadFilename } from '../files/files.service';
 import { ConferenceService } from '../tenancy/conference.service';
 import { PapersService } from './papers.service';
 import { isPrivilegedReader, mapPaperVersion } from './submission.mapper';
@@ -139,6 +139,7 @@ export class VersionsService {
       userId,
       paper.organizationId,
       disposition,
+      manuscriptDownloadFilename(paper.submissionNumber, version.fileAsset.originalFilename),
     );
   }
 

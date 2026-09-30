@@ -171,8 +171,16 @@ function MfaEnrollForm() {
               <p className="text-sm text-destructive">{codeForm.formState.errors.code.message}</p>
             ) : null}
           </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" {...codeForm.register('trustDevice')} />
+          <label className="flex items-center gap-2 text-sm" htmlFor="trust-device">
+            <input
+              id="trust-device"
+              type="checkbox"
+              className="h-4 w-4"
+              checked={Boolean(codeForm.watch('trustDevice'))}
+              onChange={(event) => {
+                codeForm.setValue('trustDevice', event.target.checked);
+              }}
+            />
             Trust this device
           </label>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}

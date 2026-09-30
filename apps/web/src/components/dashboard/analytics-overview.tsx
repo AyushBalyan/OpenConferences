@@ -1,17 +1,36 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { fetchAnalyticsOverview } from '@/lib/api-client';
+import { decisionOutcomeLabel } from '@/lib/review-types';
+import { paperStatusLabel } from '@/lib/submission-types';
 
 type AnalyticsOverviewProps = {
   conferenceId: string;
 };
 
+type CountPoint = { name: string; count: number };
+type MoneyPoint = { name: string; amountMinor: number };
+
 function formatMoney(minor: number, currency: string): string {
   return `${(minor / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })} ${currency}`;
+}
+
+function words(value: string): string {
+  return value
+    .toLowerCase()
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function shortDate(value: string): string {
+  const [year, month, day] = value.split('-');
+  if (!year || !month || !day) return value;
+  return `${month}/${day}`;
 }
 
 export function AnalyticsOverview({ conferenceId }: AnalyticsOverviewProps) {
@@ -40,12 +59,7 @@ export function AnalyticsOverview({ conferenceId }: AnalyticsOverviewProps) {
       { stage: 'Submissions', count: overview.submissions.total },
       { stage: 'Reviews completed', count: overview.reviews.completed },
       { stage: 'Decisions', count: overview.decisions.total },
-      { stage: 'Registrations', count: overview.registrations.paid },
-      {
-        stage: 'Revenue',
-        count: overview.revenueMinor / 100,
-        isRevenue: true,
-      },
+      { stage: 'Paid registrations', count: overview.registrations.paid },
     ];
   }, [overview]);
 
@@ -78,43 +92,41 @@ export function AnalyticsOverview({ conferenceId }: AnalyticsOverviewProps) {
 
   if (!overview) return null;
 
+  const acceptPercent = Math.round(overview.decisions.acceptRate * 100);
+  const statusData = overview.submissions.byStatus.map((row) => ({
+    name: paperStatusLabel(row.status),
+    count: row.count,
+  }));
+  const outcomeData = overview.decisions.byOutcome.map((row) => ({
+    name: decisionOutcomeLabel(row.outcome),
+    count: row.count,
+  }));
+  const reviewProgress: CountPoint[] = [
+    { name: 'Not started', count: overview.reviews.notStarted },
+    { name: 'Draft', count: overview.reviews.draft },
+    { name: 'Submitted', count: overview.reviews.submitted },
+    { name: 'Overdue', count: overview.reviews.overdue },
+  ];
+  const dayData = overview.submissions.byDay.map((row) => ({
+    name: shortDate(row.date),
+    count: row.count,
+  }));
+  const registrationData = overview.registrations.byStatus.map((row) => ({
+    name: words(row.status),
+    count: row.count,
+  }));
+
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle>Conference funnel</CardTitle>
           <CardDescription>
-            Pipeline from submissions through revenue. Revenue shown in {overview.currency}; other
-            stages are counts. Updated {new Date(overview.computedAt).toLocaleString()}.
+            Counts at each stage. Updated {new Date(overview.computedAt).toLocaleString()}.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  dataKey="stage"
-                  tick={{ fontSize: 12 }}
-                  interval={0}
-                  angle={-20}
-                  textAnchor="end"
-                  height={70}
-                />
-                <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
-                <Tooltip
-                  formatter={(value, _name, item) => {
-                    const payload = item.payload as { isRevenue?: boolean };
-                    if (payload.isRevenue) {
-                      return [formatMoney(overview.revenueMinor, overview.currency), 'Revenue'];
-                    }
-                    return [value ?? 0, 'Count'];
-                  }}
-                />
-                <Bar dataKey="count" fill="#4f46e5" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+          <CountChart data={chartData.map((row) => ({ name: row.stage, count: row.count }))} />
         </CardContent>
       </Card>
 
@@ -123,15 +135,201 @@ export function AnalyticsOverview({ conferenceId }: AnalyticsOverviewProps) {
         <MetricCard
           label="Reviews"
           value={`${overview.reviews.completed}/${overview.reviews.assigned}`}
-          hint="Completed / assigned"
+          hint={`${overview.reviews.overdue} overdue · ${overview.reviews.underCoveredPapers} papers below the minimum`}
         />
-        <MetricCard label="Decisions" value={overview.decisions.total} />
+        <MetricCard
+          label="Accept rate"
+          value={`${acceptPercent}%`}
+          hint={`${overview.decisions.total} decisions`}
+        />
         <MetricCard
           label="Revenue"
           value={formatMoney(overview.revenueMinor, overview.currency)}
           hint={`${overview.registrations.paid} paid registrations`}
         />
       </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ChartCard title="Submissions by status" description="Includes drafts.">
+          <CountChart data={statusData} />
+        </ChartCard>
+        <ChartCard title="Decisions" description="Recorded outcomes, including revisions.">
+          <CountChart data={outcomeData} />
+        </ChartCard>
+        <ChartCard
+          title="Review progress"
+          description="Open assignments. Overdue is also counted in not started or draft."
+        >
+          <CountChart data={reviewProgress} />
+        </ChartCard>
+        <ChartCard
+          title="Submissions over time"
+          description="Non-draft papers by the day they were created."
+        >
+          <CountChart data={dayData} />
+        </ChartCard>
+        <ChartCard
+          title="Corresponding authors"
+          description={`${overview.authors.length} corresponding authors. Co-authors are not listed. Withdrawn papers are excluded. Papers with the same title count once.`}
+          className="lg:col-span-2"
+        >
+          <AuthorList authors={overview.authors} />
+        </ChartCard>
+        <ChartCard
+          title="Institutions"
+          description="Top 12 affiliations by paper count. Drafts are excluded. Blank affiliations are Unspecified."
+        >
+          <NameChart data={overview.institutions} unit="Papers" />
+        </ChartCard>
+        <ChartCard
+          title="Reviewer load"
+          description="Top 12 reviewers by open assignments that are not yet submitted."
+        >
+          <NameChart data={overview.reviews.reviewerLoad} unit="Assignments" />
+        </ChartCard>
+        <ChartCard
+          title="Registrations"
+          description={`${overview.registrations.unpaid} unpaid, ${overview.registrations.atRisk} due within 7 days, ${overview.unpaidAccepted} accepted without a paid registration.`}
+        >
+          <CountChart data={registrationData} />
+        </ChartCard>
+        <ChartCard title="Revenue by timing" description={`Amounts in ${overview.currency}.`}>
+          <MoneyChart data={overview.revenueByTiming} currency={overview.currency} />
+        </ChartCard>
+        <ChartCard title="Revenue by audience" description={`Amounts in ${overview.currency}.`}>
+          <MoneyChart data={overview.revenueByAudience} currency={overview.currency} />
+        </ChartCard>
+      </div>
+    </div>
+  );
+}
+
+function ChartCard({
+  title,
+  description,
+  children,
+  className,
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <Card className={className}>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
+  );
+}
+
+function AuthorList({ authors }: { authors: CountPoint[] }) {
+  if (authors.length === 0) {
+    return <p className="text-sm text-slate-500">No data yet.</p>;
+  }
+  return (
+    <div className="max-h-96 overflow-auto rounded-xl border border-slate-200">
+      <table className="w-full border-collapse text-sm">
+        <thead className="sticky top-0 border-b border-slate-200 bg-slate-50">
+          <tr>
+            <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+              Corresponding author
+            </th>
+            <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+              Submissions
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {authors.map((author) => (
+            <tr key={author.name}>
+              <td className="px-4 py-2.5 text-slate-900">{author.name}</td>
+              <td className="px-4 py-2.5 text-right font-mono tabular-nums text-slate-700">
+                {author.count}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CountChart({ data }: { data: CountPoint[] }) {
+  if (data.length === 0 || data.every((row) => row.count === 0)) {
+    return <p className="text-sm text-slate-500">No data yet.</p>;
+  }
+  return (
+    <div className="h-72 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <XAxis
+            dataKey="name"
+            tick={{ fontSize: 12 }}
+            interval={0}
+            angle={-20}
+            textAnchor="end"
+            height={70}
+          />
+          <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+          <Tooltip formatter={(value) => [value ?? 0, 'Count']} />
+          <Bar dataKey="count" fill="#4f46e5" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function NameChart({ data, unit }: { data: CountPoint[]; unit: string }) {
+  if (data.length === 0) {
+    return <p className="text-sm text-slate-500">No data yet.</p>;
+  }
+  return (
+    <div className="w-full" style={{ height: Math.max(220, data.length * 36) }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+          <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12 }} />
+          <YAxis
+            type="category"
+            dataKey="name"
+            width={150}
+            tick={{ fontSize: 12 }}
+            tickFormatter={(value: string) =>
+              value.length > 22 ? `${value.slice(0, 20)}…` : value
+            }
+          />
+          <Tooltip formatter={(value) => [value ?? 0, unit]} />
+          <Bar dataKey="count" fill="#4f46e5" radius={[0, 4, 4, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function MoneyChart({ data, currency }: { data: MoneyPoint[]; currency: string }) {
+  const points = data.map((row) => ({ name: words(row.name), amountMinor: row.amountMinor }));
+  if (points.length === 0) {
+    return <p className="text-sm text-slate-500">No payments yet.</p>;
+  }
+  return (
+    <div className="h-72 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+          <YAxis
+            tick={{ fontSize: 12 }}
+            tickFormatter={(value: number) => (value / 100).toLocaleString()}
+          />
+          <Tooltip formatter={(value) => [formatMoney(Number(value ?? 0), currency), 'Revenue']} />
+          <Bar dataKey="amountMinor" fill="#0f766e" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }

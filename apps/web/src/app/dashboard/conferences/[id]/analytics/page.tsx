@@ -11,7 +11,7 @@ export default function ConferenceAnalyticsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Analytics"
-        description="Conference funnel from submissions through registrations and revenue."
+        description="Submissions, reviews, decisions, registrations, revenue, authors, and institutions."
       />
       <AnalyticsOverview conferenceId={conferenceId} />
     </div>

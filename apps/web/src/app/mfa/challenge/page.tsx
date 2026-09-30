@@ -29,11 +29,14 @@ function MfaChallengeContent() {
   const {
     register,
     handleSubmit,
+    setValue,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<MfaVerifyInput>({
     resolver: zodResolver(mfaVerifySchema),
     defaultValues: { trustDevice: false },
   });
+  const trustDevice = watch('trustDevice');
 
   const startResendCooldown = () => {
     setResendIn(RESEND_COOLDOWN_SEC);
@@ -103,8 +106,16 @@ function MfaChallengeContent() {
           <Input id="code" inputMode="numeric" autoComplete="one-time-code" {...register('code')} />
           {errors.code ? <p className="text-sm text-destructive">{errors.code.message}</p> : null}
         </div>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" {...register('trustDevice')} />
+        <label className="flex items-center gap-2 text-sm" htmlFor="trust-device">
+          <input
+            id="trust-device"
+            type="checkbox"
+            className="h-4 w-4"
+            checked={Boolean(trustDevice)}
+            onChange={(event) => {
+              setValue('trustDevice', event.target.checked);
+            }}
+          />
           Trust this device
         </label>
         {error ? <p className="text-sm text-destructive">{error}</p> : null}

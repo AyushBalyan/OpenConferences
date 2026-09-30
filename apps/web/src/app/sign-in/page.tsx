@@ -41,10 +41,14 @@ function SignInContent() {
   const {
     register,
     handleSubmit,
+    setValue,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<SignInInput>({
     resolver: zodResolver(signInSchema),
+    defaultValues: { rememberMe: false },
   });
+  const rememberMe = watch('rememberMe');
 
   const onSubmit = handleSubmit(async (values) => {
     setError(null);
@@ -159,8 +163,16 @@ function SignInContent() {
             <p className="text-sm text-destructive">{errors.password.message}</p>
           ) : null}
         </div>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" {...register('rememberMe')} />
+        <label className="flex items-center gap-2 text-sm" htmlFor="remember-me">
+          <input
+            id="remember-me"
+            type="checkbox"
+            className="h-4 w-4"
+            checked={Boolean(rememberMe)}
+            onChange={(event) => {
+              setValue('rememberMe', event.target.checked);
+            }}
+          />
           Remember me
         </label>
         {error ? <p className="text-sm text-destructive">{error}</p> : null}

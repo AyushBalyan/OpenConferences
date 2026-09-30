@@ -120,12 +120,12 @@ export default function SubmissionsListPage() {
             aria-hidden
           />
           <Label htmlFor="submissions-search" className="sr-only">
-            Search
+            Search by title or author
           </Label>
           <Input
             id="submissions-search"
             className="h-9 border-0 pl-9 shadow-none focus-visible:ring-0"
-            placeholder="Search by title or abstract"
+            placeholder="Search by title or author"
             value={filter.q}
             onChange={(event) => setFilter({ q: event.target.value })}
           />
