@@ -1,6 +1,7 @@
 'use client';
 
 import { PageHeader } from '@/components/dashboard/page-header';
+import { AppToast } from '@/components/dashboard/app-toast';
 import {
   PdfUploadField,
   UploadProgressSteps,
@@ -13,6 +14,7 @@ import {
   addAuthorship,
   createPaper,
   fetchPaper,
+  isCorrespondingPaperLimitError,
   removeAuthorship,
   submitPaper,
   updateAuthorship,
@@ -28,7 +30,7 @@ import {
 } from '@/lib/co-author-drafts';
 import { canSubmitDraft, latestScanStatus, type PaperDto } from '@/lib/submission-types';
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 type Step = 'details' | 'authors' | 'upload';
 
@@ -64,6 +66,16 @@ function SubmissionWizard() {
   const [pdfUploaded, setPdfUploaded] = useState(false);
   const [busy, setBusy] = useState<'uploading' | 'submitting' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [limitToast, setLimitToast] = useState<string | null>(null);
+  const dismissLimitToast = useCallback(() => setLimitToast(null), []);
+
+  function reportRequestError(err: unknown, fallback: string) {
+    if (isCorrespondingPaperLimitError(err)) {
+      setLimitToast(err.message);
+      return;
+    }
+    setError(err instanceof Error ? err.message : fallback);
+  }
 
   const scanStatus = paper ? latestScanStatus(paper) : undefined;
   const scanReady = Boolean(paper && pdfUploaded && canSubmitDraft(paper));
@@ -133,7 +145,7 @@ function SubmissionWizard() {
       }
       setStep('authors');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save details');
+      reportRequestError(err, 'Failed to save details');
     }
   }
 
@@ -290,7 +302,7 @@ function SubmissionWizard() {
       await submitPaper(conferenceId, paper.id);
       router.push(`/dashboard/conferences/${conferenceId}/submissions/${paper.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Submit failed');
+      reportRequestError(err, 'Submit failed');
       setBusy(null);
     }
   }
@@ -318,6 +330,10 @@ function SubmissionWizard() {
       />
 
       <WizardSteps current={step} />
+
+      {limitToast ? (
+        <AppToast title="Submission limit" message={limitToast} onClose={dismissLimitToast} />
+      ) : null}
 
       {error && step !== 'upload' ? (
         <p

@@ -43,6 +43,44 @@ export function paperHasCleanDownload(paper: PaperDto): boolean {
   return Boolean(paper.currentVersionId) && paper.currentVersion?.fileAsset?.scanStatus === 'CLEAN';
 }
 
+const SUBMISSION_CODE = /^[A-Z0-9]+-[2-9A-HJ-NP-Z]{4}$/i;
+
+/** Saved download name. Submitted papers use the public code, including files uploaded earlier. */
+export function paperDownloadFilename(
+  submissionNumber: string | null | undefined,
+  originalFilename?: string | null,
+): string {
+  const code = submissionNumber?.trim() ?? '';
+  if (SUBMISSION_CODE.test(code)) return `${code.toUpperCase()}.pdf`;
+  const fallback = originalFilename?.replace(/["\r\n\\/]/g, '').trim();
+  return fallback || 'manuscript.pdf';
+}
+
+export async function saveUrlAsFile(url: string, filename: string): Promise<void> {
+  try {
+    const response = await fetch(url, { mode: 'cors', credentials: 'omit' });
+    if (!response.ok) throw new Error('Download failed');
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    return;
+  } catch {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+}
+
 const COORDINATOR_WITHDRAW_STATUSES = new Set<PaperDto['status']>([
   'SUBMITTED',
   'UNDER_REVIEW',

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useConferenceWorkspace } from '@/components/dashboard/conference-workspace';
 import { DownloadPaperButton } from '@/components/dashboard/download-paper-button';
+import { AppToast } from '@/components/dashboard/app-toast';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { PdfUploadField } from '@/components/dashboard/pdf-upload-field';
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
@@ -18,6 +19,7 @@ import {
   fetchAllPaperReviews,
   fetchRebuttal,
   submitPaper,
+  isCorrespondingPaperLimitError,
   submitRebuttal,
   uploadCameraReadyPdf,
   uploadPaperPdf,
@@ -40,6 +42,7 @@ import {
   canSubmitDraft,
   canWithdrawPaper,
   latestScanStatus,
+  paperDownloadFilename,
   scanStatusLabel,
 } from '@/lib/submission-types';
 import { WithdrawPaperDialog } from '@/components/dashboard/withdraw-paper-dialog';
@@ -217,6 +220,8 @@ function SubmissionDetail() {
   const [cameraReadyDueAt, setCameraReadyDueAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [limitToast, setLimitToast] = useState<string | null>(null);
+  const dismissLimitToast = useCallback(() => setLimitToast(null), []);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
@@ -346,7 +351,11 @@ function SubmissionDetail() {
       await submitPaper(conferenceId, paperId);
       await load();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Submit failed');
+      if (isCorrespondingPaperLimitError(err)) {
+        setLimitToast(err.message);
+      } else {
+        setActionError(err instanceof Error ? err.message : 'Submit failed');
+      }
     } finally {
       setBusy(false);
     }
@@ -519,7 +528,9 @@ function SubmissionDetail() {
     !cameraReadyDeadlinePassed &&
     (paper.status === 'DECISION_MADE' || paper.status === 'CAMERA_READY');
   const cameraReadyComplete = paper.status === 'CAMERA_READY' && cameraReadyScanStatus === 'CLEAN';
-  const manuscriptFilename = paper.currentVersion?.fileAsset?.originalFilename;
+  const manuscriptFilename = paper.submissionNumber
+    ? paperDownloadFilename(paper.submissionNumber)
+    : paper.currentVersion?.fileAsset?.originalFilename;
   const cameraReadyFilename = paper.cameraReadyVersion?.fileAsset?.originalFilename;
 
   const nextAction = resolveNextAction({
@@ -566,6 +577,9 @@ function SubmissionDetail() {
 
   return (
     <div className="min-w-0 max-w-full space-y-6">
+      {limitToast ? (
+        <AppToast title="Submission limit" message={limitToast} onClose={dismissLimitToast} />
+      ) : null}
       <Link
         href={`/dashboard/conferences/${conferenceId}/submissions`}
         className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-900"

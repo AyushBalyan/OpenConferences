@@ -33,6 +33,50 @@ function shortDate(value: string): string {
   return `${month}/${day}`;
 }
 
+type AnalyticsOverviewData = NonNullable<Awaited<ReturnType<typeof fetchAnalyticsOverview>>>;
+
+function asList<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function normalizeOverview(data: AnalyticsOverviewData): AnalyticsOverviewData {
+  return {
+    ...data,
+    submissions: {
+      total: data.submissions?.total ?? 0,
+      byStatus: asList(data.submissions?.byStatus),
+      byDay: asList(data.submissions?.byDay),
+    },
+    reviews: {
+      assigned: data.reviews?.assigned ?? 0,
+      completed: data.reviews?.completed ?? 0,
+      notStarted: data.reviews?.notStarted ?? 0,
+      draft: data.reviews?.draft ?? 0,
+      submitted: data.reviews?.submitted ?? 0,
+      overdue: data.reviews?.overdue ?? 0,
+      underCoveredPapers: data.reviews?.underCoveredPapers ?? 0,
+      reviewerLoad: asList(data.reviews?.reviewerLoad),
+    },
+    decisions: {
+      total: data.decisions?.total ?? 0,
+      acceptRate: data.decisions?.acceptRate ?? 0,
+      byOutcome: asList(data.decisions?.byOutcome),
+    },
+    registrations: {
+      total: data.registrations?.total ?? 0,
+      paid: data.registrations?.paid ?? 0,
+      unpaid: data.registrations?.unpaid ?? 0,
+      atRisk: data.registrations?.atRisk ?? 0,
+      byStatus: asList(data.registrations?.byStatus),
+    },
+    revenueByTiming: asList(data.revenueByTiming),
+    revenueByAudience: asList(data.revenueByAudience),
+    unpaidAccepted: data.unpaidAccepted ?? 0,
+    authors: asList(data.authors),
+    institutions: asList(data.institutions),
+  };
+}
+
 export function AnalyticsOverview({ conferenceId }: AnalyticsOverviewProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +86,7 @@ export function AnalyticsOverview({ conferenceId }: AnalyticsOverviewProps) {
 
   const load = useCallback(async () => {
     const data = await fetchAnalyticsOverview(conferenceId);
-    setOverview(data);
+    setOverview(normalizeOverview(data));
     setError(null);
   }, [conferenceId]);
 
@@ -226,8 +270,9 @@ function ChartCard({
   );
 }
 
-function AuthorList({ authors }: { authors: CountPoint[] }) {
-  if (authors.length === 0) {
+function AuthorList({ authors }: { authors: CountPoint[] | undefined }) {
+  const rows = asList(authors);
+  if (rows.length === 0) {
     return <p className="text-sm text-slate-500">No data yet.</p>;
   }
   return (
@@ -244,7 +289,7 @@ function AuthorList({ authors }: { authors: CountPoint[] }) {
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {authors.map((author) => (
+          {rows.map((author) => (
             <tr key={author.name}>
               <td className="px-4 py-2.5 text-slate-900">{author.name}</td>
               <td className="px-4 py-2.5 text-right font-mono tabular-nums text-slate-700">
@@ -258,14 +303,15 @@ function AuthorList({ authors }: { authors: CountPoint[] }) {
   );
 }
 
-function CountChart({ data }: { data: CountPoint[] }) {
-  if (data.length === 0 || data.every((row) => row.count === 0)) {
+function CountChart({ data }: { data: CountPoint[] | undefined }) {
+  const points = asList(data);
+  if (points.length === 0 || points.every((row) => row.count === 0)) {
     return <p className="text-sm text-slate-500">No data yet.</p>;
   }
   return (
     <div className="h-72 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+        <BarChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
           <XAxis
             dataKey="name"
@@ -284,14 +330,19 @@ function CountChart({ data }: { data: CountPoint[] }) {
   );
 }
 
-function NameChart({ data, unit }: { data: CountPoint[]; unit: string }) {
-  if (data.length === 0) {
+function NameChart({ data, unit }: { data: CountPoint[] | undefined; unit: string }) {
+  const points = asList(data);
+  if (points.length === 0) {
     return <p className="text-sm text-slate-500">No data yet.</p>;
   }
   return (
-    <div className="w-full" style={{ height: Math.max(220, data.length * 36) }}>
+    <div className="w-full" style={{ height: Math.max(220, points.length * 36) }}>
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+        <BarChart
+          data={points}
+          layout="vertical"
+          margin={{ top: 8, right: 16, left: 8, bottom: 8 }}
+        >
           <CartesianGrid strokeDasharray="3 3" horizontal={false} />
           <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12 }} />
           <YAxis
@@ -311,8 +362,11 @@ function NameChart({ data, unit }: { data: CountPoint[]; unit: string }) {
   );
 }
 
-function MoneyChart({ data, currency }: { data: MoneyPoint[]; currency: string }) {
-  const points = data.map((row) => ({ name: words(row.name), amountMinor: row.amountMinor }));
+function MoneyChart({ data, currency }: { data: MoneyPoint[] | undefined; currency: string }) {
+  const points = asList(data).map((row) => ({
+    name: words(row.name),
+    amountMinor: row.amountMinor,
+  }));
   if (points.length === 0) {
     return <p className="text-sm text-slate-500">No payments yet.</p>;
   }

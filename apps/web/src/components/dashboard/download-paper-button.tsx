@@ -4,7 +4,12 @@ import { Download } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { downloadPaperVersion } from '@/lib/api-client';
-import { paperHasCleanDownload, type PaperDto } from '@/lib/submission-types';
+import {
+  paperDownloadFilename,
+  paperHasCleanDownload,
+  saveUrlAsFile,
+  type PaperDto,
+} from '@/lib/submission-types';
 
 export function DownloadPaperButton({
   conferenceId,
@@ -40,13 +45,11 @@ export function DownloadPaperButton({
     setError(null);
     try {
       const { downloadUrl } = await downloadPaperVersion(conferenceId, paper.id, versionId);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      const filename = paperDownloadFilename(
+        paper.submissionNumber,
+        paper.currentVersion?.fileAsset?.originalFilename,
+      );
+      await saveUrlAsFile(downloadUrl, filename);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Download failed');
     } finally {

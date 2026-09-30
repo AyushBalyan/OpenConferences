@@ -7,6 +7,7 @@ import {
   countActiveSubmissions,
   latestScanStatus,
   paperHasCleanDownload,
+  paperDownloadFilename,
   withdrawConfirmationReady,
   type PaperDto,
 } from './submission-types';
@@ -134,5 +135,10 @@ describe('paperHasCleanDownload', () => {
     expect(withdrawConfirmationReady('Changed plans', 'WITHDRAW')).toBe(true);
     expect(withdrawConfirmationReady('Changed plans', 'withdraw')).toBe(false);
     expect(withdrawConfirmationReady('   ', 'WITHDRAW')).toBe(false);
+  });
+
+  it('names a submitted download with the public code', () => {
+    expect(paperDownloadFilename('icamcds2026-k7q4', 'My Paper.pdf')).toBe('ICAMCDS2026-K7Q4.pdf');
+    expect(paperDownloadFilename(null, 'My Paper.pdf')).toBe('My Paper.pdf');
   });
 });

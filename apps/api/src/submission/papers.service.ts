@@ -64,6 +64,17 @@ function formatAuthorList(authorships: Authorship[]): string {
     .join('; ');
 }
 
+/** Per conference. Existing papers stay; only a later create or submit is refused. */
+export const MAX_CORRESPONDING_PAPERS = 2;
+
+const CLOSED_PAPER_STATUSES = ['WITHDRAWN', 'WITHDRAWN_NONPAYMENT'] as const;
+
+class CorrespondingPaperLimitError extends Error {}
+
+export function correspondingPaperLimitMessage(): string {
+  return `A corresponding author can have at most ${MAX_CORRESPONDING_PAPERS} papers in this conference. This attempt was not accepted. Papers already submitted are unchanged.`;
+}
+
 @Injectable()
 export class PapersService {
   constructor(
@@ -80,12 +91,6 @@ export class PapersService {
       throw new ForbiddenException('Author role required to create submissions');
     }
 
-    const trackId = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId },
-      async (tx) =>
-        this.resolveSubmissionTrackId(tx, conferenceId, conference.organizationId, input.trackId),
-    );
-
     const user = await withTenantContext({ userId }, async (tx) =>
       tx.user.findUnique({ where: { id: userId } }),
     );
@@ -94,37 +99,63 @@ export class PapersService {
       throw new NotFoundException('User not found');
     }
 
-    const paper = await withTenantContext(
+    const trackId = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
-        tx.paper.create({
-          data: {
-            id: generateId(),
-            organizationId: conference.organizationId,
+        this.resolveSubmissionTrackId(tx, conferenceId, conference.organizationId, input.trackId),
+    );
+
+    let paper;
+    try {
+      paper = await withTenantContext(
+        { userId, conferenceId, organizationId: conference.organizationId },
+        async (tx) => {
+          const openPapers = await this.lockedCorrespondingCount(tx, {
             conferenceId,
-            trackId,
-            submittedById: userId,
-            title: input.title,
-            abstract: input.abstract,
-            keywords: input.keywords,
-            status: 'DRAFT',
-            authorships: {
-              create: {
-                id: generateId(),
-                userId,
-                order: 1,
-                isCorresponding: true,
-                fullName: user.name,
-                email: user.email,
-                ...(input.correspondingAffiliation
-                  ? { affiliation: input.correspondingAffiliation }
-                  : {}),
+            userId,
+            mode: 'open',
+          });
+          if (openPapers >= MAX_CORRESPONDING_PAPERS) {
+            throw new CorrespondingPaperLimitError();
+          }
+          return tx.paper.create({
+            data: {
+              id: generateId(),
+              organizationId: conference.organizationId,
+              conferenceId,
+              trackId,
+              submittedById: userId,
+              title: input.title,
+              abstract: input.abstract,
+              keywords: input.keywords,
+              status: 'DRAFT',
+              authorships: {
+                create: {
+                  id: generateId(),
+                  userId,
+                  order: 1,
+                  isCorresponding: true,
+                  fullName: user.name,
+                  email: user.email,
+                  ...(input.correspondingAffiliation
+                    ? { affiliation: input.correspondingAffiliation }
+                    : {}),
+                },
               },
             },
-          },
-          include: paperInclude,
-        }),
-    );
+            include: paperInclude,
+          });
+        },
+      );
+    } catch (error) {
+      if (error instanceof CorrespondingPaperLimitError) {
+        throw new ConflictException({
+          code: 'CORRESPONDING_PAPER_LIMIT',
+          message: correspondingPaperLimitMessage(),
+        });
+      }
+      throw error;
+    }
 
     await this.audit.log({
       actorUserId: userId,
@@ -318,7 +349,22 @@ export class PapersService {
       throw new ConflictException('Current version must be scanned and clean before submission');
     }
 
-    const updated = await this.assignSubmissionNumber(userId, paper, conference.slug);
+    const correspondingAuthor = paper.authorships.find((author) => author.isCorresponding);
+    let updated;
+    try {
+      updated = await this.assignSubmissionNumber(userId, paper, conference.slug, {
+        userId: correspondingAuthor?.userId ?? userId,
+        email: correspondingAuthor?.userId ? undefined : correspondingAuthor?.email,
+      });
+    } catch (error) {
+      if (error instanceof CorrespondingPaperLimitError) {
+        throw new ConflictException({
+          code: 'CORRESPONDING_PAPER_LIMIT',
+          message: correspondingPaperLimitMessage(),
+        });
+      }
+      throw error;
+    }
 
     await this.audit.log({
       actorUserId: userId,
@@ -574,6 +620,7 @@ export class PapersService {
     userId: string,
     paper: LoadedPaper,
     conferenceSlug: string,
+    corresponding: { userId: string; email?: string },
   ): Promise<LoadedPaper> {
     const attempts = 5;
     for (let attempt = 0; attempt < attempts; attempt++) {
@@ -582,6 +629,15 @@ export class PapersService {
         const assigned = await withTenantContext(
           { userId, conferenceId: paper.conferenceId, organizationId: paper.organizationId },
           async (tx) => {
+            const submittedPapers = await this.lockedCorrespondingCount(tx, {
+              conferenceId: paper.conferenceId,
+              userId: corresponding.userId,
+              email: corresponding.email,
+              mode: 'submitted',
+            });
+            if (submittedPapers >= MAX_CORRESPONDING_PAPERS) {
+              throw new CorrespondingPaperLimitError();
+            }
             const result = await tx.paper.updateMany({
               where: { id: paper.id, status: 'DRAFT', submissionNumber: null },
               data: {
@@ -605,6 +661,9 @@ export class PapersService {
         }
         return assigned;
       } catch (error) {
+        if (error instanceof CorrespondingPaperLimitError) {
+          throw error;
+        }
         const duplicate =
           error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
         if (duplicate && attempt < attempts - 1) {
@@ -656,6 +715,38 @@ export class PapersService {
     if (conference.status !== 'CFP_OPEN') {
       throw new ConflictException('Conference is not accepting submissions');
     }
+  }
+
+  private async lockedCorrespondingCount(
+    tx: Parameters<Parameters<typeof withTenantContext>[1]>[0],
+    input: {
+      conferenceId: string;
+      userId: string;
+      email?: string;
+      mode: 'open' | 'submitted';
+    },
+  ): Promise<number> {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`${input.conferenceId}:${input.userId}`})::bigint)`;
+    return tx.paper.count({
+      where: {
+        conferenceId: input.conferenceId,
+        status:
+          input.mode === 'submitted'
+            ? { notIn: ['DRAFT', ...CLOSED_PAPER_STATUSES] }
+            : { notIn: [...CLOSED_PAPER_STATUSES] },
+        authorships: {
+          some: {
+            isCorresponding: true,
+            OR: [
+              { userId: input.userId },
+              ...(input.email
+                ? [{ email: { equals: input.email, mode: 'insensitive' as const } }]
+                : []),
+            ],
+          },
+        },
+      },
+    });
   }
 
   private async resolveSubmissionTrackId(

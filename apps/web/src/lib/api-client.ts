@@ -12,6 +12,20 @@ export type PaginatedResult<T> = {
 export const PAGE_SIZE = 100;
 const MAX_PAGES = 50;
 
+export class ApiProblemError extends Error {
+  readonly code?: string;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = 'ApiProblemError';
+    this.code = code;
+  }
+}
+
+export function isCorrespondingPaperLimitError(error: unknown): boolean {
+  return error instanceof ApiProblemError && error.code === 'CORRESPONDING_PAPER_LIMIT';
+}
+
 export async function fetchAllPages<T>(
   fetchPage: (query: { limit: number; cursor?: string }) => Promise<PaginatedResult<T>>,
   maxPages = MAX_PAGES,
@@ -400,7 +414,9 @@ export async function createPaper(
 ) {
   const result = await apiClient.submission.createPaper({ params: { conferenceId }, body });
   if (result.status === 201) return result.body;
-  if (result.status === 409) throw new Error(result.body.detail ?? 'Cannot create submission');
+  if (result.status === 409) {
+    throw new ApiProblemError(result.body.detail ?? 'Cannot create submission', result.body.code);
+  }
   throw new Error('Failed to create submission');
 }
 
@@ -575,7 +591,9 @@ export async function submitPaper(conferenceId: string, paperId: string) {
     params: { conferenceId, paperId },
   });
   if (result.status === 200) return result.body;
-  if (result.status === 409) throw new Error(result.body.detail ?? 'Cannot submit');
+  if (result.status === 409) {
+    throw new ApiProblemError(result.body.detail ?? 'Cannot submit', result.body.code);
+  }
   throw new Error('Failed to submit paper');
 }
 

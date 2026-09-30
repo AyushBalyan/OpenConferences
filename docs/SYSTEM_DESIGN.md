@@ -1204,6 +1204,8 @@ A single app with a **conference switcher**; the visible nav adapts to the user'
 
 **Actions:** create paper, edit (while CFP open), add/reorder authors, upload version, submit, delete own draft, withdraw (authors only while `SUBMITTED`; chairs and organizers from `SUBMITTED` through `CAMERA_READY`), upload camera-ready, submit rebuttal, choose audience, upload student proof, pay registration, pay additional difference, download invoice, read decision/reviews.
 
+A corresponding author may have at most 2 papers in one conference. The check runs when a new paper is created and when a draft is submitted. Withdrawn papers do not count. Papers already on file stay as they are. A later create or submit past the limit is refused in the app with a toast. No email is sent.
+
 Withdrawal sets the paper to `WITHDRAWN` and keeps `submissionNumber`. The caller must send `confirm: "WITHDRAW"`. Open reviewer assignments become `DECLINED`; submitted reviews stay. An unpaid registration is cancelled; a paid one is left for a manual refund. A person who is both an author and a chair follows the author rule on that paper. Drafts are deleted by their authors and are not withdrawn. A draft still open three days after creation, while the call for papers is open, gets one `draft.reminder` email.
 
 > The registration card opens automatically on acceptance and stays visible alongside camera-ready until paid or the deadline passes. For student registrations, the **Pay** action is disabled until a supporting document is uploaded. It surfaces a clear warning that **non-payment by the deadline withdraws the paper**.

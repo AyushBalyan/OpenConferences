@@ -25,7 +25,7 @@ const STUDENT_DOC_MIMES = new Set(['application/pdf', 'image/jpeg', 'image/png']
 const MAX_UPLOAD_BYTES = 52_428_800;
 const MAX_STUDENT_DOC_BYTES = 10_485_760;
 const PRESIGN_TTL_SECONDS = 900;
-const SUBMISSION_CODE_FILENAME = /^[A-Z0-9]+-[2-9A-HJ-NP-Z]{4}$/;
+const SUBMISSION_CODE_FILENAME = /^[A-Z0-9]+-[2-9A-HJ-NP-Z]{4}$/i;
 
 /** Paper downloads use the public submission code. Drafts keep the uploaded name. */
 export function manuscriptDownloadFilename(
@@ -33,7 +33,7 @@ export function manuscriptDownloadFilename(
   originalFilename: string,
 ): string {
   const code = submissionNumber?.trim() ?? '';
-  if (SUBMISSION_CODE_FILENAME.test(code)) return `${code}.pdf`;
+  if (SUBMISSION_CODE_FILENAME.test(code)) return `${code.toUpperCase()}.pdf`;
   return sanitizeContentDispositionFilename(originalFilename);
 }
 

@@ -11,6 +11,7 @@ import {
   submitReview,
 } from '@/lib/api-client';
 import { RECOMMENDATION_OPTIONS, type Recommendation, type ReviewDto } from '@/lib/review-types';
+import { paperDownloadFilename, saveUrlAsFile } from '@/lib/submission-types';
 import { Download } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -342,7 +343,7 @@ export function ReviewEditorPanel({ conferenceId, assignmentId }: ReviewEditorPa
         review.paperId,
         review.currentVersionId,
       );
-      window.open(downloadUrl, '_blank', 'noopener,noreferrer');
+      await saveUrlAsFile(downloadUrl, paperDownloadFilename(review.submissionNumber));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Download failed');
     } finally {
