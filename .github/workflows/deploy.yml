@@ -9,9 +9,10 @@
 #   ghcr.io/<owner>/<repo>/api:<sha>|main|latest
 #   ghcr.io/<owner>/<repo>/worker:<sha>|main|latest
 #
-# Optional auto-redeploy: set repository secrets
-#   COOLIFY_WEBHOOK_API, COOLIFY_WEBHOOK_WORKER
-# to the Deploy Webhook URLs from each Coolify resource.
+# After a successful image push the workflow:
+#   1. applies migrations with the owner URL (OWNER_DATABASE_URL)
+#   2. calls Coolify deploy webhooks (COOLIFY_WEBHOOK_API, COOLIFY_WEBHOOK_WORKER)
+#   3. waits until https://api.fresi.org/api/v1/healthz and readyz return 200
 
 name: Build and Push Images
 
@@ -173,37 +174,102 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
           platforms: linux/amd64
 
+  migrate:
+    name: Apply database migrations
+    needs: [changes, build-and-push]
+    if: needs.build-and-push.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.sha }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install database package
+        env:
+          HUSKY: '0'
+        run: pnpm install --frozen-lockfile --filter @openconferences/db...
+
+      - name: Migrate with the owner role
+        env:
+          DATABASE_URL: ${{ secrets.OWNER_DATABASE_URL }}
+        run: |
+          set -eu
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "OWNER_DATABASE_URL is not set."
+            echo "Add the owner/postgres session-pooler URL as a repository Actions secret."
+            echo "Do not use the openconferences_api or openconferences_worker role."
+            exit 1
+          fi
+          pnpm db:migrate:deploy
+
   trigger-coolify:
     name: Trigger Coolify redeploy
-    needs: build-and-push
+    needs: migrate
     if: >
-      needs.build-and-push.result == 'success' &&
+      needs.migrate.result == 'success' &&
       (
         github.event_name == 'workflow_run' ||
         (github.event_name == 'workflow_dispatch' && inputs.trigger_coolify)
       )
     runs-on: ubuntu-latest
     steps:
-      - name: Redeploy API (optional webhook)
+      - name: Redeploy API then worker
         env:
-          WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK_API }}
+          API_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK_API }}
+          WORKER_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK_WORKER }}
         run: |
-          if [ -z "$WEBHOOK" ]; then
-            echo "COOLIFY_WEBHOOK_API not set — skip API redeploy (pull manually in Coolify)."
-            exit 0
+          set -eu
+          missing=0
+          if [ -z "$API_WEBHOOK" ]; then
+            echo "COOLIFY_WEBHOOK_API is not set."
+            missing=1
           fi
-          curl -fsS -X GET "$WEBHOOK"
+          if [ -z "$WORKER_WEBHOOK" ]; then
+            echo "COOLIFY_WEBHOOK_WORKER is not set."
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            echo "In Coolify, open each Docker Image resource → Webhooks → copy Deploy Webhook."
+            echo "Then: gh secret set COOLIFY_WEBHOOK_API && gh secret set COOLIFY_WEBHOOK_WORKER"
+            exit 1
+          fi
+          curl -fsS -X GET "$API_WEBHOOK"
           echo "API webhook triggered."
-
-      - name: Redeploy worker (optional webhook)
-        env:
-          WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK_WORKER }}
-        run: |
-          if [ -z "$WEBHOOK" ]; then
-            echo "COOLIFY_WEBHOOK_WORKER not set — skip worker redeploy (pull manually in Coolify)."
-            exit 0
-          fi
-          # Stagger slightly so a 2 GiB host is not pulling/restarting both at once
+          # Stagger so a 2 GiB host is not pulling both images at once.
           sleep 15
-          curl -fsS -X GET "$WEBHOOK"
+          curl -fsS -X GET "$WORKER_WEBHOOK"
           echo "Worker webhook triggered."
+
+  verify-api:
+    name: Verify API health
+    needs: trigger-coolify
+    if: needs.trigger-coolify.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for healthz and readyz
+        run: |
+          set -eu
+          health="https://api.fresi.org/api/v1/healthz"
+          ready="https://api.fresi.org/api/v1/readyz"
+          for attempt in $(seq 1 40); do
+            if curl -fsS "$health" >/tmp/healthz.json && curl -fsS "$ready" >/tmp/readyz.json; then
+              echo "API healthy (attempt ${attempt}):"
+              cat /tmp/healthz.json
+              echo
+              cat /tmp/readyz.json
+              echo
+              exit 0
+            fi
+            echo "Attempt ${attempt}/40: API not ready yet"
+            sleep 15
+          done
+          echo "API did not become healthy within 10 minutes."
+          exit 1

@@ -61,7 +61,9 @@ Owner/repo in the image path is always lowercase (GHCR requirement). The workflo
 1. After the CI workflow succeeds for a push to `main`, and that commit changes api/worker/packages/Docker inputs. Manual `workflow_dispatch` still builds on request.
 2. Builds `api` and `worker` in parallel on `ubuntu-latest` (not on your 2 GiB EC2), from the commit CI tested.
 3. Pushes to GHCR with Buildx + GHA layer cache.
-4. Optionally GETs Coolify deploy webhooks (if secrets are set).
+4. Applies migrations with the owner URL (`OWNER_DATABASE_URL`).
+5. GETs the Coolify deploy webhooks, API first, then the worker 15 seconds later.
+6. Polls `https://api.fresi.org/api/v1/healthz` and `readyz` until both return 200.
 
 ### GitHub settings (manual)
 
@@ -81,15 +83,22 @@ Owner/repo in the image path is always lowercase (GHCR requirement). The workflo
    - Password: the PAT
    - Registry: `ghcr.io`
 
-4. **Optional auto-redeploy secrets**  
-   Repo → Settings → Secrets and variables → Actions:
+4. **Deploy secrets**  
+   Repo → Settings → Secrets and variables → Actions, or from a trusted shell (values are not printed):
 
-   | Secret                   | Value                                    |
-   | ------------------------ | ---------------------------------------- |
-   | `COOLIFY_WEBHOOK_API`    | Coolify “Deploy Webhook” URL for API app |
-   | `COOLIFY_WEBHOOK_WORKER` | Coolify “Deploy Webhook” URL for worker  |
+   ```bash
+   gh secret set OWNER_DATABASE_URL
+   gh secret set COOLIFY_WEBHOOK_API
+   gh secret set COOLIFY_WEBHOOK_WORKER
+   ```
 
-   No other secrets are required for push; login uses `GITHUB_TOKEN`.
+   | Secret                   | Value                                                                                                   |
+   | ------------------------ | ------------------------------------------------------------------------------------------------------- |
+   | `OWNER_DATABASE_URL`     | Owner/`postgres` session-pooler URL used only for `pnpm db:migrate:deploy`. Not the API or worker role. |
+   | `COOLIFY_WEBHOOK_API`    | Coolify → `fresi-api` → Webhooks → **Deploy Webhook** URL                                               |
+   | `COOLIFY_WEBHOOK_WORKER` | Coolify → `fresi-worker` → Webhooks → **Deploy Webhook** URL                                            |
+
+   Image push login uses `GITHUB_TOKEN`. The API and worker runtime URLs stay in Coolify, not in these secrets.
 
 ## Coolify: deploy from GHCR (not from Git build)
 
@@ -551,14 +560,16 @@ If you move nameservers to Cloudflare:
 
 ## Database migrations
 
-Apply **before** new api/worker start using new schema:
+The image workflow applies migrations after the images are in GHCR and before the Coolify webhooks, using `OWNER_DATABASE_URL`.
+
+To apply the same command by hand:
 
 ```bash
 export DATABASE_URL='postgresql://postgres:OWNER_PASSWORD@…/postgres?sslmode=require&uselibpqcompat=true'
 pnpm db:migrate:deploy
 ```
 
-Run from a trusted machine or a Coolify pre-deploy / one-off job with owner `DATABASE_URL`. Do **not** roll back migrations; fix forward.
+Use the owner/`postgres` URL. Do **not** roll back migrations; fix forward.
 
 ## Rollback
 
