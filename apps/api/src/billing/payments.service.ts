@@ -301,23 +301,32 @@ export class PaymentsService {
         },
       });
 
-      await this.queue.enqueueInvoiceGeneration({
-        paymentId: capturedPayment.id,
-        organizationId: capturedPayment.organizationId,
-        conferenceId: capturedPayment.registration.conferenceId,
-        registrationId: capturedPayment.registrationId,
-      });
-
-      if (getConfig().isTest) {
-        await this.invoices.generateInvoice({
+      // Capture is already committed. Invoice upload and mail must not
+      // turn the webhook into a 500, or the provider retries a paid order.
+      try {
+        await this.queue.enqueueInvoiceGeneration({
           paymentId: capturedPayment.id,
           organizationId: capturedPayment.organizationId,
           conferenceId: capturedPayment.registration.conferenceId,
           registrationId: capturedPayment.registrationId,
         });
-      }
 
-      await this.sendPaymentConfirmation(capturedPayment);
+        if (getConfig().isTest) {
+          await this.invoices.generateInvoice({
+            paymentId: capturedPayment.id,
+            organizationId: capturedPayment.organizationId,
+            conferenceId: capturedPayment.registration.conferenceId,
+            registrationId: capturedPayment.registrationId,
+          });
+        }
+
+        await this.sendPaymentConfirmation(capturedPayment);
+      } catch (err) {
+        this.logger.error(
+          { err, paymentId: capturedPayment.id },
+          'Payment captured; invoice or confirmation side effect failed',
+        );
+      }
     }
 
     return { received: true };
