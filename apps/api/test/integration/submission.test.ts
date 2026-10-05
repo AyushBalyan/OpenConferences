@@ -176,6 +176,21 @@ describe('Paper submission integration', () => {
     await app?.close();
   });
 
+  // The suite shares one corresponding author. The product cap is two open papers,
+  // so earlier drafts must not block the next test.
+  beforeEach(async () => {
+    await withTenantContext({}, async (tx) => {
+      await tx.paper.updateMany({
+        where: {
+          conferenceId: confId,
+          status: { notIn: ['WITHDRAWN', 'WITHDRAWN_NONPAYMENT'] },
+          authorships: { some: { userId: authorUserId, isCorresponding: true } },
+        },
+        data: { status: 'WITHDRAWN' },
+      });
+    });
+  });
+
   it('creates a draft paper for an author', async () => {
     const res = await request(app.getHttpServer())
       .post(`/api/v1/conferences/${confId}/papers`)
@@ -646,6 +661,17 @@ describe('Paper submission integration', () => {
   });
 
   it('allows organizer to list all conference papers', async () => {
+    const created = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/papers`)
+      .set('Cookie', authorCookie)
+      .send({
+        trackId,
+        title: 'Listed Paper',
+        abstract: 'Visible to the organizer.',
+        keywords: [],
+      });
+    expect(created.status).toBe(201);
+
     const res = await request(app.getHttpServer())
       .get(`/api/v1/conferences/${confId}/papers`)
       .set('Cookie', organizerCookie);
@@ -656,6 +682,17 @@ describe('Paper submission integration', () => {
   });
 
   it('treats mine=false as all papers for privileged readers', async () => {
+    const created = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/papers`)
+      .set('Cookie', authorCookie)
+      .send({
+        trackId,
+        title: 'Privileged List Paper',
+        abstract: 'Visible when mine is false.',
+        keywords: [],
+      });
+    expect(created.status).toBe(201);
+
     const res = await request(app.getHttpServer())
       .get(`/api/v1/conferences/${confId}/papers?mine=false`)
       .set('Cookie', organizerCookie);
@@ -1301,7 +1338,7 @@ describe('Paper submission integration', () => {
       const outsiderDelete = await request(app.getHttpServer())
         .delete(`/api/v1/conferences/${confId}/papers/${fresh.id}`)
         .set('Cookie', outsiderCookie);
-      expect(outsiderDelete.status).toBe(403);
+      expect(outsiderDelete.status).toBe(404);
     });
 
     it('lets an author withdraw only a submitted paper after typing WITHDRAW', async () => {

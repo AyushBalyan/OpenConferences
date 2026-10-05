@@ -19,7 +19,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
     "migrate:dev": "dotenv -e ../../.env -- prisma migrate dev",
-    "migrate:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
+    "migrate:deploy": "dotenv -e ../../.env -- prisma db execute --file prisma/predeploy.sql --schema prisma/schema.prisma && dotenv -e ../../.env -- prisma migrate deploy",
     "migrate:reset": "dotenv -e ../../.env -- prisma migrate reset --force",
     "generate": "dotenv -e ../../.env -- prisma generate",
     "seed": "dotenv -e ../../.env -- tsx prisma/seed.ts",

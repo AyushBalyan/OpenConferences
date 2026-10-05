@@ -17,6 +17,7 @@ vi.mock('@openconferences/db', () => ({
   withTenantContext: (_context: unknown, callback: (tx: unknown) => unknown) =>
     callback({
       $queryRaw: queryRaw,
+      $executeRaw: vi.fn(),
       paperVersion: { findFirst: latest },
       paper: { update, count, create: createPaper },
       user: { findUnique: findUser },

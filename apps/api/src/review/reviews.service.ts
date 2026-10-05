@@ -227,11 +227,11 @@ export class ReviewsService {
       roles,
     );
 
-    if (assignment.reviewerUserId !== userId || assignment.status === 'DECLINED') {
-      throw new ForbiddenException('Only the assigned reviewer may edit this review');
-    }
     if (paper.status === 'WITHDRAWN' || paper.status === 'WITHDRAWN_NONPAYMENT') {
       throw new ConflictException('This paper has been withdrawn');
+    }
+    if (assignment.reviewerUserId !== userId || assignment.status === 'DECLINED') {
+      throw new ForbiddenException('Only the assigned reviewer may edit this review');
     }
     await this.rounds.loadRound(userId, conferenceId, assignment.roundId, roles);
 
@@ -341,11 +341,11 @@ export class ReviewsService {
       roles,
     );
 
-    if (assignment.reviewerUserId !== userId || assignment.status === 'DECLINED') {
-      throw new ForbiddenException('Only the assigned reviewer may submit this review');
-    }
     if (paper.status === 'WITHDRAWN' || paper.status === 'WITHDRAWN_NONPAYMENT') {
       throw new ConflictException('This paper has been withdrawn');
+    }
+    if (assignment.reviewerUserId !== userId || assignment.status === 'DECLINED') {
+      throw new ForbiddenException('Only the assigned reviewer may submit this review');
     }
     await this.rounds.loadRound(userId, conferenceId, assignment.roundId, roles);
 

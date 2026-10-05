@@ -726,7 +726,8 @@ export class PapersService {
       mode: 'open' | 'submitted';
     },
   ): Promise<number> {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`${input.conferenceId}:${input.userId}`})::bigint)`;
+    // pg_advisory_xact_lock returns void. $queryRaw cannot deserialize that column.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${input.conferenceId}:${input.userId}`})::bigint)`;
     return tx.paper.count({
       where: {
         conferenceId: input.conferenceId,

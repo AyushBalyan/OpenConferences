@@ -22,7 +22,7 @@ export class ApiProblemError extends Error {
   }
 }
 
-export function isCorrespondingPaperLimitError(error: unknown): boolean {
+export function isCorrespondingPaperLimitError(error: unknown): error is ApiProblemError {
   return error instanceof ApiProblemError && error.code === 'CORRESPONDING_PAPER_LIMIT';
 }
 

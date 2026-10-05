@@ -112,6 +112,20 @@ export const submissionContract = c.router({
     },
     summary: 'Add an author to a paper',
   },
+  reorderAuthorships: {
+    method: 'PATCH',
+    path: '/conferences/:conferenceId/papers/:paperId/authorships/reorder',
+    pathParams: paperParams,
+    body: reorderAuthorshipsSchema,
+    responses: {
+      200: z.object({ data: z.array(authorshipSchema) }),
+      400: problemEnvelopeSchema,
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+    },
+    summary: 'Reorder authorship list',
+  },
   updateAuthorship: {
     method: 'PATCH',
     path: '/conferences/:conferenceId/papers/:paperId/authorships/:authorshipId',
@@ -126,20 +140,6 @@ export const submissionContract = c.router({
       409: problemEnvelopeSchema,
     },
     summary: 'Update an author affiliation on a draft paper',
-  },
-  reorderAuthorships: {
-    method: 'PATCH',
-    path: '/conferences/:conferenceId/papers/:paperId/authorships/reorder',
-    pathParams: paperParams,
-    body: reorderAuthorshipsSchema,
-    responses: {
-      200: z.object({ data: z.array(authorshipSchema) }),
-      400: problemEnvelopeSchema,
-      401: problemEnvelopeSchema,
-      403: problemEnvelopeSchema,
-      404: problemEnvelopeSchema,
-    },
-    summary: 'Reorder authorship list',
   },
   removeAuthorship: {
     method: 'DELETE',

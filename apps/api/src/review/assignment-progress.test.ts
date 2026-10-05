@@ -1,3 +1,4 @@
+import { reviewerAssignmentDueAt } from '@openconferences/schemas';
 import { describe, expect, it, vi } from 'vitest';
 import { AssignmentsService } from './assignments.service';
 
@@ -11,10 +12,11 @@ vi.mock('@openconferences/db', () => ({
 }));
 
 describe('chair assignment progress', () => {
-  it('distinguishes unstarted, draft and submitted reviews and applies the round deadline fallback', async () => {
-    const now = new Date('2026-09-22T12:00:00Z');
+  it('distinguishes unstarted, draft and submitted reviews and caps due dates at the conference review deadline', async () => {
+    const assignedAt = new Date('2026-09-22T12:00:00Z');
+    const conferenceDue = new Date('2026-09-25T12:00:00Z');
     assignments.mockResolvedValue(
-      [null, { submittedAt: null }, { submittedAt: now }].map((review, index) => ({
+      [null, { submittedAt: null }, { submittedAt: assignedAt }].map((review, index) => ({
         id: `assignment-${index}`,
         organizationId: 'org',
         conferenceId: 'conf',
@@ -22,19 +24,20 @@ describe('chair assignment progress', () => {
         paperId: 'paper',
         reviewerUserId: 'reviewer',
         status: 'ASSIGNED',
-        dueAt: index === 2 ? now : null,
+        dueAt: index === 2 ? assignedAt : null,
         version: 0,
-        createdAt: now,
-        updatedAt: now,
+        createdAt: assignedAt,
+        updatedAt: assignedAt,
         review,
         paper: { title: 'Paper' },
         reviewer: { name: 'Reviewer', email: 'reviewer@example.com' },
       })),
     );
-    const due = new Date('2026-10-01T12:00:00Z');
     const service = new AssignmentsService(
-      { loadConference: async () => ({ organizationId: 'org' }) } as never,
-      { loadRound: async () => ({ reviewDueAt: due }) } as never,
+      {
+        loadConference: async () => ({ organizationId: 'org', reviewDueAt: conferenceDue }),
+      } as never,
+      { loadRound: async () => ({ reviewDueAt: new Date('2026-10-01T12:00:00Z') }) } as never,
       {} as never,
       {} as never,
       {} as never,
@@ -45,10 +48,7 @@ describe('chair assignment progress', () => {
       'DRAFT',
       'SUBMITTED',
     ]);
-    expect(result.data.map((item) => item.dueAt)).toEqual([
-      due.toISOString(),
-      due.toISOString(),
-      now.toISOString(),
-    ]);
+    const expectedDue = reviewerAssignmentDueAt(assignedAt, conferenceDue).toISOString();
+    expect(result.data.map((item) => item.dueAt)).toEqual([expectedDue, expectedDue, expectedDue]);
   });
 });

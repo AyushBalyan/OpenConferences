@@ -23,7 +23,9 @@ test.describe('Auth walking skeleton', () => {
     await page.getByRole('button', { name: 'Sign up' }).click();
 
     await expect(page).toHaveURL(/verify-email/);
-    await expect(page.getByText('We sent a verification link to your email.')).toBeVisible();
+    await expect(
+      page.getByText('We emailed a 6-digit verification code to your address.'),
+    ).toBeVisible();
 
     await page.goto('/sign-in');
     await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();

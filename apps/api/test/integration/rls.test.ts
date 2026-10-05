@@ -305,14 +305,14 @@ describe('RLS catalog and role policies', () => {
       await tx.$executeRaw`
         INSERT INTO sessions (id, token, "expiresAt", "createdAt", "updatedAt", "userId")
         VALUES (
-          ${sessionId}, ${token}, NOW() + interval '1 day', NOW(), NOW(), ${memberAId}::uuid
+          ${sessionId}::uuid, ${token}, NOW() + interval '1 day', NOW(), NOW(), ${memberAId}::uuid
         )
       `;
       const rows = await tx.$queryRaw<Array<{ id: string }>>`
-        SELECT id FROM sessions WHERE id = ${sessionId}
+        SELECT id FROM sessions WHERE id = ${sessionId}::uuid
       `;
       expect(rows).toEqual([{ id: sessionId }]);
-      await tx.$executeRaw`DELETE FROM sessions WHERE id = ${sessionId}`;
+      await tx.$executeRaw`DELETE FROM sessions WHERE id = ${sessionId}::uuid`;
     });
   });
 

@@ -80,6 +80,21 @@ export class SubmissionController {
     });
   }
 
+  @TsRestHandler(submissionContract.reorderAuthorships)
+  @RequireMembership()
+  reorderAuthorships(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(submissionContract.reorderAuthorships, async ({ params, body }) => {
+      const data = await this.authorships.reorder(
+        user.id,
+        params.conferenceId,
+        params.paperId,
+        body,
+        roles,
+      );
+      return { status: 200 as const, body: { data } };
+    });
+  }
+
   @TsRestHandler(submissionContract.updateAuthorship)
   @RequireMembership()
   updateAuthorship(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
@@ -93,21 +108,6 @@ export class SubmissionController {
         roles,
       );
       return { status: 200 as const, body: authorship };
-    });
-  }
-
-  @TsRestHandler(submissionContract.reorderAuthorships)
-  @RequireMembership()
-  reorderAuthorships(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
-    return tsRestHandler(submissionContract.reorderAuthorships, async ({ params, body }) => {
-      const data = await this.authorships.reorder(
-        user.id,
-        params.conferenceId,
-        params.paperId,
-        body,
-        roles,
-      );
-      return { status: 200 as const, body: { data } };
     });
   }
 
