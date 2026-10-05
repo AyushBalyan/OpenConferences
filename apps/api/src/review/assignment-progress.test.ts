@@ -1,4 +1,3 @@
-import { reviewerAssignmentDueAt } from '@openconferences/schemas';
 import { describe, expect, it, vi } from 'vitest';
 import { AssignmentsService } from './assignments.service';
 
@@ -12,7 +11,26 @@ vi.mock('@openconferences/db', () => ({
 }));
 
 describe('chair assignment progress', () => {
-  it('distinguishes unstarted, draft and submitted reviews and caps due dates at the conference review deadline', async () => {
+  it.each(['2020-01-01T00:00:00Z', 'invalid'])(
+    'rejects a past or invalid individual deadline before creating a cycle: %s',
+    async (dueAt) => {
+      const loadConference = vi.fn();
+      const ensureOpenCycle = vi.fn();
+      const service = new AssignmentsService(
+        { loadConference } as never,
+        { ensureOpenCycle } as never,
+        {} as never,
+        {} as never,
+        {} as never,
+      );
+      await expect(
+        service.assign('chair', 'conf', 'paper', { reviewerUserId: 'reviewer', dueAt }, ['CHAIR']),
+      ).rejects.toMatchObject({ status: 400 });
+      expect(loadConference).not.toHaveBeenCalled();
+      expect(ensureOpenCycle).not.toHaveBeenCalled();
+    },
+  );
+  it('distinguishes unstarted, draft and submitted reviews and honors persisted deadlines', async () => {
     const assignedAt = new Date('2026-09-22T12:00:00Z');
     const conferenceDue = new Date('2026-09-25T12:00:00Z');
     assignments.mockResolvedValue(
@@ -48,7 +66,10 @@ describe('chair assignment progress', () => {
       'DRAFT',
       'SUBMITTED',
     ]);
-    const expectedDue = reviewerAssignmentDueAt(assignedAt, conferenceDue).toISOString();
-    expect(result.data.map((item) => item.dueAt)).toEqual([expectedDue, expectedDue, expectedDue]);
+    expect(result.data.map((item) => item.dueAt)).toEqual([
+      '2026-09-29T12:00:00.000Z',
+      '2026-09-29T12:00:00.000Z',
+      assignedAt.toISOString(),
+    ]);
   });
 });

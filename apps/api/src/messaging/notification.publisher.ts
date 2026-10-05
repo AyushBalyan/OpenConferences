@@ -161,8 +161,8 @@ export class NotificationPublisher {
     });
   }
 
-  async publishReviewerAssigned(payload: ReviewerAssignedPayload): Promise<void> {
-    await this.notifications.enqueue({
+  async publishReviewerAssigned(payload: ReviewerAssignedPayload): Promise<boolean> {
+    const queued = await this.notifications.enqueue({
       templateKey: 'assignment.notified',
       to: payload.to,
       context: {
@@ -171,6 +171,7 @@ export class NotificationPublisher {
         paperTitle: payload.paperTitle,
         roundNumber: payload.roundNumber,
         dueAt: payload.dueAt,
+        reviewUrl: `${getConfig().webUrl.replace(/\/$/, '')}/dashboard/conferences/${payload.conferenceId}/reviews/my-assignments`,
       },
       organizationId: payload.organizationId,
       conferenceId: payload.conferenceId,
@@ -179,6 +180,36 @@ export class NotificationPublisher {
       relatedEntity: 'ReviewerAssignment',
       relatedEntityId: payload.assignmentId,
     });
+    return queued !== null;
+  }
+
+  async publishReviewReminder(payload: {
+    to: string;
+    conferenceId: string;
+    organizationId: string;
+    conferenceName: string;
+    paperTitle: string;
+    dueAt: string;
+    assignmentId: string;
+    idempotencyKey: string;
+  }): Promise<boolean> {
+    const queued = await this.notifications.enqueue({
+      templateKey: 'review.reminder',
+      to: payload.to,
+      context: {
+        conferenceName: payload.conferenceName,
+        paperTitle: payload.paperTitle,
+        dueAt: payload.dueAt,
+        reviewUrl: `${getConfig().webUrl.replace(/\/$/, '')}/dashboard/conferences/${payload.conferenceId}/reviews/my-assignments`,
+      },
+      organizationId: payload.organizationId,
+      conferenceId: payload.conferenceId,
+      idempotencyKey: payload.idempotencyKey,
+      tags: ['review.reminder'],
+      relatedEntity: 'ReviewerAssignment',
+      relatedEntityId: payload.assignmentId,
+    });
+    return queued !== null;
   }
 
   async publishReviewThankYou(payload: ReviewThankYouPayload): Promise<void> {

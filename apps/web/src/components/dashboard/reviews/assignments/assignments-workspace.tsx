@@ -33,6 +33,7 @@ export const BID_RANK: Record<BidValue, number> = {
 type AssignmentsWorkspaceValue = {
   conferenceId: string;
   conferenceName: string;
+  conferenceReviewDueAt: string | null;
   rounds: ReviewRoundDto[];
   roundId: string;
   setRoundId: (roundId: string) => void;
@@ -87,6 +88,7 @@ export function AssignmentsWorkspaceProvider({
   children: React.ReactNode;
 }) {
   const [conferenceName, setConferenceName] = useState('');
+  const [conferenceReviewDueAt, setConferenceReviewDueAt] = useState<string | null>(null);
   const [rounds, setRounds] = useState<ReviewRoundDto[]>([]);
   const [roundId, setRoundId] = useState('');
   const [assignments, setAssignments] = useState<AssignmentsWorkspaceValue['assignments']>([]);
@@ -149,6 +151,7 @@ export function AssignmentsWorkspaceProvider({
     ]);
 
     setConferenceName(conference.name);
+    setConferenceReviewDueAt(conference.reviewDueAt ?? null);
     setPapers(
       paperList
         .filter((p) => p.status !== 'DRAFT' && !p.status.startsWith('WITHDRAWN'))
@@ -212,6 +215,7 @@ export function AssignmentsWorkspaceProvider({
   const value: AssignmentsWorkspaceValue = {
     conferenceId,
     conferenceName,
+    conferenceReviewDueAt,
     rounds,
     roundId,
     setRoundId,

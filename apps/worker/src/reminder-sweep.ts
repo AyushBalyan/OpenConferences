@@ -2,7 +2,7 @@ import type PgBoss from 'pg-boss';
 import { getConfig } from '@openconferences/config/env';
 import { generateId, withTenantContext } from '@openconferences/db';
 import type { ReminderSweepJobPayload } from '@openconferences/schemas';
-import { NOTIFICATION_SEND_JOB_NAME, reviewerAssignmentDueAt } from '@openconferences/schemas';
+import { NOTIFICATION_SEND_JOB_NAME, effectiveReviewDeadline } from '@openconferences/schemas';
 
 function escapeHtml(value: unknown): string {
   return String(value ?? '')
@@ -124,11 +124,19 @@ export async function processReminderSweepJob(
         tx.reviewerAssignment.findMany({
           where: {
             status: { in: ['ASSIGNED', 'ACCEPTED'] },
+            paper: { status: { in: ['SUBMITTED', 'UNDER_REVIEW'] } },
+            round: { reviewsReleasedAt: null, decisions: { none: {} } },
+            OR: [{ review: { is: null } }, { review: { submittedAt: null } }],
             ...(payload.conferenceId ? { conferenceId: payload.conferenceId } : {}),
           },
           include: {
             reviewer: { select: { email: true } },
-            paper: { select: { title: true } },
+            paper: {
+              select: {
+                title: true,
+                reviewRounds: { select: { id: true }, orderBy: { roundNumber: 'desc' }, take: 1 },
+              },
+            },
             conference: { select: { name: true, reviewDueAt: true } },
             round: { select: { reviewDueAt: true } },
           },
@@ -136,8 +144,10 @@ export async function processReminderSweepJob(
       );
 
       for (const assignment of assignments) {
-        const dueAt = reviewerAssignmentDueAt(
-          assignment.createdAt,
+        if (assignment.paper.reviewRounds[0]?.id !== assignment.roundId) continue;
+        const dueAt = effectiveReviewDeadline(
+          assignment,
+          assignment.round.reviewDueAt,
           assignment.conference.reviewDueAt,
         );
         if (!dueAt || dueAt > inThreeDays || dueAt < now) continue;
@@ -149,6 +159,7 @@ export async function processReminderSweepJob(
             paperTitle: assignment.paper.title,
             dueAt: dueAt.toISOString(),
             conferenceName: assignment.conference.name,
+            reviewUrl: `${getConfig().webUrl.replace(/\/$/, '')}/dashboard/conferences/${assignment.conferenceId}/reviews/my-assignments`,
           },
           organizationId: assignment.organizationId,
           conferenceId: assignment.conferenceId,

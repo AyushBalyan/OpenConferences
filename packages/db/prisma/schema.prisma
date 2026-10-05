@@ -101,6 +101,7 @@ enum AssignmentStatus {
   ACCEPTED
   DECLINED
   COMPLETED
+  REPLACED
 }
 
 enum Recommendation {

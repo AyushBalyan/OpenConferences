@@ -51,7 +51,7 @@ export class InboxService {
         where: {
           conferenceId: scope.conferenceId,
           reviewerUserId: scope.userId,
-          status: { not: 'DECLINED' },
+          status: { notIn: ['DECLINED', 'REPLACED'] },
           review: { submittedAt: { not: null } },
           paper: { NOT: inboxAuthorWhere(scope.userId) },
         },

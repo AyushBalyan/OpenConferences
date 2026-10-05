@@ -83,6 +83,17 @@ describe('platform notification templates', () => {
     expect(template?.bodyText).toContain(note);
   });
 
+  it('uses the effective deadline and review link in assignment and reminder emails', () => {
+    for (const key of ['assignment.notified', 'review.reminder']) {
+      const template = PLATFORM_NOTIFICATION_TEMPLATES.find((row) => row.key === key);
+      expect(template?.bodyHtml).toContain('{{dueAt}}');
+      expect(template?.bodyText).toContain('{{dueAt}}');
+      expect(template?.bodyHtml).toContain('{{reviewUrl}}');
+      expect(template?.variables).toEqual(expect.arrayContaining(['dueAt', 'reviewUrl']));
+      expect(template?.bodyText).not.toContain('within 7 days');
+    }
+  });
+
   it('includes simple accept steps on reviewer.invitation', () => {
     const template = PLATFORM_NOTIFICATION_TEMPLATES.find(
       (row) => row.key === 'reviewer.invitation',

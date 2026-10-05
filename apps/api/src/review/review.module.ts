@@ -1,3 +1,4 @@
+import { ReviewCoordinationService } from './coordination.service';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { AuditModule } from '../audit/audit.module';
@@ -17,6 +18,7 @@ import { RoundsService } from './rounds.service';
   imports: [AuthModule, TenancyModule, AuditModule, BillingModule],
   controllers: [ReviewController, ReviewInvitationController],
   providers: [
+    ReviewCoordinationService,
     RoundsService,
     InvitationsService,
     BidsService,

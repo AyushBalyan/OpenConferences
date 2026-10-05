@@ -1,3 +1,4 @@
+import { ReviewCoordinationService } from './coordination.service';
 import { Controller, NotFoundException, UseGuards } from '@nestjs/common';
 import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
 import { reviewContract } from '@openconferences/contracts';
@@ -25,6 +26,7 @@ import { RoundsService } from './rounds.service';
 @UseGuards(AuthGuard, MembershipGuard)
 export class ReviewController {
   constructor(
+    private readonly coordination: ReviewCoordinationService,
     private readonly rounds: RoundsService,
     private readonly invitations: InvitationsService,
     private readonly bids: BidsService,
@@ -34,6 +36,32 @@ export class ReviewController {
     private readonly rebuttals: RebuttalsService,
     private readonly decisions: DecisionsService,
   ) {}
+
+  @TsRestHandler(reviewContract.getCoordination)
+  @RequireReviewCoordination()
+  @RequireMembership()
+  getCoordination(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(reviewContract.getCoordination, async ({ params }) => ({
+      status: 200 as const,
+      body: await this.coordination.snapshot(user.id, params.conferenceId, roles),
+    }));
+  }
+
+  @TsRestHandler(reviewContract.interveneAssignment)
+  @RequireReviewCoordination()
+  @RequireMembership()
+  interveneAssignment(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(reviewContract.interveneAssignment, async ({ params, body }) => ({
+      status: 200 as const,
+      body: await this.coordination.intervene(
+        user.id,
+        params.conferenceId,
+        params.assignmentId,
+        body,
+        roles,
+      ),
+    }));
+  }
 
   @TsRestHandler(reviewContract.listRounds)
   @RequireMembership()

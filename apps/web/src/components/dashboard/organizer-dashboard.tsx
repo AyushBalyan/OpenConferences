@@ -15,12 +15,17 @@ import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { StatusBadge } from '@/components/dashboard/status-badge';
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
-import { fetchAnalyticsOverview, fetchPapers, transitionConferenceStatus } from '@/lib/api-client';
+import {
+  fetchAnalyticsOverview,
+  fetchPapers,
+  transitionConferenceStatus,
+  fetchReviewCoordination,
+} from '@/lib/api-client';
 import type { Conference } from '@/lib/conference-types';
 import { paperStatusLabel, paperStatusTone } from '@/lib/paper-status-styles';
 import { countActiveSubmissions, type PaperDto } from '@/lib/submission-types';
 import { canCoordinateReview, canManageConference } from '@/lib/roles';
-import type { ConferenceAnalyticsOverview } from '@openconferences/schemas';
+import type { ConferenceAnalyticsOverview, ReviewCoordinationDto } from '@openconferences/schemas';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AuthorSubmitLinkCard } from '@/components/dashboard/author-submit-link-card';
 
@@ -37,6 +42,8 @@ export function OrganizerDashboard({
   roles,
   onRefresh,
 }: OrganizerDashboardProps) {
+  const [coordination, setCoordination] = useState<ReviewCoordinationDto | null>(null);
+  const [coordinationError, setCoordinationError] = useState<string | null>(null);
   const [papers, setPapers] = useState<PaperDto[]>([]);
   const [analytics, setAnalytics] = useState<ConferenceAnalyticsOverview | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,6 +75,27 @@ export function OrganizerDashboard({
       })
       .finally(() => setLoading(false));
   }, [load]);
+
+  useEffect(() => {
+    let alive = true;
+    setCoordination(null);
+    setCoordinationError(null);
+    if (canCoordinateReview(roles)) {
+      fetchReviewCoordination(conferenceId)
+        .then((next) => {
+          if (alive) setCoordination(next);
+        })
+        .catch((err) => {
+          if (alive)
+            setCoordinationError(
+              err instanceof Error ? err.message : 'Failed to load review attention queues',
+            );
+        });
+    }
+    return () => {
+      alive = false;
+    };
+  }, [conferenceId, roles]);
 
   const underReviewCount = useMemo(() => {
     if (analytics) {
@@ -124,6 +152,83 @@ export function OrganizerDashboard({
           conferenceId={conferenceId}
           cfpOpen={conference.status === 'CFP_OPEN'}
         />
+      ) : null}
+
+      {canCoordinateReview(roles) ? (
+        <section className="mb-8 space-y-3" aria-labelledby="review-attention-title">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 id="review-attention-title" className="text-lg font-medium text-slate-900">
+              Review attention
+            </h2>
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/dashboard/conferences/${conferenceId}/reviews/rounds`}>
+                Open paper ledger
+              </Link>
+            </Button>
+          </div>
+          <p className="text-sm text-slate-600">
+            Current review cycles across every paper. Choose a queue to take action.
+          </p>
+          {coordinationError ? (
+            <p role="alert" className="text-sm text-rose-700">
+              {coordinationError}
+            </p>
+          ) : !coordination ? (
+            <p role="status" className="text-sm text-slate-600">
+              Loading review queues…
+            </p>
+          ) : (
+            <ul className="divide-y border-y">
+              {[
+                {
+                  label: 'Papers needing more reviewers',
+                  count: coordination.summary.needsReviewers,
+                  href: `/dashboard/conferences/${conferenceId}/reviews/rounds?queue=NEEDS_REVIEWERS`,
+                  detail: 'Assign enough reviewers to meet the configured minimum',
+                },
+                {
+                  label: 'Overdue reviews',
+                  count: coordination.summary.overdueReviews,
+                  href: `/dashboard/conferences/${conferenceId}/reviews/rounds?queue=OVERDUE`,
+                  detail: `Across ${coordination.summary.overduePapers} papers · remind, replace or extend`,
+                },
+                {
+                  label: 'Papers ready for a chair decision',
+                  count: coordination.summary.readyForDecision,
+                  href: `/dashboard/conferences/${conferenceId}/reviews/rounds?queue=READY`,
+                  detail: 'The current cycle has the required submitted reviews',
+                },
+                ...(canManageConference(roles) && coordination.summary.pendingInvitations != null
+                  ? [
+                      {
+                        label: 'Pending reviewer invitations',
+                        count: coordination.summary.pendingInvitations,
+                        href: `/dashboard/conferences/${conferenceId}/reviews/assignments/invites`,
+                        detail: 'Unexpired invitations awaiting a response',
+                      },
+                    ]
+                  : []),
+              ].map((queue) => (
+                <li key={queue.label}>
+                  <Link
+                    href={queue.href}
+                    className="flex items-center justify-between gap-4 px-2 py-3 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                  >
+                    <span>
+                      <span className="block text-sm font-medium text-slate-900">
+                        {queue.label}
+                      </span>
+                      <span className="mt-1 block text-xs text-slate-600">{queue.detail}</span>
+                    </span>
+                    <span className="text-lg font-semibold tabular-nums text-slate-900">
+                      {queue.count}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       ) : null}
 
       <KpiGrid className="mb-8">
@@ -226,7 +331,7 @@ export function OrganizerDashboard({
               <CardContent className="flex flex-wrap gap-2">
                 <Button asChild size="sm" variant="outline">
                   <Link href={`/dashboard/conferences/${conferenceId}/reviews/rounds`}>
-                    Review rounds
+                    Paper review ledger
                   </Link>
                 </Button>
                 <Button asChild size="sm" variant="outline">
@@ -274,12 +379,28 @@ export function OrganizerDashboard({
               <CardTitle>Upcoming deadlines</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
-              <DeadlineItem
-                label="Current phase"
-                value={conference.status.replace(/_/g, ' ')}
-                urgent={conference.status === 'REVIEWING' || conference.status === 'FINALIZATION'}
-              />
-              <DeadlineItem label="Conference slug" value={conference.slug} />
+              {coordination ? (
+                <>
+                  <DeadlineItem
+                    label="Review deadline"
+                    value={formatDeadline(coordination.deadlines.reviewDueAt)}
+                    urgent={isDeadlineSoon(coordination.deadlines.reviewDueAt)}
+                  />
+                  <DeadlineItem
+                    label="Rebuttal deadline"
+                    value={formatDeadline(coordination.deadlines.rebuttalDueAt)}
+                    urgent={isDeadlineSoon(coordination.deadlines.rebuttalDueAt)}
+                  />
+                  <p className="text-xs text-slate-600">
+                    Assignment extensions appear in the paper ledger. Dates use your local time
+                    zone.
+                  </p>
+                </>
+              ) : (
+                <p className="text-slate-600">
+                  {coordinationError ? 'Deadlines could not load.' : 'Loading deadlines…'}
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -324,4 +445,13 @@ function DeadlineItem({
       </div>
     </div>
   );
+}
+
+function formatDeadline(value: string | null): string {
+  if (!value) return 'Not set';
+  const days = Math.ceil((new Date(value).getTime() - Date.now()) / 86_400_000);
+  return `${new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} · ${days < 0 ? 'Passed' : days === 0 ? 'Due today' : `in ${days} day${days === 1 ? '' : 's'}`}`;
+}
+function isDeadlineSoon(value: string | null): boolean {
+  return Boolean(value && new Date(value).getTime() - Date.now() <= 3 * 86_400_000);
 }

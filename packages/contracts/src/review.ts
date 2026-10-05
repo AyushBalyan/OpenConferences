@@ -1,5 +1,8 @@
 import { initContract } from '@ts-rest/core';
 import {
+  reviewCoordinationSchema,
+  assignmentInterventionSchema,
+  assignmentInterventionResponseSchema,
   reviewRoundSchema,
   reviewRoundListSchema,
   paperReviewProgressListSchema,
@@ -94,6 +97,33 @@ const bidListQuerySchema = cursorPaginationQuerySchema.extend({
 const paperPoolQuerySchema = cursorPaginationQuerySchema;
 
 export const reviewContract = c.router({
+  getCoordination: {
+    method: 'GET',
+    path: '/conferences/:conferenceId/review-coordination',
+    pathParams: conferenceParams,
+    responses: {
+      200: reviewCoordinationSchema,
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+    },
+    summary: 'Current-cycle review ledger and actionable chair overview',
+  },
+  interveneAssignment: {
+    method: 'POST',
+    path: '/conferences/:conferenceId/assignments/:assignmentId/intervene',
+    pathParams: assignmentParams,
+    body: assignmentInterventionSchema,
+    responses: {
+      200: assignmentInterventionResponseSchema,
+      400: problemEnvelopeSchema,
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+      409: problemEnvelopeSchema,
+    },
+    summary: 'Remind, replace or extend a current unfinished reviewer assignment',
+  },
   listRounds: {
     method: 'GET',
     path: '/conferences/:conferenceId/rounds',

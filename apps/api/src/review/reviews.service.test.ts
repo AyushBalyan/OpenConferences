@@ -121,6 +121,23 @@ describe('review phase capabilities', () => {
     expect(updateReview).not.toHaveBeenCalled();
   });
 
+  it('rejects a save when replacement occurs after the initial assignment lookup', async () => {
+    assignmentLookup
+      .mockResolvedValueOnce(assignment)
+      .mockResolvedValueOnce({ ...assignment, status: 'REPLACED' });
+    await expect(
+      service('REVIEWING').saveReview(
+        'reviewer',
+        'conf',
+        'assignment',
+        { scores: {}, version: 0 },
+        ['REVIEWER'],
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(createReview).not.toHaveBeenCalled();
+    expect(updateReview).not.toHaveBeenCalled();
+  });
+
   it('rejects stale release before publishing reviews', async () => {
     reviewLookup.mockResolvedValue([
       { id: 'review', paperId: 'paper', paper: { title: 'Paper', authorships: [] } },

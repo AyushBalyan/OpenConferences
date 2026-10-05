@@ -126,8 +126,9 @@ export function SettingsPhasesPanel() {
             <div>
               <h3 className="text-sm font-medium text-slate-900">Review cycle</h3>
               <p className="text-xs text-slate-500">
-                Each review is due 7 days after the reviewer is assigned. Review due is the last day
-                any review may run.
+                The default review window is 7 days, capped by the cycle or final review deadline.
+                Individual deadlines set during assignment or extended in the paper review ledger
+                take precedence. Changing this date does not change saved reviewer deadlines.
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">

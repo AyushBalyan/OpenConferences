@@ -947,14 +947,15 @@ export async function fetchAssignments(conferenceId: string, roundId: string) {
 export async function createAssignment(
   conferenceId: string,
   paperId: string,
-  body: { roundId?: string; reviewerUserId: string },
+  body: { roundId?: string; reviewerUserId: string; dueAt?: string },
 ) {
   const result = await apiClient.review.createAssignment({
     params: { conferenceId, paperId },
     body,
   });
   if (result.status === 201) return result.body;
-  if (result.status === 409) throw new Error(result.body.detail ?? 'Cannot assign');
+  if (result.status === 400 || result.status === 409)
+    throw new Error(result.body.detail ?? 'Cannot assign');
   throw new Error('Failed to assign reviewer');
 }
 
@@ -1505,4 +1506,33 @@ export async function fetchOutreachSender(conferenceId: string) {
     throwOutreachError(result, 'Failed to load sender');
   }
   throw new Error('Failed to load sender');
+}
+
+export async function fetchReviewCoordination(conferenceId: string) {
+  const result = await apiClient.review.getCoordination({ params: { conferenceId } });
+  if (result.status === 200) return result.body;
+  throw new Error('Failed to load review coordination. Refresh and try again.');
+}
+
+export async function interveneReviewerAssignment(
+  conferenceId: string,
+  assignmentId: string,
+  body: import('@openconferences/schemas').AssignmentInterventionInput,
+) {
+  const result = await apiClient.review.interveneAssignment({
+    params: { conferenceId, assignmentId },
+    body,
+  });
+  if (result.status === 200) return result.body;
+  if (
+    result.status === 400 ||
+    result.status === 403 ||
+    result.status === 404 ||
+    result.status === 409
+  ) {
+    throw new Error(
+      String(result.body.detail ?? 'This assignment could not be updated. Refresh and try again.'),
+    );
+  }
+  throw new Error('The action could not be completed. Refresh the ledger before retrying.');
 }

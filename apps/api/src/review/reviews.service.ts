@@ -15,7 +15,7 @@ import type {
   SaveReviewInput,
   SubmitReviewInput,
 } from '@openconferences/schemas';
-import { reviewerAssignmentDueAt } from '@openconferences/schemas';
+import { effectiveReviewDeadline } from '@openconferences/schemas';
 import {
   paginateItems,
   prismaCursorArgs,
@@ -112,6 +112,7 @@ export class ReviewsService {
           where: {
             conferenceId,
             reviewerUserId: userId,
+            status: { notIn: ['DECLINED', 'REPLACED'] },
           },
           include: {
             paper: {
@@ -120,6 +121,7 @@ export class ReviewsService {
             round: {
               select: {
                 roundNumber: true,
+                reviewDueAt: true,
                 reviewsReleasedAt: true,
                 decisions: { select: { outcome: true }, take: 1 },
               },
@@ -136,7 +138,11 @@ export class ReviewsService {
     return {
       data: page.data.map((a) => ({
         ...mapReviewerAssignment(a),
-        dueAt: reviewerAssignmentDueAt(a.createdAt, conference.reviewDueAt).toISOString(),
+        dueAt: effectiveReviewDeadline(
+          a,
+          a.round.reviewDueAt,
+          conference.reviewDueAt,
+        ).toISOString(),
         paperTitle: a.paper.title,
         submissionNumber: a.paper.submissionNumber,
         currentVersionId: a.paper.currentVersionId,
@@ -178,7 +184,9 @@ export class ReviewsService {
 
     const decided = await this.cycleHasDecision(userId, conferenceId, assignment.roundId);
     const canEdit =
-      assignment.reviewerUserId === userId && assignment.status !== 'DECLINED' && !decided;
+      assignment.reviewerUserId === userId &&
+      !['DECLINED', 'REPLACED'].includes(assignment.status) &&
+      !decided;
     const capabilities = {
       canEdit,
       editLockReason: canEdit
@@ -230,7 +238,10 @@ export class ReviewsService {
     if (paper.status === 'WITHDRAWN' || paper.status === 'WITHDRAWN_NONPAYMENT') {
       throw new ConflictException('This paper has been withdrawn');
     }
-    if (assignment.reviewerUserId !== userId || assignment.status === 'DECLINED') {
+    if (
+      assignment.reviewerUserId !== userId ||
+      ['DECLINED', 'REPLACED'].includes(assignment.status)
+    ) {
       throw new ForbiddenException('Only the assigned reviewer may edit this review');
     }
     await this.rounds.loadRound(userId, conferenceId, assignment.roundId, roles);
@@ -239,6 +250,12 @@ export class ReviewsService {
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
         await lockReviewRound(tx, conferenceId, assignment.roundId);
+        const currentAssignment = await tx.reviewerAssignment.findFirst({
+          where: { id: assignmentId, conferenceId },
+        });
+        if (!currentAssignment || ['DECLINED', 'REPLACED'].includes(currentAssignment.status)) {
+          throw new ForbiddenException('This reviewer assignment is no longer active');
+        }
         await this.assertCycleOpen(tx, conferenceId, assignment.roundId);
         const coiResult = await this.coiCheck.checkReviewerPaperConflict(
           tx,
@@ -344,7 +361,10 @@ export class ReviewsService {
     if (paper.status === 'WITHDRAWN' || paper.status === 'WITHDRAWN_NONPAYMENT') {
       throw new ConflictException('This paper has been withdrawn');
     }
-    if (assignment.reviewerUserId !== userId || assignment.status === 'DECLINED') {
+    if (
+      assignment.reviewerUserId !== userId ||
+      ['DECLINED', 'REPLACED'].includes(assignment.status)
+    ) {
       throw new ForbiddenException('Only the assigned reviewer may submit this review');
     }
     await this.rounds.loadRound(userId, conferenceId, assignment.roundId, roles);
@@ -369,6 +389,12 @@ export class ReviewsService {
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
         await lockReviewRound(tx, conferenceId, assignment.roundId);
+        const currentAssignment = await tx.reviewerAssignment.findFirst({
+          where: { id: assignmentId, conferenceId },
+        });
+        if (!currentAssignment || ['DECLINED', 'REPLACED'].includes(currentAssignment.status)) {
+          throw new ForbiddenException('This reviewer assignment is no longer active');
+        }
         await this.assertCycleOpen(tx, conferenceId, assignment.roundId);
         const coiResult = await this.coiCheck.checkReviewerPaperConflict(
           tx,

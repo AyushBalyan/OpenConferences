@@ -2,7 +2,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import type { RoleKind } from '@openconferences/db';
 import { withTenantContext } from '@openconferences/db';
 import type { ConferenceAnalyticsOverview } from '@openconferences/schemas';
-import { reviewerAssignmentDueAt } from '@openconferences/schemas';
+import { effectiveReviewDeadline } from '@openconferences/schemas';
 import { ConferenceService } from '../tenancy/conference.service';
 import { canCoordinateReview } from '../tenancy/role-hierarchy';
 import { minimumReviewsFromConfig } from '../review/review-stage';
@@ -130,12 +130,15 @@ export class AnalyticsService {
             paper: { select: { title: true, status: true } },
           },
         }),
-        tx.reviewerAssignment.count({ where: { conferenceId } }),
+        tx.reviewerAssignment.count({
+          where: { conferenceId, status: { notIn: ['DECLINED', 'REPLACED'] } },
+        }),
         tx.reviewerAssignment.count({ where: { conferenceId, status: 'COMPLETED' } }),
         tx.reviewerAssignment.findMany({
-          where: { conferenceId, status: { not: 'DECLINED' } },
+          where: { conferenceId, status: { notIn: ['DECLINED', 'REPLACED'] } },
           select: {
             paperId: true,
+            round: { select: { reviewDueAt: true } },
             dueAt: true,
             createdAt: true,
             reviewer: { select: { name: true } },
@@ -251,8 +254,11 @@ export class AnalyticsService {
         notStarted += 1;
       }
       if (!submittedAt) {
-        const dueAt =
-          assignment.dueAt ?? reviewerAssignmentDueAt(assignment.createdAt, conference.reviewDueAt);
+        const dueAt = effectiveReviewDeadline(
+          assignment,
+          assignment.round?.reviewDueAt,
+          conference.reviewDueAt,
+        );
         if (dueAt.getTime() < now.getTime()) overdue += 1;
         const reviewerName = assignment.reviewer.name.trim() || 'Reviewer';
         const reviewerKey = reviewerName.toLocaleLowerCase();

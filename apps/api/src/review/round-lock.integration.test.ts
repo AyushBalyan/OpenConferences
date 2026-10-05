@@ -162,9 +162,9 @@ describe.skipIf(!url)('round locks in real PostgreSQL', () => {
         await tx.rebuttal.deleteMany({ where: { paperId } });
         await tx.review.deleteMany({ where: { paperId } });
         await tx.reviewerAssignment.deleteMany({ where: { id: assignmentId } });
+        await tx.reviewRound.deleteMany({ where: { id: roundId } });
         await tx.paper.deleteMany({ where: { id: paperId } });
         await tx.track.deleteMany({ where: { id: trackId } });
-        await tx.reviewRound.deleteMany({ where: { id: roundId } });
         await tx.membership.deleteMany({
           where: { userId: { in: [userId, authorId] }, conferenceId },
         });
@@ -213,7 +213,7 @@ describe.skipIf(!url)('round locks in real PostgreSQL', () => {
       { loadRound: () => db.reviewRound.findUniqueOrThrow({ where: { id: roundId } }) } as never,
       { checkReviewerPaperConflict: async () => ({ hasConflict: false }) } as never,
       { log: vi.fn() } as never,
-      {} as never,
+      { publishReviewThankYou: vi.fn() } as never,
     );
     const save = (version: number, commentsToAuthors: string) =>
       reviews.saveReview(

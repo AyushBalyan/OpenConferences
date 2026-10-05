@@ -97,7 +97,7 @@ export const NAV_SECTIONS = {
     href: (conferenceId: string) => `/dashboard/conferences/${conferenceId}/reviews/my-assignments`,
   },
   reviewRounds: {
-    label: 'Review progress',
+    label: 'Paper review ledger',
     href: (conferenceId: string) => `/dashboard/conferences/${conferenceId}/reviews/rounds`,
   },
   assignments: {
@@ -179,6 +179,7 @@ export const NAV_ITEM_ICONS: Record<string, LucideIcon> = {
   'COI oversight': ShieldAlert,
   'My reviews': ClipboardCheck,
   'Review rounds': ClipboardCheck,
+  'Paper review ledger': ClipboardCheck,
   Assignments: UserCheck,
   Decisions: ClipboardCheck,
   Registrations: CreditCard,
@@ -219,7 +220,7 @@ export const BREADCRUMB_SEGMENT_LABELS: Record<string, string> = {
   verifications: 'Student verifications',
   declare: 'Declare conflict',
   declarations: 'My declarations',
-  rounds: 'Review rounds',
+  rounds: 'Paper review ledger',
   decisions: 'Decisions',
   registrations: 'Registrations',
   'student-verifications': 'Student verifications',

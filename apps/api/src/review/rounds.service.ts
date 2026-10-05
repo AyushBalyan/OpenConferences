@@ -140,7 +140,11 @@ export class RoundsService {
           }),
           tx.reviewerAssignment.groupBy({
             by: ['roundId'],
-            where: { conferenceId, roundId: { in: cycleIds } },
+            where: {
+              conferenceId,
+              roundId: { in: cycleIds },
+              status: { notIn: ['DECLINED', 'REPLACED'] },
+            },
             _count: { _all: true },
           }),
         ]),

@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { RoleKind } from '@openconferences/db';
 import { withTenantContext } from '@openconferences/db';
 import type { MeDashboard } from '@openconferences/schemas';
-import { reviewerAssignmentDueAt } from '@openconferences/schemas';
+import { effectiveReviewDeadline } from '@openconferences/schemas';
 import { effectiveRolesForConference, mergeRolesByConference } from '../tenancy/membership-roles';
 import { maxRoleRank } from '../tenancy/role-hierarchy';
 
@@ -27,11 +27,12 @@ export class MeDashboardService {
         tx.reviewerAssignment.findMany({
           where: {
             reviewerUserId: userId,
+            status: { notIn: ['DECLINED', 'REPLACED'] },
             round: { decisions: { none: { outcome: { in: ['ACCEPT', 'REJECT'] } } } },
           },
           include: {
             paper: { select: { title: true } },
-            round: { select: { roundNumber: true } },
+            round: { select: { roundNumber: true, reviewDueAt: true } },
             conference: { select: { id: true, name: true, slug: true, reviewDueAt: true } },
           },
           orderBy: [{ dueAt: 'asc' }, { createdAt: 'desc' }],
@@ -124,8 +125,9 @@ export class MeDashboardService {
         paperId: assignment.paperId,
         paperTitle: assignment.paper.title,
         status: assignment.status,
-        dueAt: reviewerAssignmentDueAt(
-          assignment.createdAt,
+        dueAt: effectiveReviewDeadline(
+          assignment,
+          assignment.round.reviewDueAt,
           assignment.conference.reviewDueAt,
         ).toISOString(),
         roundNumber: assignment.round.roundNumber,

@@ -7,6 +7,8 @@ vi.mock('@openconferences/config/env', () => ({
 }));
 
 import { NotificationPublisher } from './notification.publisher';
+import { PLATFORM_NOTIFICATION_TEMPLATES } from '@openconferences/db';
+import { renderTemplate } from './template-renderer';
 
 describe('NotificationPublisher.publishPaperSubmitted', () => {
   const enqueue = vi.fn();
@@ -114,5 +116,68 @@ describe('NotificationPublisher.publishPaperWithdrawn', () => {
         context: expect.objectContaining({ reason: 'Submitting elsewhere' }),
       }),
     );
+  });
+});
+
+describe('review coordination notifications', () => {
+  const enqueue = vi.fn();
+  const publisher = new NotificationPublisher({ enqueue } as never);
+  beforeEach(() => {
+    enqueue.mockReset();
+    enqueue.mockResolvedValue('job-id');
+    getConfigMock.mockReturnValue({ webUrl: 'http://localhost:3000/' });
+  });
+  const payload = {
+    to: 'reviewer@example.test',
+    conferenceId: 'conference',
+    organizationId: 'organization',
+    conferenceName: 'Conference',
+    paperTitle: 'Paper',
+    dueAt: '2030-10-10T10:00:00Z',
+    assignmentId: 'assignment',
+    idempotencyKey: 'daily-reminder',
+  };
+  it('provides the effective deadline and conference review link to reminders', async () => {
+    expect(await publisher.publishReviewReminder(payload)).toBe(true);
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        templateKey: 'review.reminder',
+        context: expect.objectContaining({
+          dueAt: payload.dueAt,
+          reviewUrl:
+            'http://localhost:3000/dashboard/conferences/conference/reviews/my-assignments',
+        }),
+        relatedEntityId: 'assignment',
+      }),
+    );
+  });
+  it('renders the saved individual deadline in both assignment email formats', async () => {
+    await publisher.publishReviewerAssigned({
+      ...payload,
+      reviewerName: 'Reviewer',
+      roundNumber: 2,
+    });
+    const mail = enqueue.mock.calls[0]![0];
+    const template = PLATFORM_NOTIFICATION_TEMPLATES.find((row) => row.key === mail.templateKey)!;
+    for (const body of [template.bodyHtml, template.bodyText!]) {
+      const rendered = renderTemplate(body, mail.context);
+      expect(rendered).toContain(payload.dueAt);
+      expect(rendered).toContain(
+        'http://localhost:3000/dashboard/conferences/conference/reviews/my-assignments',
+      );
+      expect(rendered).not.toContain('within 7 days');
+      expect(rendered).not.toContain('{{dueAt}}');
+    }
+  });
+  it('reports a suppressed reminder or replacement assignment email honestly', async () => {
+    enqueue.mockResolvedValue(null);
+    expect(await publisher.publishReviewReminder(payload)).toBe(false);
+    expect(
+      await publisher.publishReviewerAssigned({
+        ...payload,
+        reviewerName: 'Reviewer',
+        roundNumber: 1,
+      }),
+    ).toBe(false);
   });
 });

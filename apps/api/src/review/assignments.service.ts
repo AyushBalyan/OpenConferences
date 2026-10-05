@@ -12,7 +12,7 @@ import type {
   CreateAssignmentInput,
   ReviewerAssignmentDto,
 } from '@openconferences/schemas';
-import { reviewerAssignmentDueAt } from '@openconferences/schemas';
+import { reviewerAssignmentDueAt, effectiveReviewDeadline } from '@openconferences/schemas';
 import {
   paginateItems,
   prismaCursorArgs,
@@ -67,14 +67,14 @@ export class AssignmentsService {
     }
 
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-    await this.rounds.loadRound(userId, conferenceId, roundId, roles);
+    const round = await this.rounds.loadRound(userId, conferenceId, roundId, roles);
     const limit = resolveLimit(options.limit);
 
     const rows = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.reviewerAssignment.findMany({
-          where: { roundId, conferenceId },
+          where: { roundId, conferenceId, status: { notIn: ['DECLINED', 'REPLACED'] } },
           include: {
             paper: { select: { title: true, submissionNumber: true } },
             reviewer: { select: { name: true, email: true } },
@@ -104,7 +104,7 @@ export class AssignmentsService {
     return {
       data: page.data.map((a) => ({
         ...mapReviewerAssignment(a),
-        dueAt: reviewerAssignmentDueAt(a.createdAt, conference.reviewDueAt).toISOString(),
+        dueAt: effectiveReviewDeadline(a, round.reviewDueAt, conference.reviewDueAt).toISOString(),
         reviewProgress: a.review?.submittedAt
           ? ('SUBMITTED' as const)
           : a.review
@@ -189,7 +189,7 @@ export class AssignmentsService {
         targetRound,
         source.paperId,
         source.reviewerUserId,
-        conference.reviewDueAt,
+        targetRound.reviewDueAt ?? conference.reviewDueAt,
       );
 
       if (outcome.kind === 'created') {
@@ -274,6 +274,13 @@ export class AssignmentsService {
       throw new ForbiddenException('Insufficient permissions to assign reviewers');
     }
 
+    const explicitDueAt = input.dueAt ? new Date(input.dueAt) : undefined;
+    if (
+      explicitDueAt &&
+      (!Number.isFinite(explicitDueAt.getTime()) || explicitDueAt <= new Date())
+    ) {
+      throw new BadRequestException('Choose a future individual review deadline');
+    }
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
     const round = input.roundId
       ? await this.rounds.loadRound(userId, conferenceId, input.roundId, roles)
@@ -307,7 +314,8 @@ export class AssignmentsService {
       round,
       paperId,
       input.reviewerUserId,
-      conference.reviewDueAt,
+      round.reviewDueAt ?? conference.reviewDueAt,
+      explicitDueAt,
     );
 
     if (outcome.kind === 'skipped') {
@@ -335,6 +343,7 @@ export class AssignmentsService {
         paperId,
         reviewerUserId: input.reviewerUserId,
         roundId: round.id,
+        dueAt: outcome.assignment.dueAt,
       },
     });
 
@@ -398,6 +407,7 @@ export class AssignmentsService {
     paperId: string,
     reviewerUserId: string,
     finalReviewDueAt: Date | null,
+    explicitDueAt?: Date,
   ): Promise<
     | {
         kind: 'created';
@@ -485,7 +495,7 @@ export class AssignmentsService {
               paperId,
               reviewerUserId,
               status: 'ASSIGNED',
-              dueAt: reviewerAssignmentDueAt(new Date(), finalReviewDueAt),
+              dueAt: explicitDueAt ?? reviewerAssignmentDueAt(new Date(), finalReviewDueAt),
             },
           });
 

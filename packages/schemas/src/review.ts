@@ -20,7 +20,13 @@ export const reviewStageSchema = z.enum([
   'REVISION_REQUESTED',
 ]);
 export const invitationStatusSchema = z.enum(['PENDING', 'ACCEPTED', 'DECLINED', 'EXPIRED']);
-export const assignmentStatusSchema = z.enum(['ASSIGNED', 'ACCEPTED', 'DECLINED', 'COMPLETED']);
+export const assignmentStatusSchema = z.enum([
+  'ASSIGNED',
+  'ACCEPTED',
+  'DECLINED',
+  'COMPLETED',
+  'REPLACED',
+]);
 
 export type BidValue = z.infer<typeof bidValueSchema>;
 export type CoiType = z.infer<typeof coiTypeSchema>;
@@ -600,3 +606,90 @@ export const notifyDecisionsResponseSchema = z.object({
 });
 
 export type NotifyDecisionsResponse = z.infer<typeof notifyDecisionsResponseSchema>;
+
+/** Chair coordination exposes assignment metadata, never private draft text. */
+export const coordinationAssignmentSchema = reviewerAssignmentSchema.extend({
+  reviewerName: z.string(),
+  reviewerEmail: z.string().email(),
+  reviewProgress: z.enum(['NOT_STARTED', 'DRAFT', 'SUBMITTED']),
+  overdue: z.boolean(),
+});
+export const reviewLedgerPaperSchema = paperReviewProgressSchema.extend({
+  isCurrentCycle: z.boolean(),
+  trackId: z.string().uuid(),
+  trackName: z.string(),
+  reviewDueAt: z.string().datetime().nullable(),
+  assignments: z.array(coordinationAssignmentSchema),
+  needsReviewers: z.boolean(),
+  overdueReviewCount: z.number().int().nonnegative(),
+  readyForDecision: z.boolean(),
+  canIntervene: z.boolean(),
+});
+export const reviewCoordinationSchema = z.object({
+  observedAt: z.string().datetime(),
+  minimumReviews: z.number().int().positive(),
+  data: z.array(reviewLedgerPaperSchema),
+  summary: z.object({
+    needsReviewers: z.number().int().nonnegative(),
+    overdueReviews: z.number().int().nonnegative(),
+    overduePapers: z.number().int().nonnegative(),
+    readyForDecision: z.number().int().nonnegative(),
+    pendingInvitations: z.number().int().nonnegative().nullable(),
+  }),
+  deadlines: z.object({
+    reviewDueAt: z.string().datetime().nullable(),
+    rebuttalDueAt: z.string().datetime().nullable(),
+  }),
+});
+export type ReviewCoordinationDto = z.infer<typeof reviewCoordinationSchema>;
+export type ReviewLedgerPaperDto = z.infer<typeof reviewLedgerPaperSchema>;
+export type CoordinationAssignmentDto = z.infer<typeof coordinationAssignmentSchema>;
+
+export const assignmentInterventionSchema = z
+  .object({
+    action: z.enum(['REMIND', 'EXTEND', 'REPLACE']),
+    version: z.number().int().nonnegative(),
+    reason: z.string().trim().min(1).max(1000).optional(),
+    dueAt: z.string().datetime().optional(),
+    reviewerUserId: z.string().uuid().optional(),
+  })
+  .superRefine((input, ctx) => {
+    if (input.action !== 'REMIND' && !input.reason) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['reason'],
+        message: 'A reason is required',
+      });
+    }
+    if (input.action === 'EXTEND' && !input.dueAt) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['dueAt'],
+        message: 'A deadline is required',
+      });
+    }
+    if (input.action === 'REPLACE' && !input.reviewerUserId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['reviewerUserId'],
+        message: 'Choose a replacement reviewer',
+      });
+    }
+  });
+export type AssignmentInterventionInput = z.infer<typeof assignmentInterventionSchema>;
+export const assignmentInterventionResponseSchema = z.object({
+  message: z.string(),
+  assignmentId: z.string().uuid(),
+  notificationWarning: z.string().optional(),
+});
+
+/** Persisted assignment overrides are authoritative, including chair extensions. */
+export function effectiveReviewDeadline(
+  assignment: { createdAt: Date; dueAt?: Date | null },
+  cycleDueAt: Date | null | undefined,
+  conferenceDueAt: Date | null | undefined,
+): Date {
+  return (
+    assignment.dueAt ?? reviewerAssignmentDueAt(assignment.createdAt, cycleDueAt ?? conferenceDueAt)
+  );
+}
