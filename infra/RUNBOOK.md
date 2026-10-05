@@ -58,8 +58,8 @@ Owner/repo in the image path is always lowercase (GHCR requirement). The workflo
 
 ### What the workflow does
 
-1. On push to `main` (paths under api/worker/packages/docker) or `workflow_dispatch`.
-2. Builds `api` and `worker` in parallel on `ubuntu-latest` (not on your 2 GiB EC2).
+1. After the CI workflow succeeds for a push to `main`, and that commit changes api/worker/packages/Docker inputs. Manual `workflow_dispatch` still builds on request.
+2. Builds `api` and `worker` in parallel on `ubuntu-latest` (not on your 2 GiB EC2), from the commit CI tested.
 3. Pushes to GHCR with Buildx + GHA layer cache.
 4. Optionally GETs Coolify deploy webhooks (if secrets are set).
 

@@ -1,9 +1,13 @@
 # Build api + worker on GitHub-hosted runners and push to GHCR.
 # Coolify on the small EC2 box only pulls prebuilt images (no remote Docker build).
 #
+# This workflow does not start on push. It starts after the CI workflow
+# finishes, and it publishes images only when that run succeeded on main
+# for the same commit and the commit touches the image inputs below.
+#
 # Images:
-#   ghcr.io/<owner>/<repo>/api:<sha>|<branch>|latest
-#   ghcr.io/<owner>/<repo>/worker:<sha>|<branch>|latest
+#   ghcr.io/<owner>/<repo>/api:<sha>|main|latest
+#   ghcr.io/<owner>/<repo>/worker:<sha>|main|latest
 #
 # Optional auto-redeploy: set repository secrets
 #   COOLIFY_WEBHOOK_API, COOLIFY_WEBHOOK_WORKER
@@ -12,19 +16,10 @@
 name: Build and Push Images
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'apps/api/**'
-      - 'apps/worker/**'
-      - 'packages/**'
-      - 'infra/docker/**'
-      - 'pnpm-lock.yaml'
-      - 'package.json'
-      - 'pnpm-workspace.yaml'
-      - '.dockerignore'
-      - '.github/workflows/deploy.yml'
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       trigger_coolify:
@@ -33,15 +28,92 @@ on:
         default: true
 
 concurrency:
-  group: ghcr-${{ github.ref }}
+  group: ghcr-${{ github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
 
 jobs:
+  skip-on-red-ci:
+    name: Skip image publish
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion != 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report skipped publish
+        run: |
+          echo "CI for ${{ github.event.workflow_run.head_sha }} concluded ${{ github.event.workflow_run.conclusion }}."
+          echo "Image publish skipped."
+
+  changes:
+    name: Confirm CI and image paths
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main'
+      )
+    runs-on: ubuntu-latest
+    outputs:
+      deploy: ${{ steps.filter.outputs.deploy }}
+      sha: ${{ steps.filter.outputs.sha }}
+      branch: ${{ steps.filter.outputs.branch }}
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 2
+
+      - name: Detect deploy paths
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+        run: |
+          set -eu
+          echo "sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+          echo "branch=${HEAD_BRANCH}" >> "$GITHUB_OUTPUT"
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            echo "Manual dispatch: build images."
+            exit 0
+          fi
+
+          if git rev-parse --verify "${HEAD_SHA}^" >/dev/null 2>&1; then
+            files="$(git diff --name-only "${HEAD_SHA}^" "$HEAD_SHA")"
+          else
+            files="$(git diff-tree --no-commit-id --name-only -r "$HEAD_SHA")"
+          fi
+          echo "Changed files:"
+          printf '%s\n' "$files"
+
+          deploy=false
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case "$file" in
+              apps/api/*|apps/worker/*|packages/*|infra/docker/*|pnpm-lock.yaml|package.json|pnpm-workspace.yaml|.dockerignore|.github/workflows/deploy.yml)
+                deploy=true
+                ;;
+            esac
+          done <<EOF
+          $files
+          EOF
+
+          echo "deploy=${deploy}" >> "$GITHUB_OUTPUT"
+          if [ "$deploy" = "true" ]; then
+            echo "Image inputs changed. Building ${HEAD_SHA}."
+          else
+            echo "No api, worker, package, or Docker inputs changed. Skipping image publish."
+          fi
+
   build-and-push:
     name: Build (${{ matrix.image }})
+    needs: changes
+    if: needs.changes.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -55,8 +127,10 @@ jobs:
           - image: worker
             dockerfile: infra/docker/worker.Dockerfile
     steps:
-      - name: Checkout
+      - name: Checkout tested commit
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.sha }}
 
       - name: Set image name (lowercase for GHCR)
         id: meta
@@ -83,9 +157,9 @@ jobs:
         with:
           images: ${{ steps.meta.outputs.image }}
           tags: |
-            type=sha,prefix=,format=long
-            type=ref,event=branch
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ needs.changes.outputs.sha }}
+            type=raw,value=main,enable=${{ needs.changes.outputs.branch == 'main' }}
+            type=raw,value=latest,enable=${{ needs.changes.outputs.branch == 'main' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -102,10 +176,13 @@ jobs:
   trigger-coolify:
     name: Trigger Coolify redeploy
     needs: build-and-push
-    runs-on: ubuntu-latest
     if: >
-      github.event_name == 'push' ||
-      (github.event_name == 'workflow_dispatch' && inputs.trigger_coolify)
+      needs.build-and-push.result == 'success' &&
+      (
+        github.event_name == 'workflow_run' ||
+        (github.event_name == 'workflow_dispatch' && inputs.trigger_coolify)
+      )
+    runs-on: ubuntu-latest
     steps:
       - name: Redeploy API (optional webhook)
         env:
