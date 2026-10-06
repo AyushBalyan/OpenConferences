@@ -64,7 +64,7 @@ Owner/repo in the image path is always lowercase (GHCR requirement). The workflo
 
 1. **Build Images** starts after CI succeeds for a push to `main` whose files change api, worker, packages, or Docker inputs. It builds both images on `ubuntu-latest` and pushes only the immutable `:<sha>` tag. A GitHub runner cannot pass a local image to the next workflow, so that tag is the build artifact.
 2. **Push Images** starts after that build succeeds. It copies the `:<sha>` manifest to `:main` and `:latest` without rebuilding. Coolify tracks `:latest`.
-3. **Deploy** starts after those tags move. It applies migrations with `OWNER_DATABASE_URL`, GETs the Coolify webhooks with `Authorization: Bearer` from `COOLIFY_TOKEN` (API, then the worker 15 seconds later), and polls `https://api.fresi.org/api/v1/healthz` and `readyz`.
+3. **Deploy** starts after those tags move. It applies migrations with `OWNER_DATABASE_URL`, POSTs the Coolify webhooks with `Authorization: Bearer` from `COOLIFY_TOKEN` (API, then the worker 15 seconds later), and polls `https://api.fresi.org/api/v1/healthz` and `readyz`.
 
 Rerun **Deploy** when the webhook or health check fails. Rerun **Push Images** when the tags did not move. A Coolify failure does not rebuild the images. Manual **Deploy** (`workflow_dispatch`) migrates the current `main` SHA and calls Coolify again. Manual **Push Images** takes the full commit SHA that Build Images already published.
 

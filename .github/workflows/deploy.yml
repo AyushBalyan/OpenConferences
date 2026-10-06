@@ -24,7 +24,7 @@ on:
 
 concurrency:
   group: coolify-deploy-${{ github.event.workflow_run.head_branch || github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   gate:
@@ -152,12 +152,24 @@ jobs:
             echo "Then: gh secret set COOLIFY_WEBHOOK_API && gh secret set COOLIFY_WEBHOOK_WORKER && gh secret set COOLIFY_TOKEN"
             exit 1
           fi
-          curl -fsS -X GET "$API_WEBHOOK" -H "Authorization: Bearer ${COOLIFY_TOKEN}"
-          echo "API webhook triggered. Coolify pulls the api image."
+          trigger() {
+            name="$1"
+            url="$2"
+            code="$(curl -sS -o /tmp/coolify-body -w '%{http_code}' -X POST "$url" \
+              -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+              -H "Accept: application/json")"
+            echo "${name} webhook HTTP ${code}"
+            cat /tmp/coolify-body
+            echo
+            case "$code" in
+              200|201|202|204) ;;
+              *) exit 1 ;;
+            esac
+          }
+          trigger API "$API_WEBHOOK"
           # Stagger so a 2 GiB host is not pulling both images at once.
           sleep 15
-          curl -fsS -X GET "$WORKER_WEBHOOK" -H "Authorization: Bearer ${COOLIFY_TOKEN}"
-          echo "Worker webhook triggered. Coolify pulls the worker image."
+          trigger Worker "$WORKER_WEBHOOK"
 
   verify-api:
     name: Verify API health
