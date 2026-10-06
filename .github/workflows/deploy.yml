@@ -12,6 +12,7 @@
 # After a successful image push the workflow:
 #   1. applies migrations with the owner URL (OWNER_DATABASE_URL)
 #   2. calls Coolify deploy webhooks (COOLIFY_WEBHOOK_API, COOLIFY_WEBHOOK_WORKER)
+#      with Authorization: Bearer COOLIFY_TOKEN (deploy permission)
 #   3. waits until https://api.fresi.org/api/v1/healthz and readyz return 200
 
 name: Build and Push Images
@@ -225,6 +226,7 @@ jobs:
         env:
           API_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK_API }}
           WORKER_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK_WORKER }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
         run: |
           set -eu
           missing=0
@@ -236,16 +238,21 @@ jobs:
             echo "COOLIFY_WEBHOOK_WORKER is not set."
             missing=1
           fi
+          if [ -z "$COOLIFY_TOKEN" ]; then
+            echo "COOLIFY_TOKEN is not set."
+            missing=1
+          fi
           if [ "$missing" -ne 0 ]; then
-            echo "In Coolify, open each Docker Image resource → Webhooks → copy Deploy Webhook."
-            echo "Then: gh secret set COOLIFY_WEBHOOK_API && gh secret set COOLIFY_WEBHOOK_WORKER"
+            echo "In Coolify, open each Docker Image resource → Webhooks → copy Deploy Webhook (auth required)."
+            echo "Keys & Tokens → API tokens → create a token with the deploy permission."
+            echo "Then: gh secret set COOLIFY_WEBHOOK_API && gh secret set COOLIFY_WEBHOOK_WORKER && gh secret set COOLIFY_TOKEN"
             exit 1
           fi
-          curl -fsS -X GET "$API_WEBHOOK"
+          curl -fsS -X GET "$API_WEBHOOK" -H "Authorization: Bearer ${COOLIFY_TOKEN}"
           echo "API webhook triggered."
           # Stagger so a 2 GiB host is not pulling both images at once.
           sleep 15
-          curl -fsS -X GET "$WORKER_WEBHOOK"
+          curl -fsS -X GET "$WORKER_WEBHOOK" -H "Authorization: Bearer ${COOLIFY_TOKEN}"
           echo "Worker webhook triggered."
 
   verify-api:

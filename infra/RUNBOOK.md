@@ -62,7 +62,7 @@ Owner/repo in the image path is always lowercase (GHCR requirement). The workflo
 2. Builds `api` and `worker` in parallel on `ubuntu-latest` (not on your 2 GiB EC2), from the commit CI tested.
 3. Pushes to GHCR with Buildx + GHA layer cache.
 4. Applies migrations with the owner URL (`OWNER_DATABASE_URL`).
-5. GETs the Coolify deploy webhooks, API first, then the worker 15 seconds later.
+5. GETs the Coolify deploy webhooks with `Authorization: Bearer` from `COOLIFY_TOKEN`, API first, then the worker 15 seconds later.
 6. Polls `https://api.fresi.org/api/v1/healthz` and `readyz` until both return 200.
 
 ### GitHub settings (manual)
@@ -90,13 +90,15 @@ Owner/repo in the image path is always lowercase (GHCR requirement). The workflo
    gh secret set OWNER_DATABASE_URL
    gh secret set COOLIFY_WEBHOOK_API
    gh secret set COOLIFY_WEBHOOK_WORKER
+   gh secret set COOLIFY_TOKEN
    ```
 
-   | Secret                   | Value                                                                                                   |
-   | ------------------------ | ------------------------------------------------------------------------------------------------------- |
-   | `OWNER_DATABASE_URL`     | Owner/`postgres` session-pooler URL used only for `pnpm db:migrate:deploy`. Not the API or worker role. |
-   | `COOLIFY_WEBHOOK_API`    | Coolify → `fresi-api` → Webhooks → **Deploy Webhook** URL                                               |
-   | `COOLIFY_WEBHOOK_WORKER` | Coolify → `fresi-worker` → Webhooks → **Deploy Webhook** URL                                            |
+   | Secret                   | Value                                                                                                     |
+   | ------------------------ | --------------------------------------------------------------------------------------------------------- |
+   | `OWNER_DATABASE_URL`     | Owner/`postgres` session-pooler URL used only for `pnpm db:migrate:deploy`. Not the API or worker role.   |
+   | `COOLIFY_WEBHOOK_API`    | Coolify → `fresi-api` → Webhooks → **Deploy Webhook (auth required)** URL                                 |
+   | `COOLIFY_WEBHOOK_WORKER` | Coolify → `fresi-worker` → Webhooks → **Deploy Webhook (auth required)** URL                              |
+   | `COOLIFY_TOKEN`          | Coolify → Keys & Tokens → API tokens → token with **deploy** permission. Sent as `Authorization: Bearer`. |
 
    Image push login uses `GITHUB_TOKEN`. The API and worker runtime URLs stay in Coolify, not in these secrets.
 
@@ -214,7 +216,7 @@ EC2 security group inbound: **80/tcp** and **443/tcp** (Let’s Encrypt + HTTPS)
 
 #### Step 7 — Optional webhook
 
-Copy Coolify **Deploy Webhook** → GitHub Actions secret `COOLIFY_WEBHOOK_API`.
+Copy Coolify **Deploy Webhook (auth required)** → GitHub Actions secret `COOLIFY_WEBHOOK_API`. Create an API token with the **deploy** permission and store it as `COOLIFY_TOKEN`. The webhook URL alone returns 401.
 
 ### Worker (detailed — first-time Coolify setup)
 
@@ -378,17 +380,17 @@ sudo docker logs "$WORKER_CTR" 2>&1 | grep -iE 'error|unsafe|invalid environment
 
 #### Step 8 — Optional GitHub auto-redeploy webhook
 
-1. In Coolify → `fresi-worker` → find **Deploy Webhook** (or “Webhook URL”).
-2. Copy the URL.
-3. GitHub → this repo → **Settings** → **Secrets and variables** → **Actions**.
-4. Create/update secret:
+1. In Coolify → `fresi-worker` → Configuration → Webhooks → copy **Deploy Webhook (auth required)**.
+2. GitHub → this repo → **Settings** → **Secrets and variables** → **Actions**.
+3. Create/update secrets:
 
-| Secret                   | Value                                         |
-| ------------------------ | --------------------------------------------- |
-| `COOLIFY_WEBHOOK_WORKER` | Coolify deploy webhook URL for `fresi-worker` |
+| Secret                   | Value                                                     |
+| ------------------------ | --------------------------------------------------------- |
+| `COOLIFY_WEBHOOK_WORKER` | Coolify deploy webhook URL for `fresi-worker`             |
+| `COOLIFY_TOKEN`          | Coolify API token with the **deploy** permission (shared) |
 
-5. Confirm `COOLIFY_WEBHOOK_API` is already set for the API app.
-6. On the next successful **Build and Push Images** workflow on `main`, Actions will trigger worker redeploy (workflow staggers API vs worker).
+4. Confirm `COOLIFY_WEBHOOK_API` is already set for the API app.
+5. On the next successful **Build and Push Images** workflow on `main`, Actions sends both webhooks with `Authorization: Bearer` (API first, worker 15 seconds later).
 
 #### Step 9 — Smoke job path (after worker is Up)
 
@@ -414,6 +416,7 @@ sudo docker logs -f --tail 100 "$WORKER_CTR"
 | DNS (GoDaddy)       | A record `api` → Elastic IP     | none                     |
 | SSL                 | Coolify Let’s Encrypt           | N/A                      |
 | Webhook secret      | `COOLIFY_WEBHOOK_API`           | `COOLIFY_WEBHOOK_WORKER` |
+| Deploy token        | `COOLIFY_TOKEN` (shared)        | `COOLIFY_TOKEN` (shared) |
 
 ### Important
 
@@ -622,6 +625,6 @@ curl -sk -H 'Host: api.fresi.org' https://127.0.0.1/api/v1/healthz
 1. Push workflow to `main` and run **Build and Push Images**.
 2. Configure GHCR package visibility + Coolify registry auth.
 3. Recreate Coolify apps as Docker Image pulls (`fresi-api`, then `fresi-worker`).
-4. Wire optional webhooks (`COOLIFY_WEBHOOK_API`, `COOLIFY_WEBHOOK_WORKER`).
+4. Wire webhooks (`COOLIFY_WEBHOOK_API`, `COOLIFY_WEBHOOK_WORKER`) and `COOLIFY_TOKEN`.
 5. Verify with the commands in [Verification](#verification).
 6. Confirm Let’s Encrypt: `openssl s_client` shows issuer Let’s Encrypt for `api.fresi.org`.
