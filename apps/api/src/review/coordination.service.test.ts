@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ReviewCoordinationService } from './coordination.service';
 
 const mocks = vi.hoisted(() => ({
@@ -103,6 +103,10 @@ beforeEach(() => {
   mocks.create.mockResolvedValue({ id: 'new-assignment' });
   mocks.remind.mockResolvedValue(true);
   mocks.invitationCount.mockResolvedValue(3);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('chair review interventions', () => {
