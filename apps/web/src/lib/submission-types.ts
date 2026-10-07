@@ -123,9 +123,17 @@ export function countActiveSubmissions(
   } | null,
   papers: Pick<PaperDto, 'status'>[],
 ): number {
+  const inactiveStatuses = new Set<PaperDto['status']>([
+    'DRAFT',
+    'WITHDRAWN',
+    'WITHDRAWN_NONPAYMENT',
+  ]);
   if (submissions) {
-    const drafts = submissions.byStatus.find((item) => item.status === 'DRAFT')?.count ?? 0;
-    return Math.max(submissions.total - drafts, 0);
+    const inactiveCount = submissions.byStatus.reduce(
+      (total, item) => total + (inactiveStatuses.has(item.status) ? item.count : 0),
+      0,
+    );
+    return Math.max(submissions.total - inactiveCount, 0);
   }
-  return papers.filter((paper) => paper.status !== 'DRAFT').length;
+  return papers.filter((paper) => !inactiveStatuses.has(paper.status)).length;
 }

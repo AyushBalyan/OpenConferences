@@ -120,6 +120,33 @@ describe('paperHasCleanDownload', () => {
     ).toBe(2);
   });
 
+  it('excludes both withdrawal statuses from the conference overview count', () => {
+    expect(
+      countActiveSubmissions(
+        {
+          total: 34,
+          byStatus: [
+            { status: 'SUBMITTED', count: 32 },
+            { status: 'WITHDRAWN', count: 1 },
+            { status: 'WITHDRAWN_NONPAYMENT', count: 1 },
+          ],
+        },
+        [{ status: 'SUBMITTED' }],
+      ),
+    ).toBe(32);
+    expect(
+      countActiveSubmissions(null, [
+        { status: 'DRAFT' },
+        { status: 'WITHDRAWN' },
+        { status: 'WITHDRAWN_NONPAYMENT' },
+        { status: 'SUBMITTED' },
+        { status: 'UNDER_REVIEW' },
+        { status: 'DECISION_MADE' },
+        { status: 'CAMERA_READY' },
+      ]),
+    ).toBe(4);
+  });
+
   it('allows authors to withdraw only submitted papers and delete only drafts', () => {
     expect(canWithdrawPaper('SUBMITTED', { isAuthor: true, isCoordinator: false })).toBe(true);
     expect(canWithdrawPaper('UNDER_REVIEW', { isAuthor: true, isCoordinator: true })).toBe(false);
