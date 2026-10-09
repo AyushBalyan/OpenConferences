@@ -1,6 +1,23 @@
 import { z } from 'zod';
 import { cursorPaginationQuerySchema } from './pagination.js';
 
+export const inboxKindSchema = z.enum(['REVIEW', 'REBUTTAL', 'CONFERENCE']);
+export type InboxKind = z.infer<typeof inboxKindSchema>;
+export const inboxItemSchema = z.object({
+  id: z.string().uuid(),
+  kind: inboxKindSchema,
+  version: z.number().int(),
+  paperId: z.string().uuid().nullable(),
+  roundId: z.string().uuid().nullable(),
+  title: z.string(),
+  subject: z.string().optional(),
+  eventType: z.string().optional(),
+  updatedAt: z.string().datetime(),
+  unread: z.boolean(),
+  href: z.string(),
+});
+export type InboxItem = z.infer<typeof inboxItemSchema>;
+
 export const notificationStatusSchema = z.enum(['QUEUED', 'SENT', 'FAILED', 'BOUNCED']);
 
 export const notificationLogSchema = z.object({

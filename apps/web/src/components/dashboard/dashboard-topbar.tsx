@@ -6,6 +6,8 @@ import { CommandMenu } from '@/components/dashboard/command-menu';
 import { DashboardBreadcrumbs } from '@/components/dashboard/dashboard-breadcrumbs';
 import { UserMenu } from '@/components/dashboard/user-menu';
 import { cn } from '@/lib/utils';
+import { canCoordinateReview } from '@/lib/roles';
+import { ConferenceUpdateBell } from './conference-update-bell';
 
 type DashboardTopbarProps = {
   conferenceId?: string;
@@ -58,6 +60,9 @@ export function DashboardTopbar({
 
       <div className="flex shrink-0 items-center gap-2">
         {actions}
+        {conferenceId && canCoordinateReview(roles) ? (
+          <ConferenceUpdateBell conferenceId={conferenceId} />
+        ) : null}
         <UserMenu />
       </div>
     </header>

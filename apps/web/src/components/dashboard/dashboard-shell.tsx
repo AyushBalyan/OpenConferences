@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { DashboardTopbar } from '@/components/dashboard/dashboard-topbar';
 import { SidebarProvider, useSidebar } from '@/components/dashboard/sidebar-context';
 import { cn } from '@/lib/utils';
+import { canCoordinateReview } from '@/lib/roles';
+import { ConferenceUpdatesProvider } from './conference-update-bell';
 
 type DashboardShellProps = {
   sidebar: React.ReactNode;
@@ -156,7 +158,12 @@ function DashboardShellInner({
 export function DashboardShell(props: DashboardShellProps) {
   return (
     <SidebarProvider>
-      <DashboardShellInner {...props} />
+      <ConferenceUpdatesProvider
+        conferenceId={props.conferenceId}
+        enabled={canCoordinateReview(props.roles ?? [])}
+      >
+        <DashboardShellInner {...props} />
+      </ConferenceUpdatesProvider>
     </SidebarProvider>
   );
 }

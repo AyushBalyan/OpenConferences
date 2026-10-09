@@ -197,6 +197,7 @@ enum OutreachRecipientStatus {
 }
 
 model Organization {
+  conferenceUpdates ConferenceUpdate[]
   reviewerReminderDigests ReviewerReminderDigest[]
   inboxReadStates InboxReadState[]
   id        String    @id @db.Uuid
@@ -337,6 +338,7 @@ model TwoFactor {
 }
 
 model Conference {
+  conferenceUpdates ConferenceUpdate[]
   reviewerReminderDigests ReviewerReminderDigest[]
   inboxReadStates InboxReadState[]
   id              String           @id @db.Uuid
@@ -1062,4 +1064,26 @@ model ReviewerReminderDigest {
   notificationLog NotificationLog? @relation(fields: [notificationLogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   @@index([conferenceId, utcDay], map: "reviewer_reminder_digests_conference_day_idx")
   @@map("reviewer_reminder_digests")
+}
+
+// Immutable, in-app conference activity. Written by domain transition triggers only.
+model ConferenceUpdate {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @db.Uuid
+  conferenceId String @db.Uuid
+  kind String
+  sourceId String @db.Uuid
+  sourceVersion Int
+  message String
+  subject String
+  paperId String? @db.Uuid
+  roundId String? @db.Uuid
+  createdAt DateTime @default(dbgenerated("(statement_timestamp() AT TIME ZONE 'UTC')"))
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conference Conference @relation(fields: [conferenceId], references: [id], onDelete: Cascade)
+
+  @@unique([kind, sourceId, sourceVersion])
+  @@index([conferenceId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([organizationId])
+  @@map("conference_updates")
 }

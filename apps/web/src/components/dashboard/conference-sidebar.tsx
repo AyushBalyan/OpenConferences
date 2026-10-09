@@ -9,9 +9,11 @@ import { SidebarNavItem } from './sidebar-nav-item';
 import { useConferenceWorkspace } from './conference-workspace';
 import { useSidebarOptional } from './sidebar-context';
 import { cn } from '@/lib/utils';
+import { useConferenceUpdates } from './conference-update-bell';
 
 export function ConferenceSidebar() {
   const pathname = usePathname();
+  const { count, failed } = useConferenceUpdates();
   const { conferenceId, conference, conferences } = useConferenceWorkspace();
   const roles = conference?.myRoles ?? [];
   const groups = navGroupsForRoles(roles);
@@ -60,6 +62,8 @@ export function ConferenceSidebar() {
                   conferenceId={conferenceId}
                   pathname={pathname}
                   icon={navItemIcon(item.label)}
+                  unreadCount={item.label === 'Updates' ? count : undefined}
+                  unreadCountStale={item.label === 'Updates' && failed}
                 />
               ))}
             </div>

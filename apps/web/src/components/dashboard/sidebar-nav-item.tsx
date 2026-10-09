@@ -18,9 +18,18 @@ type SidebarNavItemProps = {
   conferenceId: string;
   pathname: string;
   icon: LucideIcon;
+  unreadCount?: number | null;
+  unreadCountStale?: boolean;
 };
 
-export function SidebarNavItem({ item, conferenceId, pathname, icon: Icon }: SidebarNavItemProps) {
+export function SidebarNavItem({
+  item,
+  conferenceId,
+  pathname,
+  icon: Icon,
+  unreadCount,
+  unreadCountStale,
+}: SidebarNavItemProps) {
   const sidebar = useSidebarOptional();
   const collapsed = sidebar?.collapsed ?? false;
   const [flyoutOpen, setFlyoutOpen] = useState(false);
@@ -39,15 +48,32 @@ export function SidebarNavItem({ item, conferenceId, pathname, icon: Icon }: Sid
         : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900',
     );
 
+  const unreadLabel =
+    unreadCount != null
+      ? `${item.label}, ${unreadCount} new notifications${unreadCountStale ? '. Count may be out of date.' : ''}`
+      : undefined;
+
   if (!hasChildren) {
     return (
       <Link
         href={href}
-        className={linkClass(active, collapsed)}
-        title={collapsed ? item.label : undefined}
+        className={cn('relative', linkClass(active, collapsed))}
+        title={collapsed ? (unreadLabel ?? item.label) : undefined}
+        aria-label={unreadLabel}
       >
         <Icon className="h-4 w-4 shrink-0 opacity-80" />
-        {!collapsed ? <span className="truncate">{item.label}</span> : null}
+        {!collapsed ? <span className="min-w-0 flex-1 truncate">{item.label}</span> : null}
+        {unreadCount != null && unreadCount > 0 ? (
+          <span
+            aria-hidden="true"
+            className={cn(
+              'shrink-0 rounded-full bg-red-600 px-1.5 text-center text-[11px] font-semibold leading-5 text-white tabular-nums',
+              collapsed ? 'absolute -right-1 -top-1 min-w-5 ring-2 ring-white' : 'min-w-5',
+            )}
+          >
+            {unreadCount > 99 ? '99+' : unreadCount}
+          </span>
+        ) : null}
       </Link>
     );
   }

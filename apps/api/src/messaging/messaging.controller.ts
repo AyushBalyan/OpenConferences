@@ -35,6 +35,8 @@ export class MessagingController {
           { userId: user.id, conferenceId: params.id, organizationId: conference.organizationId },
           query.kind,
           query.cursor,
+          roles,
+          query.unread === 'true',
         ),
       };
     });
@@ -50,6 +52,38 @@ export class MessagingController {
         body: await this.inbox.acknowledge(
           { userId: user.id, conferenceId: params.id, organizationId: conference.organizationId },
           body,
+          roles,
+        ),
+      };
+    });
+  }
+
+  @TsRestHandler(messagingContract.countConferenceUpdates)
+  @RequireMembership()
+  countConferenceUpdates(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(messagingContract.countConferenceUpdates, async ({ params }) => {
+      const conference = await this.conferences.loadConference(user.id, params.id, roles);
+      return {
+        status: 200 as const,
+        body: await this.inbox.countConferenceUpdates(
+          { userId: user.id, conferenceId: params.id, organizationId: conference.organizationId },
+          roles,
+        ),
+      };
+    });
+  }
+
+  @TsRestHandler(messagingContract.readAllConferenceUpdates)
+  @RequireMembership()
+  readAllConferenceUpdates(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(messagingContract.readAllConferenceUpdates, async ({ params, body }) => {
+      const conference = await this.conferences.loadConference(user.id, params.id, roles);
+      return {
+        status: 200 as const,
+        body: await this.inbox.readAllConferenceUpdates(
+          { userId: user.id, conferenceId: params.id, organizationId: conference.organizationId },
+          body.before,
+          roles,
         ),
       };
     });

@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   BarChart3,
+  Bell,
   ClipboardCheck,
   CreditCard,
   FileText,
@@ -172,7 +173,7 @@ export const NAV_SECTIONS = {
 } as const satisfies Record<string, NavItemConfig>;
 
 export const NAV_ITEM_ICONS: Record<string, LucideIcon> = {
-  Updates: Mail,
+  Updates: Bell,
   Overview: LayoutDashboard,
   'My submissions': FileText,
   'All submissions': FileText,
@@ -366,6 +367,7 @@ export function findNavSubItemLabel(
 }
 
 export function breadcrumbLabelForSegment(segment: string): string {
+  if (segment === 'inbox') return 'Updates';
   return BREADCRUMB_SEGMENT_LABELS[segment] ?? segment.replace(/-/g, ' ');
 }
 

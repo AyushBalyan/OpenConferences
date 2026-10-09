@@ -9,6 +9,8 @@ import {
   notificationTemplateListQuerySchema,
   resendNotificationResponseSchema,
   problemEnvelopeSchema,
+  inboxKindSchema,
+  inboxItemSchema,
 } from '@openconferences/schemas';
 import { z } from 'zod';
 
@@ -33,26 +35,20 @@ export const messagingContract = c.router({
     method: 'GET',
     path: '/conferences/:id/inbox',
     pathParams: conferenceIdParams,
-    query: z.object({ kind: z.enum(['REVIEW', 'REBUTTAL']), cursor: z.string().uuid().optional() }),
+    query: z.object({
+      kind: inboxKindSchema,
+      cursor: z.string().uuid().optional(),
+      unread: z.literal('true').optional(),
+    }),
     responses: {
       200: z.object({
-        data: z.array(
-          z.object({
-            id: z.string().uuid(),
-            kind: z.enum(['REVIEW', 'REBUTTAL']),
-            version: z.number().int(),
-            paperId: z.string().uuid(),
-            roundId: z.string().uuid(),
-            title: z.string(),
-            updatedAt: z.string().datetime(),
-            unread: z.boolean(),
-            href: z.string(),
-          }),
-        ),
+        data: z.array(inboxItemSchema),
         nextCursor: z.string().uuid().nullable(),
+        observedAt: z.string().datetime().optional(),
       }),
       401: problemEnvelopeSchema,
       403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
     },
   },
   readInbox: {
@@ -60,7 +56,7 @@ export const messagingContract = c.router({
     path: '/conferences/:id/inbox/read',
     pathParams: conferenceIdParams,
     body: z.object({
-      kind: z.enum(['REVIEW', 'REBUTTAL']),
+      kind: inboxKindSchema,
       sourceId: z.string().uuid(),
       version: z.number().int().nonnegative(),
     }),
@@ -70,6 +66,28 @@ export const messagingContract = c.router({
       403: problemEnvelopeSchema,
       404: problemEnvelopeSchema,
       409: problemEnvelopeSchema,
+    },
+  },
+  countConferenceUpdates: {
+    method: 'GET',
+    path: '/conferences/:id/inbox/count',
+    pathParams: conferenceIdParams,
+    query: z.object({}),
+    responses: {
+      200: z.object({ unreadCount: z.number().int().nonnegative() }),
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+    },
+  },
+  readAllConferenceUpdates: {
+    method: 'POST',
+    path: '/conferences/:id/inbox/read-all',
+    pathParams: conferenceIdParams,
+    body: z.object({ before: z.string().datetime() }),
+    responses: {
+      200: z.object({ read: z.literal(true) }),
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
     },
   },
   listNotificationLogs: {
