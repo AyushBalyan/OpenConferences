@@ -1,0 +1,21 @@
+{
+  "key": "reviewer.reminder_digest",
+  "kind": "conference",
+  "subject": "Review reminder: {{conferenceName}}",
+  "headline": "Your outstanding reviews",
+  "paragraphs": [
+    "Hello {{reviewerName}},",
+    "The organisers of {{conferenceName}} have requested an update on these reviews. Each assignment has its own deadline.",
+    "{{reviewItems}}"
+  ],
+  "details": [],
+  "cta": {
+    "label": "Open your reviews",
+    "url": "{{reviewUrl}}"
+  },
+  "otp": null,
+  "extraParagraphs": [],
+  "secondaryNote": "Deadlines below are shown in UTC. Please contact the organisers if you need an extension.",
+  "variables": ["conferenceName", "reviewerName", "reviewItems", "reviewUrl"],
+  "showBrandHeader": false
+}

@@ -1,7 +1,9 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { prismaQueueAdapter, type Prisma } from '@openconferences/db';
 import PgBoss from 'pg-boss';
 import { getConfig } from '@openconferences/config/env';
 import {
+  REVIEWER_DIGEST_JOB_NAME,
   EMAIL_SEND_JOB_NAME,
   FILE_SCAN_JOB_NAME,
   INVOICE_GENERATE_JOB_NAME,
@@ -38,6 +40,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     });
 
     await this.boss.start();
+    await this.boss.createQueue(REVIEWER_DIGEST_JOB_NAME);
     await this.boss.createQueue(EMAIL_SEND_JOB_NAME);
     await this.boss.createQueue(NOTIFICATION_SEND_JOB_NAME);
     await this.boss.createQueue(REMINDER_SWEEP_JOB_NAME);
@@ -54,6 +57,20 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       await this.boss.stop({ graceful: true, timeout: 10000 });
       this.boss = null;
     }
+  }
+
+  async enqueueReviewerDigest(
+    input: { digestId: string; requestId: string },
+    tx: Prisma.TransactionClient,
+  ): Promise<string | null> {
+    if (!this.boss) throw new Error('Queue is not initialized');
+    return this.boss.send(REVIEWER_DIGEST_JOB_NAME, input, {
+      db: prismaQueueAdapter(tx),
+      singletonKey: input.requestId,
+      retryLimit: 5,
+      retryDelay: 30,
+      retryBackoff: true,
+    });
   }
 
   async sendEmail(input: EmailJobPayload): Promise<string | null> {

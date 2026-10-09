@@ -1,6 +1,12 @@
 import { initContract } from '@ts-rest/core';
 import {
   reviewCoordinationSchema,
+  reviewerOverviewQuerySchema,
+  reviewerOverviewSchema,
+  reviewerDigestPreviewInputSchema,
+  reviewerDigestInputSchema,
+  reviewerDigestPreviewSchema,
+  reviewerDigestResultSchema,
   assignmentInterventionSchema,
   assignmentInterventionResponseSchema,
   reviewRoundSchema,
@@ -97,6 +103,50 @@ const bidListQuerySchema = cursorPaginationQuerySchema.extend({
 const paperPoolQuerySchema = cursorPaginationQuerySchema;
 
 export const reviewContract = c.router({
+  getReviewerOverview: {
+    method: 'GET',
+    path: '/conferences/:conferenceId/reviewer-overview',
+    pathParams: conferenceParams,
+    query: reviewerOverviewQuerySchema,
+    responses: {
+      200: reviewerOverviewSchema,
+      400: problemEnvelopeSchema,
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+    },
+    summary: 'Conference reviewer workload and historical assignment overview',
+  },
+  previewReviewerDigest: {
+    method: 'POST',
+    path: '/conferences/:conferenceId/reviewers/:reviewerUserId/reminders/preview',
+    pathParams: conferenceParams.extend({ reviewerUserId: z.string().uuid() }),
+    body: reviewerDigestPreviewInputSchema,
+    responses: {
+      200: reviewerDigestPreviewSchema,
+      400: problemEnvelopeSchema,
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+      409: problemEnvelopeSchema,
+    },
+    summary: 'Preview a consolidated reviewer reminder',
+  },
+  sendReviewerDigest: {
+    method: 'POST',
+    path: '/conferences/:conferenceId/reviewers/:reviewerUserId/reminders',
+    pathParams: conferenceParams.extend({ reviewerUserId: z.string().uuid() }),
+    body: reviewerDigestInputSchema,
+    responses: {
+      200: reviewerDigestResultSchema,
+      400: problemEnvelopeSchema,
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+      409: problemEnvelopeSchema,
+    },
+    summary: 'Prepare one daily reviewer reminder digest',
+  },
   getCoordination: {
     method: 'GET',
     path: '/conferences/:conferenceId/review-coordination',

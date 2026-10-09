@@ -1536,3 +1536,44 @@ export async function interveneReviewerAssignment(
   }
   throw new Error('The action could not be completed. Refresh the ledger before retrying.');
 }
+
+export async function fetchReviewerOverview(
+  conferenceId: string,
+  query: import('@openconferences/schemas').ReviewerOverviewQuery,
+) {
+  const result = await apiClient.review.getReviewerOverview({ params: { conferenceId }, query });
+  if (result.status === 200) return result.body;
+  throw new Error('Could not load reviewer overview. Refresh to try again.');
+}
+export async function previewReviewerDigest(
+  conferenceId: string,
+  reviewerUserId: string,
+  assignments: Array<{ id: string; version: number }>,
+) {
+  const result = await apiClient.review.previewReviewerDigest({
+    params: { conferenceId, reviewerUserId },
+    body: { assignments },
+  });
+  if (result.status === 200) return result.body;
+  throw new Error(
+    result.body && typeof result.body === 'object' && 'detail' in result.body
+      ? String(result.body.detail)
+      : 'Could not preview this reminder. Refresh and try again.',
+  );
+}
+export async function sendReviewerDigest(
+  conferenceId: string,
+  reviewerUserId: string,
+  body: import('@openconferences/schemas').ReviewerDigestInput,
+) {
+  const result = await apiClient.review.sendReviewerDigest({
+    params: { conferenceId, reviewerUserId },
+    body,
+  });
+  if (result.status === 200) return result.body;
+  throw new Error(
+    result.body && typeof result.body === 'object' && 'detail' in result.body
+      ? String(result.body.detail)
+      : 'Could not request this reminder. Refresh and try again.',
+  );
+}

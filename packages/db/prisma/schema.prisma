@@ -197,6 +197,7 @@ enum OutreachRecipientStatus {
 }
 
 model Organization {
+  reviewerReminderDigests ReviewerReminderDigest[]
   inboxReadStates InboxReadState[]
   id        String    @id @db.Uuid
   slug      String
@@ -233,6 +234,8 @@ model Organization {
 }
 
 model User {
+  reviewerReminderDigests ReviewerReminderDigest[] @relation("DigestReviewer")
+  requestedReviewerDigests ReviewerReminderDigest[] @relation("DigestRequester")
   inboxReadStates InboxReadState[]
   id               String    @id @db.Uuid
   name             String
@@ -334,6 +337,7 @@ model TwoFactor {
 }
 
 model Conference {
+  reviewerReminderDigests ReviewerReminderDigest[]
   inboxReadStates InboxReadState[]
   id              String           @id @db.Uuid
   organizationId  String           @db.Uuid
@@ -879,6 +883,7 @@ model NotificationTemplate {
 }
 
 model NotificationLog {
+  reviewerReminderDigests ReviewerReminderDigest[]
   id                String             @id @db.Uuid
   organizationId    String?            @db.Uuid
   conferenceId      String?            @db.Uuid
@@ -1030,4 +1035,31 @@ model OutreachWebhookEvent {
 
   @@index([emailId])
   @@map("outreach_webhook_events")
+}
+
+// Durable manual digest outbox. No review text is stored; snapshot contains mail metadata only.
+model ReviewerReminderDigest {
+  id String @id @db.Uuid
+  organizationId String @db.Uuid
+  conferenceId String @db.Uuid
+  reviewerUserId String @db.Uuid
+  requestedById String @db.Uuid
+  requestId String @unique @db.Uuid
+  utcDay String
+  status String @default("PREPARING")
+  snapshot Json
+  cancelledSnapshots Json @default("[]")
+  notificationLogId String? @db.Uuid
+  error String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([conferenceId, reviewerUserId, utcDay])
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conference Conference @relation(fields: [conferenceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reviewer User @relation("DigestReviewer", fields: [reviewerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  requestedBy User @relation("DigestRequester", fields: [requestedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  notificationLog NotificationLog? @relation(fields: [notificationLogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  @@index([conferenceId, utcDay], map: "reviewer_reminder_digests_conference_day_idx")
+  @@map("reviewer_reminder_digests")
 }

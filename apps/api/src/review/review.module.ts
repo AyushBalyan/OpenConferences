@@ -1,4 +1,5 @@
 import { ReviewCoordinationService } from './coordination.service';
+import { ReviewerOverviewService } from './reviewer-overview.service';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { AuditModule } from '../audit/audit.module';
@@ -19,6 +20,7 @@ import { RoundsService } from './rounds.service';
   controllers: [ReviewController, ReviewInvitationController],
   providers: [
     ReviewCoordinationService,
+    ReviewerOverviewService,
     RoundsService,
     InvitationsService,
     BidsService,

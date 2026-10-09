@@ -1,8 +1,11 @@
+import { processReviewerDigestJob, recordDigestFailure } from './reviewer-digest.js';
 import PgBoss from 'pg-boss';
 import pino from 'pino';
 import { getConfig } from '@openconferences/config/env';
 import { assertSafeDatabaseRole } from '@openconferences/db';
 import {
+  REVIEWER_DIGEST_JOB_NAME,
+  reviewerDigestJobSchema,
   EMAIL_SEND_JOB_NAME,
   FILE_SCAN_JOB_NAME,
   INVOICE_GENERATE_JOB_NAME,
@@ -53,6 +56,7 @@ async function startWorker(): Promise<void> {
   logger.info('pg-boss worker started');
   logger.info({ endpoint: config.s3.endpoint, bucket: config.s3.bucket }, 'object store');
 
+  await boss.createQueue(REVIEWER_DIGEST_JOB_NAME);
   await boss.createQueue(NOOP_JOB_NAME);
   await boss.createQueue(EMAIL_SEND_JOB_NAME);
   await boss.createQueue(NOTIFICATION_SEND_JOB_NAME);
@@ -62,6 +66,18 @@ async function startWorker(): Promise<void> {
   await boss.createQueue(DISCARD_SWEEP_JOB_NAME);
   await boss.createQueue(PAYMENT_RECONCILE_JOB_NAME);
   await boss.createQueue(OUTREACH_SEND_JOB_NAME);
+
+  await boss.work(REVIEWER_DIGEST_JOB_NAME, { includeMetadata: true }, async (jobs) => {
+    for (const job of jobs) {
+      const payload = reviewerDigestJobSchema.parse(job.data);
+      try {
+        await processReviewerDigestJob(boss!, payload);
+      } catch (err) {
+        await recordDigestFailure(payload, err, job.retryCount >= job.retryLimit);
+        throw err;
+      }
+    }
+  });
 
   await boss.work(NOOP_JOB_NAME, async (jobs) => {
     for (const job of jobs) {

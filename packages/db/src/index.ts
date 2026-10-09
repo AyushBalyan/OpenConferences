@@ -93,11 +93,12 @@ export async function assertSafeDatabaseRole(client: PrismaClient = prisma): Pro
 export async function withTenantContext<T>(
   ctx: TenantContext,
   fn: (tx: TransactionClient) => Promise<T>,
+  options?: { isolationLevel?: Prisma.TransactionIsolationLevel; timeout?: number },
 ): Promise<T> {
   return prisma.$transaction(async (tx) => {
     await applyTenantGucs(tx, ctx);
     return fn(tx);
-  });
+  }, options);
 }
 
 export { PrismaClient, Prisma };
@@ -168,3 +169,8 @@ export type {
   OutreachRecipient,
   OutreachWebhookEvent,
 } from '@prisma/client';
+export {
+  prismaQueueAdapter,
+  validateDigestTargets,
+  renderReviewerDigest,
+} from './reviewer-digest.js';

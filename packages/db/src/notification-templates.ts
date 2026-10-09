@@ -24,6 +24,7 @@ export type LayoutOptions = {
   otp?: { code: string; expiresLabel: string };
   secondaryNote?: string;
   brand?: string | null;
+  showBrandHeader?: boolean;
 };
 
 type LetterInput = LayoutOptions & {
@@ -70,11 +71,12 @@ ${cells}
 
 export function buildEmailHtml(options: LayoutOptions): string {
   const brand = options.brand === undefined ? CONFERENCE_BRAND : options.brand;
-  const eyebrow = brand
-    ? `<tr><td style="padding:22px 28px 0;">
+  const eyebrow =
+    brand && options.showBrandHeader !== false
+      ? `<tr><td style="padding:22px 28px 0;">
 <p style="margin:0;font-size:12px;line-height:1.4;letter-spacing:0.1em;text-transform:uppercase;font-weight:600;color:${MUTED};">${brand}</p>
 </td></tr>`
-    : '';
+      : '';
 
   const paragraphsHtml = options.paragraphs.map(p).join('\n');
   const detailsHtml = options.details?.length ? detailsBlock(options.details) : '';
@@ -214,6 +216,7 @@ function letter(input: LetterInput): PlatformNotificationTemplate {
     otp: input.otp,
     secondaryNote: input.secondaryNote,
     brand: input.brand,
+    showBrandHeader: input.showBrandHeader,
   };
   return {
     key: input.key,
@@ -225,6 +228,21 @@ function letter(input: LetterInput): PlatformNotificationTemplate {
 }
 
 export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
+  letter({
+    key: 'reviewer.reminder_digest',
+    showBrandHeader: false,
+    subject: 'Review reminder: {{conferenceName}}',
+    headline: 'Your outstanding reviews',
+    paragraphs: [
+      'Hello {{reviewerName}},',
+      'The organisers of {{conferenceName}} have requested an update on these reviews. Each assignment has its own deadline.',
+      '{{reviewItems}}',
+    ],
+    cta: { label: 'Open your reviews', url: '{{reviewUrl}}' },
+    secondaryNote:
+      'Deadlines below are shown in UTC. Please contact the organisers if you need an extension.',
+    variables: ['conferenceName', 'reviewerName', 'reviewItems', 'reviewUrl'],
+  }),
   letter({
     key: 'auth.email_verify',
     brand: null,

@@ -334,6 +334,11 @@ export function OrganizerDashboard({
                     Paper review ledger
                   </Link>
                 </Button>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={`/dashboard/conferences/${conferenceId}/reviews/reviewers`}>
+                    Reviewer overview
+                  </Link>
+                </Button>
                 <Button asChild size="sm" variant="outline">
                   <Link href={`/dashboard/conferences/${conferenceId}/reviews/assignments/current`}>
                     Assignments

@@ -100,6 +100,10 @@ export const NAV_SECTIONS = {
     label: 'Paper review ledger',
     href: (conferenceId: string) => `/dashboard/conferences/${conferenceId}/reviews/rounds`,
   },
+  reviewerOverview: {
+    label: 'Reviewer overview',
+    href: (conferenceId: string) => `/dashboard/conferences/${conferenceId}/reviews/reviewers`,
+  },
   assignments: {
     label: 'Assignments',
     href: (conferenceId: string) => `/dashboard/conferences/${conferenceId}/reviews/assignments`,
@@ -180,6 +184,7 @@ export const NAV_ITEM_ICONS: Record<string, LucideIcon> = {
   'My reviews': ClipboardCheck,
   'Review rounds': ClipboardCheck,
   'Paper review ledger': ClipboardCheck,
+  'Reviewer overview': Users,
   Assignments: UserCheck,
   Decisions: ClipboardCheck,
   Registrations: CreditCard,
@@ -273,6 +278,7 @@ export function navGroupsForRoles(roles: string[]): NavGroupConfig[] {
         NAV_SECTIONS.biddingOversight,
         NAV_SECTIONS.coiOrganizer,
         NAV_SECTIONS.reviewRounds,
+        NAV_SECTIONS.reviewerOverview,
         NAV_SECTIONS.assignments,
         NAV_SECTIONS.decisions,
         NAV_SECTIONS.registrations,
@@ -311,7 +317,10 @@ export function isNavItemActive(
   pathname: string,
 ): boolean {
   const base = item.href(conferenceId);
-  return pathname === base || pathname.startsWith(`${base}/`);
+  return (
+    pathname === base ||
+    (base !== `/dashboard/conferences/${conferenceId}` && pathname.startsWith(`${base}/`))
+  );
 }
 
 export function sectionSubnavTabs(
@@ -372,8 +381,8 @@ export function buildDashboardBreadcrumbs(
     return [{ label: 'Home' }];
   }
 
-  const conferenceIndex = pathname.split('/').indexOf('conferences');
   const segments = pathname.split('/').filter(Boolean);
+  const conferenceIndex = segments.indexOf('conferences');
   if (conferenceIndex < 0 || !segments[conferenceIndex + 1]) {
     return items;
   }
@@ -417,7 +426,10 @@ export function buildDashboardBreadcrumbs(
         subPath += `/${segment}`;
         const isLast = index === tail.length - 2;
         items.push({
-          label: breadcrumbLabelForSegment(segment),
+          label:
+            tail[0] === 'reviews' && segment === 'reviewers'
+              ? 'Reviewer overview'
+              : breadcrumbLabelForSegment(segment),
           href: isLast ? undefined : subPath,
         });
       });
@@ -430,7 +442,10 @@ export function buildDashboardBreadcrumbs(
     path += `/${segment}`;
     const isLast = index === tail.length - 1;
     items.push({
-      label: breadcrumbLabelForSegment(segment),
+      label:
+        tail[0] === 'reviews' && segment === 'reviewers'
+          ? 'Reviewer overview'
+          : breadcrumbLabelForSegment(segment),
       href: isLast ? undefined : path,
     });
   });

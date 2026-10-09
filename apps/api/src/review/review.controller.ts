@@ -1,3 +1,4 @@
+import { ReviewerOverviewService } from './reviewer-overview.service';
 import { ReviewCoordinationService } from './coordination.service';
 import { Controller, NotFoundException, UseGuards } from '@nestjs/common';
 import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
@@ -26,6 +27,7 @@ import { RoundsService } from './rounds.service';
 @UseGuards(AuthGuard, MembershipGuard)
 export class ReviewController {
   constructor(
+    private readonly reviewerOverview: ReviewerOverviewService,
     private readonly coordination: ReviewCoordinationService,
     private readonly rounds: RoundsService,
     private readonly invitations: InvitationsService,
@@ -36,6 +38,48 @@ export class ReviewController {
     private readonly rebuttals: RebuttalsService,
     private readonly decisions: DecisionsService,
   ) {}
+
+  @TsRestHandler(reviewContract.getReviewerOverview)
+  @RequireReviewCoordination()
+  @RequireMembership()
+  getReviewerOverview(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(reviewContract.getReviewerOverview, async ({ params, query }) => ({
+      status: 200 as const,
+      body: await this.reviewerOverview.overview(user.id, params.conferenceId, roles, query),
+    }));
+  }
+
+  @TsRestHandler(reviewContract.previewReviewerDigest)
+  @RequireReviewCoordination()
+  @RequireMembership()
+  previewReviewerDigest(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(reviewContract.previewReviewerDigest, async ({ params, body }) => ({
+      status: 200 as const,
+      body: await this.reviewerOverview.preview(
+        user.id,
+        params.conferenceId,
+        params.reviewerUserId,
+        roles,
+        body.assignments,
+      ),
+    }));
+  }
+
+  @TsRestHandler(reviewContract.sendReviewerDigest)
+  @RequireReviewCoordination()
+  @RequireMembership()
+  sendReviewerDigest(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(reviewContract.sendReviewerDigest, async ({ params, body }) => ({
+      status: 200 as const,
+      body: await this.reviewerOverview.send(
+        user.id,
+        params.conferenceId,
+        params.reviewerUserId,
+        roles,
+        body,
+      ),
+    }));
+  }
 
   @TsRestHandler(reviewContract.getCoordination)
   @RequireReviewCoordination()

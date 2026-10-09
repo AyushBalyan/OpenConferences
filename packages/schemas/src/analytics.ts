@@ -5,6 +5,7 @@ import { registrationStatusSchema } from './billing.js';
 
 export const analyticsNamedCountSchema = z.object({
   name: z.string(),
+  id: z.string().optional(),
   count: z.number().int().nonnegative(),
 });
 
@@ -15,6 +16,9 @@ export const analyticsAmountSchema = z.object({
 
 export const analyticsSubmissionsSchema = z.object({
   total: z.number().int().nonnegative(),
+  excluded: z
+    .object({ draft: z.number().int().nonnegative(), withdrawn: z.number().int().nonnegative() })
+    .default({ draft: 0, withdrawn: 0 }),
   byStatus: z.array(
     z.object({
       status: paperStatusSchema,
@@ -36,6 +40,8 @@ export const analyticsReviewsSchema = z.object({
   draft: z.number().int().nonnegative(),
   submitted: z.number().int().nonnegative(),
   overdue: z.number().int().nonnegative(),
+  closedIncomplete: z.number().int().nonnegative().default(0),
+  inconsistent: z.number().int().nonnegative().default(0),
   underCoveredPapers: z.number().int().nonnegative(),
   reviewerLoad: z.array(analyticsNamedCountSchema),
 });
@@ -56,6 +62,7 @@ export const analyticsRegistrationsSchema = z.object({
   paid: z.number().int().nonnegative(),
   unpaid: z.number().int().nonnegative(),
   atRisk: z.number().int().nonnegative(),
+  overdue: z.number().int().nonnegative().default(0),
   byStatus: z.array(
     z.object({
       status: registrationStatusSchema,
@@ -71,6 +78,7 @@ export const conferenceAnalyticsOverviewSchema = z.object({
   decisions: analyticsDecisionsSchema,
   registrations: analyticsRegistrationsSchema,
   revenueMinor: z.number().int(),
+  excludedCurrencyPayments: z.number().int().nonnegative().default(0),
   revenueByTiming: z.array(analyticsAmountSchema),
   revenueByAudience: z.array(analyticsAmountSchema),
   unpaidAccepted: z.number().int().nonnegative(),

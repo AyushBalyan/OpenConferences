@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { ReviewViewSwitch } from './review-view-switch';
 import { Fragment, useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type {
@@ -316,6 +317,7 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
           </Button>
         }
       />
+      <ReviewViewSwitch conferenceId={conferenceId} view="papers" />
       {error ? (
         <p role="alert" className="text-sm text-rose-700">
           {error}
