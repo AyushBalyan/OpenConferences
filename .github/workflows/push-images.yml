@@ -1,7 +1,5 @@
-# Promote images that Build Images already published.
-# Does not rebuild. Copies the immutable :<sha> manifest to :main and :latest,
-# which is what Coolify pulls. Deploy starts only after this workflow succeeds.
-
+# Promote only a complete, validated build from current main.
+# Shares a lock with Deploy so tags cannot move during a deployment.
 name: Push Images
 
 on:
@@ -11,21 +9,18 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      sha:
-        description: 'Full 40-character commit SHA already published as an image tag'
+      build_run_id:
+        description: 'Successful Build Images run ID for current main'
         required: true
         type: string
 
 concurrency:
-  group: image-push-${{ github.event.workflow_run.head_branch || github.ref_name }}
-  cancel-in-progress: true
-
-env:
-  REGISTRY: ghcr.io
+  group: production-release
+  cancel-in-progress: false
 
 jobs:
   promote:
-    name: Tag main and latest
+    name: Validate and promote both images
     if: >
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
@@ -35,84 +30,70 @@ jobs:
       packages: write
       actions: write
     steps:
-      - name: Download build marker
-        id: download
-        if: github.event_name == 'workflow_run'
+      - uses: actions/checkout@v4
+
+      - name: Download required build marker
         uses: actions/download-artifact@v4
-        continue-on-error: true
         with:
           name: image-release
           path: release
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ github.event.workflow_run.id || inputs.build_run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Resolve commit to promote
+      - name: Validate release candidate
         id: marker
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_SHA: ${{ inputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id || inputs.build_run_id }}
         run: |
-          set -eu
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            sha="$INPUT_SHA"
-            branch="main"
-          elif [ -f release/image-release.json ]; then
-            sha="$(jq -r '.sha' release/image-release.json)"
-            branch="$(jq -r '.branch' release/image-release.json)"
-          else
-            echo "release=false" >> "$GITHUB_OUTPUT"
-            echo "Build Images did not publish a commit tag. Skipping promotion."
-            exit 0
-          fi
-          if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "Refusing to promote. Expected a full 40-character SHA, got: ${sha}"
+          set -euo pipefail
+          if ! [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo '::error::Expected a Build Images run ID.'
             exit 1
           fi
-          if [ "$branch" != "main" ]; then
-            echo "release=false" >> "$GITHUB_OUTPUT"
-            echo "Branch ${branch} does not update main or latest."
-            exit 0
-          fi
-          mkdir -p release
-          printf '%s\n' "{\"sha\":\"${sha}\",\"branch\":\"${branch}\"}" > release/image-release.json
-          echo "release=true" >> "$GITHUB_OUTPUT"
-          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
-          echo "Promoting ${sha} to main and latest."
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" > source-run.json
+          CURRENT_MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          export CURRENT_MAIN_SHA
+          python3 infra/ci/release.py promote
 
       - name: Log in to GHCR
-        if: steps.marker.outputs.release == 'true'
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        if: steps.marker.outputs.release == 'true'
         uses: docker/setup-buildx-action@v3
 
-      - name: Point main and latest at the commit tag
-        if: steps.marker.outputs.release == 'true'
-        env:
-          HEAD_SHA: ${{ steps.marker.outputs.sha }}
-        run: |
-          set -eu
-          owner_repo="$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
-          for image in api worker; do
-            source="${REGISTRY}/${owner_repo}/${image}:${HEAD_SHA}"
-            echo "Promoting ${source}"
-            docker buildx imagetools inspect "$source" >/dev/null
-            docker buildx imagetools create \
-              --tag "${REGISTRY}/${owner_repo}/${image}:main" \
-              --tag "${REGISTRY}/${owner_repo}/${image}:latest" \
-              "$source"
-          done
+      - name: Verify both immutable images before changing any tag
+        run: python3 infra/ci/release.py verify-images
 
-      - name: Upload release marker
-        if: steps.marker.outputs.release == 'true'
+      - name: Point main and latest at recorded image digests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.marker.outputs.sha }}
+          API_DIGEST: ${{ steps.marker.outputs.api_digest }}
+          WORKER_DIGEST: ${{ steps.marker.outputs.worker_digest }}
+        run: |
+          set -euo pipefail
+          CURRENT_MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          export CURRENT_MAIN_SHA
+          python3 infra/ci/release.py assert-current
+          owner_repo="$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          for image in api worker; do
+            if [ "$image" = api ]; then digest="$API_DIGEST"; else digest="$WORKER_DIGEST"; fi
+            base="ghcr.io/$owner_repo/$image"
+            docker buildx imagetools create --prefer-index=false \
+              --tag "$base:main" --tag "$base:latest" "$base@$digest"
+          done
+          python3 infra/ci/release.py verify-images --tags main latest
+
+      - name: Upload promotion marker only after both tags verify
         uses: actions/upload-artifact@v4
         with:
           name: image-release
           path: release/image-release.json
-          retention-days: 5
+          retention-days: 30
+          overwrite: true
           if-no-files-found: error

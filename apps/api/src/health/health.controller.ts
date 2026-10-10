@@ -20,6 +20,9 @@ export class HealthController {
           status: 'ok' as const,
           timestamp: new Date().toISOString(),
           version: VERSION,
+          revision: /^[0-9a-f]{40}$/.test(process.env.RELEASE_SHA ?? '')
+            ? process.env.RELEASE_SHA
+            : null,
         },
       };
     });

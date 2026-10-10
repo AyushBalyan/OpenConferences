@@ -27,6 +27,11 @@ export const healthResponseSchema = z.object({
   status: healthStatusSchema,
   timestamp: z.string().datetime(),
   version: z.string().optional(),
+  revision: z
+    .string()
+    .regex(/^[0-9a-f]{40}$/)
+    .nullable()
+    .optional(),
 });
 
 export type HealthResponse = z.infer<typeof healthResponseSchema>;

@@ -1,8 +1,9 @@
 # Build api + worker on GitHub-hosted runners.
 # Coolify on the small EC2 box only pulls prebuilt images (no remote Docker build).
 #
-# This workflow starts after CI succeeds on main for a push whose files
-# affect the images. The runner cannot hand a local image to a later
+# Every successful main push CI builds both images, including test/doc-only
+# fixes after an earlier failed release. Docker caching reuses unchanged layers.
+# The runner cannot hand a local image to a later
 # workflow, so the build publishes one immutable tag:
 #   ghcr.io/<owner>/<repo>/api:<sha>
 #   ghcr.io/<owner>/<repo>/worker:<sha>
@@ -37,7 +38,7 @@ jobs:
           exit 1
 
   gate:
-    name: Confirm CI and image paths
+    name: Confirm tested main commit
     if: >
       github.event_name == 'workflow_dispatch' ||
       (
@@ -46,10 +47,12 @@ jobs:
         github.event.workflow_run.head_branch == 'main'
       )
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     outputs:
-      release: ${{ steps.filter.outputs.release }}
-      sha: ${{ steps.filter.outputs.sha }}
-      branch: ${{ steps.filter.outputs.branch }}
+      sha: ${{ steps.candidate.outputs.sha }}
+      branch: ${{ steps.candidate.outputs.branch }}
     steps:
       - name: Checkout tested commit
         uses: actions/checkout@v4
@@ -57,54 +60,24 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 2
 
-      - name: Detect image inputs
-        id: filter
+      - name: Select release commit
+        id: candidate
         env:
-          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
-          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
         run: |
-          set -eu
-          echo "sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
-          echo "branch=${HEAD_BRANCH}" >> "$GITHUB_OUTPUT"
-
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "release=true" >> "$GITHUB_OUTPUT"
-            echo "Manual dispatch: build images for ${HEAD_SHA}."
-            exit 0
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+              -f head_sha="$HEAD_SHA" -f branch=main -f per_page=100 > ci-runs.json
           fi
-
-          if git rev-parse --verify "${HEAD_SHA}^" >/dev/null 2>&1; then
-            files="$(git diff --name-only "${HEAD_SHA}^" "$HEAD_SHA")"
-          else
-            files="$(git diff-tree --no-commit-id --name-only -r "$HEAD_SHA")"
-          fi
-          echo "Changed files:"
-          printf '%s\n' "$files"
-
-          release=false
-          while IFS= read -r file; do
-            [ -z "$file" ] && continue
-            case "$file" in
-              apps/api/*|apps/worker/*|packages/*|infra/docker/*|pnpm-lock.yaml|package.json|pnpm-workspace.yaml|.dockerignore|.github/workflows/build-images.yml)
-                release=true
-                ;;
-            esac
-          done <<EOF
-          $files
-          EOF
-
-          echo "release=${release}" >> "$GITHUB_OUTPUT"
-          if [ "$release" = "true" ]; then
-            echo "Image inputs changed. Building ${HEAD_SHA}."
-          else
-            echo "No api, worker, package, or Docker inputs changed. Skipping image build."
-          fi
+          CURRENT_MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          export CURRENT_MAIN_SHA
+          python3 infra/ci/release.py select-build
 
   build:
     name: Build (${{ matrix.image }})
     needs: gate
-    if: needs.gate.outputs.release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -143,38 +116,67 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push the commit tag
+        id: image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
+          build-args: |
+            RELEASE_SHA=${{ needs.gate.outputs.sha }}
           tags: ${{ steps.meta.outputs.image }}:${{ needs.gate.outputs.sha }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
           platforms: linux/amd64
 
+      - name: Record image digest
+        env:
+          IMAGE: ${{ matrix.image }}
+          HEAD_SHA: ${{ needs.gate.outputs.sha }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          mkdir -p image-digests
+          jq -n --arg image "$IMAGE" --arg sha "$HEAD_SHA" --arg digest "$IMAGE_DIGEST" \
+            '{image: $image, sha: $sha, digest: $digest}' > "image-digests/$IMAGE.json"
+
+      - name: Upload image digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-digest-${{ matrix.image }}
+          path: image-digests/${{ matrix.image }}.json
+          retention-days: 30
+          overwrite: true
+          if-no-files-found: error
+
   record:
-    name: Record commit tags
+    name: Record release candidate
     needs: [gate, build]
-    if: needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       actions: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+
+      - name: Download both image digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: image-digest-*
+          path: image-digests
+          merge-multiple: true
+
       - name: Write release marker
         env:
           HEAD_SHA: ${{ needs.gate.outputs.sha }}
-          HEAD_BRANCH: ${{ needs.gate.outputs.branch }}
-        run: |
-          set -eu
-          mkdir -p release
-          printf '%s\n' "{\"sha\":\"${HEAD_SHA}\",\"branch\":\"${HEAD_BRANCH}\"}" > release/image-release.json
-          cat release/image-release.json
+        run: python3 infra/ci/release.py write-build
 
       - name: Upload release marker
         uses: actions/upload-artifact@v4
         with:
           name: image-release
           path: release/image-release.json
-          retention-days: 5
+          retention-days: 30
+          overwrite: true
           if-no-files-found: error

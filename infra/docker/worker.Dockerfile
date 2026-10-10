@@ -70,6 +70,10 @@ RUN pnpm --filter @openconferences/worker deploy --prod --ignore-scripts /app/ou
 
 FROM node:${NODE_VERSION}-alpine AS runner
 
+ARG RELEASE_SHA
+ENV RELEASE_SHA=${RELEASE_SHA}
+LABEL org.opencontainers.image.revision=${RELEASE_SHA}
+
 RUN apk add --no-cache openssl \
  && addgroup --system --gid 1001 nodejs \
  && adduser --system --uid 1001 worker

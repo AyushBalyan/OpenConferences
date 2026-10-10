@@ -29,6 +29,22 @@ env:
   MAIL_FROM: noreply@example.com
 
 jobs:
+  release-checks:
+    name: Release workflow checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test release gates without external services
+        run: python3 -m unittest discover -s infra/ci -p 'test_*.py' -v
+      - name: Validate release workflows
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo" --workdir /repo \
+            rhysd/actionlint:1.7.12 -color \
+            .github/workflows/ci.yml .github/workflows/build-images.yml \
+            .github/workflows/push-images.yml .github/workflows/deploy.yml
+
   ci:
     runs-on: ubuntu-latest
 

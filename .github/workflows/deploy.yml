@@ -6,7 +6,7 @@
 # 1. applies migrations with the owner URL (OWNER_DATABASE_URL)
 # 2. calls Coolify deploy webhooks so Coolify pulls :latest
 #    (COOLIFY_WEBHOOK_API, COOLIFY_WEBHOOK_WORKER, Authorization: Bearer COOLIFY_TOKEN)
-# 3. waits until https://api.fresi.org/api/v1/healthz and readyz return 200
+# 3. waits for the expected commit in healthz and healthy readyz; old API 200s do not count
 
 name: Deploy
 
@@ -17,13 +17,17 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
+      promotion_run_id:
+        description: 'Successful Push Images run ID for current main'
+        required: true
+        type: string
       trigger_coolify:
         description: 'Call Coolify deploy webhooks after migrations'
         type: boolean
         default: true
 
 concurrency:
-  group: coolify-deploy-${{ github.event.workflow_run.head_branch || github.ref_name }}
+  group: production-release
   cancel-in-progress: false
 
 jobs:
@@ -35,52 +39,56 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       actions: read
+      contents: read
+      packages: read
     outputs:
-      release: ${{ steps.marker.outputs.release }}
       sha: ${{ steps.marker.outputs.sha }}
     steps:
-      - name: Download promotion marker
-        id: download
-        if: github.event_name == 'workflow_run'
+      - uses: actions/checkout@v4
+
+      - name: Download required promotion marker
         uses: actions/download-artifact@v4
-        continue-on-error: true
         with:
           name: image-release
           path: release
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ github.event.workflow_run.id || inputs.promotion_run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Resolve commit to deploy
+      - name: Validate promoted release
         id: marker
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          HEAD_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id || inputs.promotion_run_id }}
         run: |
-          set -eu
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "release=true" >> "$GITHUB_OUTPUT"
-            echo "sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
-            echo "Manual deploy of ${HEAD_SHA}."
-            exit 0
-          fi
-          if [ ! -f release/image-release.json ]; then
-            echo "release=false" >> "$GITHUB_OUTPUT"
-            echo "Push Images did not promote a tag. Skipping Coolify."
-            exit 0
-          fi
-          sha="$(jq -r '.sha' release/image-release.json)"
-          if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "Release marker SHA is invalid."
+          set -euo pipefail
+          if ! [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo '::error::Expected a Push Images run ID.'
             exit 1
           fi
-          echo "release=true" >> "$GITHUB_OUTPUT"
-          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
-          echo "Deploying ${sha}."
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" > source-run.json
+          CURRENT_MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          export CURRENT_MAIN_SHA
+          python3 infra/ci/release.py deploy
+
+      - name: Log in to GHCR for release verification
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Verify promoted images before allowing migrations
+        run: python3 infra/ci/release.py verify-images --tags main latest
+
+      - name: Explain migration-only recovery
+        if: github.event_name == 'workflow_dispatch' && !inputs.trigger_coolify
+        run: echo 'Migration-only recovery selected. Restart and API verification are intentionally disabled.' >> "$GITHUB_STEP_SUMMARY"
 
   migrate:
     name: Apply database migrations
     needs: gate
-    if: needs.gate.outputs.release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -101,6 +109,16 @@ jobs:
         env:
           HUSKY: '0'
         run: pnpm install --frozen-lockfile --filter @openconferences/db...
+
+      - name: Reject superseded release before migrations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ needs.gate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          CURRENT_MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          export CURRENT_MAIN_SHA
+          python3 infra/ci/release.py assert-current
 
       - name: Migrate with the owner role
         env:
@@ -125,7 +143,23 @@ jobs:
         (github.event_name == 'workflow_dispatch' && inputs.trigger_coolify)
       )
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+
+      - name: Reject superseded release before restart
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ needs.gate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          CURRENT_MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          export CURRENT_MAIN_SHA
+          python3 infra/ci/release.py assert-current
+
       - name: Redeploy API then worker
         env:
           API_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK_API }}
@@ -155,7 +189,7 @@ jobs:
           trigger() {
             name="$1"
             url="$2"
-            code="$(curl -sS -o /tmp/coolify-body -w '%{http_code}' -X POST "$url" \
+            code="$(curl -sS --connect-timeout 10 --max-time 30 -o /tmp/coolify-body -w '%{http_code}' -X POST "$url" \
               -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
               -H "Accept: application/json")"
             echo "${name} webhook HTTP ${code}"
@@ -173,26 +207,32 @@ jobs:
 
   verify-api:
     name: Verify API health
-    needs: trigger-coolify
+    needs: [gate, trigger-coolify]
     if: needs.trigger-coolify.result == 'success'
     runs-on: ubuntu-latest
     steps:
-      - name: Wait for healthz and readyz
+      - name: Wait for expected API revision and readiness
+        env:
+          EXPECTED_SHA: ${{ needs.gate.outputs.sha }}
         run: |
           set -eu
           health="https://api.fresi.org/api/v1/healthz"
           ready="https://api.fresi.org/api/v1/readyz"
           for attempt in $(seq 1 40); do
-            if curl -fsS "$health" >/tmp/healthz.json && curl -fsS "$ready" >/tmp/readyz.json; then
+            if curl -fsS --max-time 10 "$health" >/tmp/healthz.json \
+              && jq -e --arg sha "$EXPECTED_SHA" '.status == "ok" and .revision == $sha' /tmp/healthz.json >/dev/null \
+              && curl -fsS --max-time 10 "$ready" >/tmp/readyz.json \
+              && jq -e '.status == "ok"' /tmp/readyz.json >/dev/null; then
               echo "API healthy (attempt ${attempt}):"
               cat /tmp/healthz.json
               echo
               cat /tmp/readyz.json
               echo
+              echo "Verified deployed API revision: ${EXPECTED_SHA}." >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
-            echo "Attempt ${attempt}/40: API not ready yet"
+            echo "Attempt ${attempt}/40: expected API revision is not ready yet"
             sleep 15
           done
-          echo "API did not become healthy within 10 minutes."
+          echo "API did not reach the expected revision and readiness within 40 checks."
           exit 1

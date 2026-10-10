@@ -21,6 +21,13 @@ describe('schemas', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it('retains valid release identity and rejects a malformed revision', () => {
+    const health = { status: 'ok', timestamp: new Date().toISOString(), revision: 'a'.repeat(40) };
+    expect(healthResponseSchema.parse(health).revision).toBe(health.revision);
+    expect(healthResponseSchema.safeParse({ ...health, revision: null }).success).toBe(true);
+    expect(healthResponseSchema.safeParse({ ...health, revision: 'main' }).success).toBe(false);
+  });
 });
 
 describe('outreach template rendering', () => {

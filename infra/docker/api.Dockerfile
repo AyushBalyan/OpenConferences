@@ -85,6 +85,10 @@ RUN pnpm --filter @openconferences/api deploy --prod --ignore-scripts /app/out/a
 
 FROM node:${NODE_VERSION}-alpine AS runner
 
+ARG RELEASE_SHA
+ENV RELEASE_SHA=${RELEASE_SHA}
+LABEL org.opencontainers.image.revision=${RELEASE_SHA}
+
 # curl: Coolify healthchecks require curl/wget inside the image.
 # openssl: Prisma/engine TLS for Postgres.
 RUN apk add --no-cache openssl curl \
