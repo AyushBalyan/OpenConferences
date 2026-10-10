@@ -9,6 +9,7 @@ async function mockApi(
   page: Page,
   options: { role?: string; empty?: boolean; fail?: boolean } = {},
 ) {
+  const webOrigin = new URL(test.info().project.use.baseURL ?? 'http://localhost:3000').origin;
   const conference = {
     id,
     organizationId: id,
@@ -67,7 +68,7 @@ async function mockApi(
       await route.fulfill({
         status: 204,
         headers: {
-          'access-control-allow-origin': 'http://localhost:3006',
+          'access-control-allow-origin': webOrigin,
           'access-control-allow-credentials': 'true',
           'access-control-allow-headers': 'content-type',
           'access-control-allow-methods': 'GET,POST,OPTIONS',
@@ -127,7 +128,7 @@ async function mockApi(
       contentType: 'application/json',
       body: JSON.stringify(body),
       headers: {
-        'access-control-allow-origin': 'http://localhost:3006',
+        'access-control-allow-origin': webOrigin,
         'access-control-allow-credentials': 'true',
       },
     });

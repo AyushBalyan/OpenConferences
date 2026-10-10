@@ -1,14 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
+const port = process.env.IN_APP_UPDATES_WEB_PORT ?? '3006';
+const baseURL = `http://localhost:${port}`;
 export default defineConfig({
   testDir: './e2e',
   testMatch: 'in-app-updates.spec.ts',
   workers: 1,
   timeout: 45000,
   reporter: 'list',
-  use: { baseURL: 'http://localhost:3006', ...devices['Desktop Chrome'] },
+  use: { baseURL, ...devices['Desktop Chrome'] },
   webServer: {
-    command: 'corepack pnpm --filter @openconferences/web exec next dev --port 3006',
-    url: 'http://localhost:3006',
+    command: `corepack pnpm --filter @openconferences/web exec next dev --port ${port}`,
+    url: baseURL,
     reuseExistingServer: false,
     timeout: 120000,
     env: {
