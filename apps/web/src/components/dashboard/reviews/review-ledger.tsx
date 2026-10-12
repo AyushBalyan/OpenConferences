@@ -91,22 +91,31 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
   const [reviewerId, setReviewerId] = useState('');
   const [members, setMembers] = useState<Member[]>([]);
   const [membersError, setMembersError] = useState<string | null>(null);
+  const [reviewerRoster, setReviewerRoster] = useState<Member[]>([]);
+  const [reviewerRosterError, setReviewerRosterError] = useState(false);
   const [results, setResults] = useState<ActionResult[]>([]);
-  const load = useCallback(async () => {
-    const next = await fetchReviewCoordination(conferenceId);
-    setSnapshot(next);
-    setError(null);
-  }, [conferenceId]);
+  const load = useCallback(
+    async (isActive: () => boolean = () => true) => {
+      const [ledger, roster] = await Promise.allSettled([
+        fetchReviewCoordination(conferenceId),
+        fetchMembers(conferenceId, 'REVIEWER'),
+      ]);
+      if (!isActive()) return;
+      setReviewerRosterError(roster.status === 'rejected');
+      if (roster.status === 'fulfilled') setReviewerRoster(roster.value);
+      if (ledger.status === 'rejected') throw ledger.reason;
+      setSnapshot(ledger.value);
+      setError(null);
+    },
+    [conferenceId],
+  );
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    fetchReviewCoordination(conferenceId)
-      .then((next) => {
-        if (alive) {
-          setSnapshot(next);
-          setError(null);
-        }
-      })
+    setSnapshot(null);
+    setReviewerRoster([]);
+    setReviewerRosterError(false);
+    load(() => alive)
       .catch((err) => {
         if (alive) setError(err instanceof Error ? err.message : 'Failed to load the ledger');
       })
@@ -116,7 +125,7 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
     return () => {
       alive = false;
     };
-  }, [conferenceId]);
+  }, [load]);
   useEffect(() => {
     if (action) {
       actionHeading.current?.focus();
@@ -144,12 +153,13 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
     ...new Map((snapshot?.data ?? []).map((p) => [p.trackId, p.trackName])).entries(),
   ];
   const reviewers = [
-    ...new Map(
-      (snapshot?.data ?? []).flatMap((p) =>
-        p.assignments.map((a) => [a.reviewerUserId, a.reviewerName] as const),
+    ...new Map([
+      ...(snapshot?.data ?? []).flatMap((p) =>
+        p.assignments.map((a) => [a.reviewerUserId, a.reviewerName || a.reviewerEmail] as const),
       ),
-    ).entries(),
-  ];
+      ...reviewerRoster.map((m) => [m.userId, m.name || m.email] as const),
+    ]).entries(),
+  ].sort(([idA, nameA], [idB, nameB]) => nameA.localeCompare(nameB) || idA.localeCompare(idB));
   const cycles = [
     ...new Set((snapshot?.data ?? []).flatMap((p) => (p.roundNumber ? [p.roundNumber] : []))),
   ].sort((a, b) => a - b);
@@ -321,6 +331,11 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
       {error ? (
         <p role="alert" className="text-sm text-rose-700">
           {error}
+        </p>
+      ) : null}
+      {reviewerRosterError ? (
+        <p role="alert" className="text-sm text-rose-700">
+          Could not load all reviewers. Try Refresh.
         </p>
       ) : null}
       <nav aria-label="Review attention queues" className="flex flex-wrap gap-2">

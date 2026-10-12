@@ -117,8 +117,36 @@ function snapshot(): ReviewCoordinationDto {
     ],
   };
 }
-async function mockApi(page: Page, options: { failSecond?: boolean; ledgerFails?: boolean } = {}) {
+async function mockApi(
+  page: Page,
+  options: {
+    failSecond?: boolean;
+    ledgerFails?: boolean;
+    reviewerPages?: boolean;
+    reviewersFail?: boolean;
+  } = {},
+) {
   const data = snapshot();
+  const grace = {
+    userId: '00000000-0000-4000-8000-000000000008',
+    name: 'Grace Reviewer',
+    email: 'grace@example.test',
+    roles: ['REVIEWER'],
+    scope: 'CONFERENCE',
+    membershipId: userId,
+  };
+  const members = options.reviewerPages
+    ? [
+        grace,
+        ...Array.from({ length: 100 }, (_, i) => ({
+          ...grace,
+          userId: `00000000-0000-4000-8000-${String(i + 100).padStart(12, '0')}`,
+          name: `Roster reviewer ${String(i).padStart(3, '0')}`,
+          email: `reviewer${i}@example.test`,
+        })),
+        { ...grace, scope: 'ORGANIZATION', membershipId: conferenceId },
+      ]
+    : [grace];
   const assignments: Array<{ reviewerUserId: string; dueAt: string }> = [];
   const actions: Array<{
     action: string;
@@ -183,21 +211,19 @@ async function mockApi(page: Page, options: { failSecond?: boolean; ledgerFails?
         status = 500;
         body = { detail: 'Unavailable' };
       } else body = data;
-    } else if (endpoint.endsWith('/members'))
-      body = {
-        data: [
-          {
-            userId: '00000000-0000-4000-8000-000000000008',
-            name: 'Grace Reviewer',
-            email: 'grace@example.test',
-            roles: ['REVIEWER'],
-            scope: 'CONFERENCE',
-            membershipId: userId,
-          },
-        ],
-        nextCursor: null,
-      };
-    else if (endpoint === `/conferences/${conferenceId}`) body = conference;
+    } else if (endpoint.endsWith('/members')) {
+      if (options.reviewersFail) {
+        status = 500;
+        body = { detail: 'Unavailable' };
+      } else {
+        const offset = Number(url.searchParams.get('cursor') ?? 0);
+        const limit = Number(url.searchParams.get('limit') ?? 100);
+        body = {
+          data: members.slice(offset, offset + limit),
+          nextCursor: offset + limit < members.length ? String(offset + limit) : null,
+        };
+      }
+    } else if (endpoint === `/conferences/${conferenceId}`) body = conference;
     else if (endpoint === '/conferences') body = { data: [conference], nextCursor: null };
     else if (endpoint.endsWith('/papers'))
       body = {
@@ -283,6 +309,57 @@ test('historical cycles are browseable and cannot be selected for intervention',
   await expect(page.getByRole('button', { name: 'Replace reviewer', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Select unfinished reviews' })).toBeDisabled();
   await expect(page).toHaveURL(/history=HISTORICAL/);
+});
+test('reviewer filter includes the full paginated roster once per reviewer', async ({ page }) => {
+  await mockApi(page, { reviewerPages: true });
+  await page.goto(path);
+  const reviewers = page.getByRole('combobox', { name: 'Reviewer', exact: true });
+  await expect(reviewers.locator('option')).toHaveCount(103);
+  await expect(reviewers.locator('option', { hasText: 'Grace Reviewer' })).toHaveCount(1);
+  await expect(reviewers.locator('option')).toHaveText([
+    'All reviewers',
+    'Ada Reviewer',
+    'Grace Reviewer',
+    ...Array.from({ length: 100 }, (_, i) => `Roster reviewer ${String(i).padStart(3, '0')}`),
+  ]);
+  await reviewers.selectOption('00000000-0000-4000-8000-000000000199');
+  await expect(page.getByText('No cycles match these filters')).toBeVisible();
+  await expect(page).toHaveURL(/reviewer=00000000-0000-4000-8000-000000000199/);
+  await reviewers.selectOption('');
+  await expect(page.getByText('Cycle 2', { exact: true })).toBeVisible();
+});
+test('reviewer filter retains reviewers found only in historical assignments', async ({ page }) => {
+  const { data } = await mockApi(page);
+  const historicalReviewer = '00000000-0000-4000-8000-000000000011';
+  Object.assign(data.data[1]!.assignments[0]!, {
+    reviewerUserId: historicalReviewer,
+    reviewerName: 'Former Reviewer',
+    reviewerEmail: 'former@example.test',
+  });
+  await page.goto(path);
+  const reviewers = page.getByRole('combobox', { name: 'Reviewer', exact: true });
+  await expect(reviewers.locator('option', { hasText: 'Former Reviewer' })).toHaveCount(1);
+  await reviewers.selectOption(historicalReviewer);
+  await expect(page.getByText('No cycles match these filters')).toBeVisible();
+  await page.getByRole('combobox', { name: 'History', exact: true }).selectOption('HISTORICAL');
+  await expect(page.getByText('Cycle 1 · Historical')).toBeVisible();
+  await expect(reviewers).toHaveValue(historicalReviewer);
+});
+test('roster failures keep the ledger usable and Refresh retries the reviewer list', async ({
+  page,
+}) => {
+  const options = { reviewersFail: true };
+  await mockApi(page, options);
+  await page.goto(path);
+  const rosterError = page.getByRole('alert').filter({ hasText: 'Could not load all reviewers' });
+  await expect(rosterError).toHaveText('Could not load all reviewers. Try Refresh.');
+  await expect(page.getByText('Cycle 2', { exact: true })).toBeVisible();
+  const reviewers = page.getByRole('combobox', { name: 'Reviewer', exact: true });
+  await expect(reviewers.locator('option', { hasText: 'Ada Reviewer' })).toHaveCount(1);
+  options.reviewersFail = false;
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(reviewers.locator('option', { hasText: 'Grace Reviewer' })).toHaveCount(1);
+  await expect(rosterError).toHaveCount(0);
 });
 test('reminder requires preview and extension refreshes version and deadline', async ({ page }) => {
   const { actions } = await mockApi(page);
