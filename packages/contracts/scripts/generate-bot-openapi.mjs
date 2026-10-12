@@ -78,6 +78,7 @@ const doc = generateOpenApi(
 const output = JSON.stringify(doc, null, 2) + '\n';
 const target = new URL('../../../docs/api/bot-v1.openapi.json', import.meta.url);
 if (process.argv.includes('--check')) {
-  if (readFileSync(target, 'utf8') !== output)
+  // Repository formatting hooks may reflow arrays without changing the contract.
+  if (JSON.stringify(JSON.parse(readFileSync(target, 'utf8'))) !== JSON.stringify(doc))
     throw new Error('Bot OpenAPI drift: run pnpm --filter @openconferences/contracts openapi:bot');
 } else writeFileSync(target, output);
