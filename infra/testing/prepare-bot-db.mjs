@@ -36,15 +36,23 @@ try {
     throw new Error('Database belongs to another task');
   if (!existing.length)
     await owner.$executeRaw`INSERT INTO bot_test.bot_api_test_marker(id) VALUES (${marker})`;
-  const migrated = spawnSync(
-    'corepack',
-    ['pnpm', '--filter', '@openconferences/db', 'exec', 'prisma', 'migrate', 'deploy'],
-    {
-      stdio: 'inherit',
-      env: { ...process.env, SKIP_ENV_FILE: 'true', DATABASE_URL: urls[0].toString() },
-    },
-  );
-  if (migrated.status !== 0) throw new Error('Local bot migrations failed');
+  // Match the normal deployment bootstrap: a fresh database needs pgboss
+  // before migrations grant permissions on it. Keep the SQL in one place.
+  const steps = [
+    ['db', 'execute', '--file', 'prisma/predeploy.sql', '--schema', 'prisma/schema.prisma'],
+    ['migrate', 'deploy'],
+  ];
+  for (const args of steps) {
+    const result = spawnSync(
+      'corepack',
+      ['pnpm', '--filter', '@openconferences/db', 'exec', 'prisma', ...args],
+      {
+        stdio: 'inherit',
+        env: { ...process.env, SKIP_ENV_FILE: 'true', DATABASE_URL: urls[0].toString() },
+      },
+    );
+    if (result.status !== 0) throw new Error(`Local bot database setup failed: ${args[0]}`);
+  }
   await owner.$executeRawUnsafe('GRANT USAGE ON SCHEMA bot_test TO openconferences_api');
   await owner.$executeRawUnsafe(
     'GRANT SELECT ON bot_test.bot_api_test_marker TO openconferences_api',

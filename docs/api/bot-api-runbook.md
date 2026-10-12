@@ -59,7 +59,7 @@ export BOT_API_TEST_MARKER='my-disposable-bot-api-cluster'
 BOT_API_TEST_ALLOW_MIGRATIONS=true corepack pnpm db:prepare:bot
 ```
 
-Provision `LOGIN` and local-only passwords for `openconferences_api` and `openconferences_worker` using the owner on **that cluster only**. The worker test derives the worker username from the validated runtime URL, using the same local password. The migration helper never resets/drops a DB or provisions passwords. It checks locality, database prefix, owner/runtime target equality and marker ownership before migrations.
+Provision `LOGIN` and local-only passwords for `openconferences_api` and `openconferences_worker` using the owner on **that cluster only**. The worker test derives the worker username from the validated runtime URL, using the same local password. The migration helper never resets/drops a DB or provisions passwords. It checks locality, database prefix, owner/runtime target equality and marker ownership before running the shared `prisma/predeploy.sql` and migrations. The pre-migration SQL creates the `pgboss` schema required by historical permission grants on an empty database.
 
 ```sh
 ENFORCE_DB_ROLE_CHECK=true corepack pnpm test:bot

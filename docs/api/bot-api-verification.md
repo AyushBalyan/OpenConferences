@@ -22,4 +22,6 @@ The documenter compared the shipped dashboard extension against existing control
 
 ## Remaining rollout work
 
+CI bootstrap follow-up, 12 October 2026: the isolated test helper now runs the shared pre-migration SQL before migrations. Verified on a new, empty task-owned local database: all 50 migrations and all 32 bot tests passed with restricted runtime roles. The OpenAPI drift check also passed. Production databases were not used.
+
 Run the normal hosted CI checks on the eventual commit, apply the migration using the approved deployment process, configure a shared cursor secret and Redis, and enable the feature for a staging conference first. Validate production-like latency, proxy/IP configuration, retention backlog, monitoring and the actual provider adapter before enabling real grants. Grok/native bot adapters, OAuth, MCP, file access, write APIs and webhooks are outside v1.
