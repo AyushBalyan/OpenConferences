@@ -22,7 +22,10 @@
     "db:studio": "pnpm --filter @openconferences/db studio",
     "mail:test": "pnpm --filter @openconferences/worker mail:test",
     "easydmrctest": "pnpm --filter @openconferences/worker easydmrctest",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:bot": "corepack pnpm --filter @openconferences/api test:bot",
+    "test:e2e:bot": "playwright test --config playwright.bot.config.ts",
+    "db:prepare:bot": "node infra/testing/prepare-bot-db.mjs"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.6.1",

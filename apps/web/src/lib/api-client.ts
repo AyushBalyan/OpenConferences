@@ -809,12 +809,21 @@ export async function fetchReviewerInvitations(conferenceId: string) {
 
 export async function issueReviewerInvitation(
   conferenceId: string,
-  body: { email: string; roleNote?: string },
+  body: { email: string; roleNote?: string; delivery?: 'EMAIL' | 'LINK_ONLY' },
 ) {
   const result = await apiClient.review.issueInvitation({ params: { conferenceId }, body });
   if (result.status === 201) return result.body;
   if (result.status === 409) throw new Error(result.body.detail ?? 'Invitation exists');
   throw new Error('Failed to issue invitation');
+}
+
+export async function fetchReviewerInvitationLink(conferenceId: string, invitationId: string) {
+  const result = await apiClient.review.invitationLink({ params: { conferenceId, invitationId } });
+  if (result.status === 200) return result.body;
+  if (result.status === 409)
+    throw new Error(result.body.detail ?? 'Invitation is no longer pending');
+  if (result.status === 404) throw new Error('Invitation not found');
+  throw new Error('Failed to load invitation link');
 }
 
 export async function resendReviewerInvitation(conferenceId: string, invitationId: string) {

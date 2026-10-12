@@ -17,6 +17,7 @@ import {
 import { WorkflowBadge, type WorkflowTone } from '@/components/dashboard/workflow-badge';
 import {
   fetchReviewerInvitations,
+  fetchReviewerInvitationLink,
   issueReviewerInvitation,
   resendReviewerInvitation,
   revokeReviewerInvitation,
@@ -53,6 +54,15 @@ export function AssignmentsInvitesPanel() {
   const [loadingInvitations, setLoadingInvitations] = useState(true);
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [linkId, setLinkId] = useState<string | null>(null);
+  const [issuingDelivery, setIssuingDelivery] = useState<'EMAIL' | 'LINK_ONLY' | null>(null);
+  const [shareLink, setShareLink] = useState<{
+    id: string;
+    email: string;
+    invitationUrl: string;
+    expiresAt: string;
+  } | null>(null);
+  const actionPending = busy || !!resendingId || !!revokingId || !!linkId;
 
   const loadInvitations = useCallback(async () => {
     setLoadingInvitations(true);
@@ -70,20 +80,58 @@ export function AssignmentsInvitesPanel() {
     void loadInvitations();
   }, [loadInvitations]);
 
-  async function handleInvite() {
+  async function handleInvite(delivery: 'EMAIL' | 'LINK_ONLY') {
     if (!inviteEmail.trim()) return;
     setBusy(true);
     setError(null);
     setMessage(null);
+    setShareLink(null);
+    setIssuingDelivery(delivery);
     try {
-      await issueReviewerInvitation(conferenceId, { email: inviteEmail.trim() });
-      setMessage(`Invitation sent to ${inviteEmail}`);
+      const invitation = await issueReviewerInvitation(conferenceId, {
+        email: inviteEmail.trim(),
+        delivery,
+      });
+      if (delivery === 'LINK_ONLY') {
+        setShareLink(invitation);
+        setMessage(`Invitation created for ${invitation.email}. No email was sent.`);
+      } else {
+        setMessage(`Invitation email sent to ${invitation.email}`);
+      }
       setInviteEmail('');
       await loadInvitations();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send invitation');
+      setError(err instanceof Error ? err.message : 'Failed to create invitation');
     } finally {
       setBusy(false);
+      setIssuingDelivery(null);
+    }
+  }
+
+  async function copyLink(invitationUrl: string) {
+    setError(null);
+    setMessage(null);
+    try {
+      await navigator.clipboard.writeText(invitationUrl);
+      setMessage('Invitation link copied.');
+    } catch {
+      setError('Could not copy the link. Select and copy it from the field below.');
+    }
+  }
+
+  async function handleCopyLink(invitationId: string) {
+    setLinkId(invitationId);
+    setError(null);
+    setMessage(null);
+    setShareLink(null);
+    try {
+      const link = await fetchReviewerInvitationLink(conferenceId, invitationId);
+      setShareLink({ ...link, id: invitationId });
+      await copyLink(link.invitationUrl);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load invitation link');
+    } finally {
+      setLinkId(null);
     }
   }
 
@@ -93,7 +141,12 @@ export function AssignmentsInvitesPanel() {
     setMessage(null);
     try {
       const result = await resendReviewerInvitation(conferenceId, invitationId);
-      setMessage(result.message ?? `Invitation resent to ${email}`);
+      setMessage(`Invitation email sent to ${email}`);
+      setShareLink((current) =>
+        current?.id === invitationId
+          ? { ...current, expiresAt: result.invitation.expiresAt }
+          : current,
+      );
       await loadInvitations();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to resend invitation');
@@ -108,6 +161,7 @@ export function AssignmentsInvitesPanel() {
     setMessage(null);
     try {
       await revokeReviewerInvitation(conferenceId, invitationId);
+      if (shareLink?.id === invitationId) setShareLink(null);
       setMessage(`Removed pending invitation for ${email}`);
       await loadInvitations();
     } catch (err) {
@@ -123,31 +177,72 @@ export function AssignmentsInvitesPanel() {
         <CardHeader>
           <CardTitle className="text-base">Invite reviewer</CardTitle>
           <CardDescription>
-            Send a token-based email invitation to join as a reviewer.
+            Send an invitation email or generate a link to share yourself. Both create a pending
+            invitation.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div className="flex-1 space-y-2">
-            <Label htmlFor="invite-email">Email</Label>
-            <Input
-              id="invite-email"
-              type="email"
-              value={inviteEmail}
-              onChange={(e) => setInviteEmail(e.target.value)}
-              placeholder="reviewer@university.edu"
-            />
-          </div>
-          <Button onClick={() => void handleInvite()} disabled={busy}>
-            Send invitation
-          </Button>
+        <CardContent className="space-y-4">
+          <form
+            className="flex flex-col gap-3 lg:flex-row lg:items-end"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const submitter = (event.nativeEvent as SubmitEvent)
+                .submitter as HTMLButtonElement | null;
+              void handleInvite(submitter?.value === 'LINK_ONLY' ? 'LINK_ONLY' : 'EMAIL');
+            }}
+          >
+            <div className="flex-1 space-y-2">
+              <Label htmlFor="invite-email">Email</Label>
+              <Input
+                id="invite-email"
+                type="email"
+                required
+                disabled={actionPending}
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="reviewer@university.edu"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" value="EMAIL" disabled={actionPending}>
+                {issuingDelivery === 'EMAIL' ? 'Sending…' : 'Send invitation email'}
+              </Button>
+              <Button type="submit" value="LINK_ONLY" variant="outline" disabled={actionPending}>
+                {issuingDelivery === 'LINK_ONLY' ? 'Generating…' : 'Generate link'}
+              </Button>
+            </div>
+          </form>
+          {shareLink ? (
+            <div className="space-y-2">
+              <Label htmlFor="reviewer-invitation-link">
+                Invitation link for {shareLink.email}
+              </Label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  id="reviewer-invitation-link"
+                  readOnly
+                  value={shareLink.invitationUrl}
+                  onFocus={(event) => event.target.select()}
+                  className="min-w-0 flex-1"
+                />
+                <Button variant="outline" onClick={() => void copyLink(shareLink.invitationUrl)}>
+                  Copy link
+                </Button>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Expires {formatInvitationExpiry(shareLink.expiresAt)}. The reviewer must sign in
+                with the invited email address.
+              </p>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Sent invitations</CardTitle>
+          <CardTitle className="text-base">Reviewer invitations</CardTitle>
           <CardDescription>
-            Resend the invitation email or remove invitations that are still pending.
+            Copy a pending invitation link, send an email, or remove a pending invitation.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -170,7 +265,8 @@ export function AssignmentsInvitesPanel() {
                   const canResend =
                     invitation.status === 'PENDING' || invitation.status === 'EXPIRED';
                   const canRevoke = invitation.status === 'PENDING';
-                  const actionBusy = resendingId === invitation.id || revokingId === invitation.id;
+                  const canCopy =
+                    invitation.status === 'PENDING' && new Date(invitation.expiresAt) > new Date();
 
                   return (
                     <DataTableRow key={invitation.id}>
@@ -185,12 +281,22 @@ export function AssignmentsInvitesPanel() {
                         {formatInvitationExpiry(invitation.expiresAt)}
                       </DataTableCell>
                       <DataTableCell className="text-right">
-                        <div className="inline-flex items-center justify-end gap-2">
+                        <div className="inline-flex flex-wrap items-center justify-end gap-2">
+                          {canCopy ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={actionPending}
+                              onClick={() => void handleCopyLink(invitation.id)}
+                            >
+                              {linkId === invitation.id ? 'Loading…' : 'Copy link'}
+                            </Button>
+                          ) : null}
                           {canRevoke ? (
                             <Button
                               variant="ghost"
                               size="sm"
-                              disabled={actionBusy}
+                              disabled={actionPending}
                               onClick={() => void handleRevoke(invitation.id, invitation.email)}
                             >
                               {revokingId === invitation.id ? 'Removing…' : 'Remove'}
@@ -199,10 +305,10 @@ export function AssignmentsInvitesPanel() {
                           <Button
                             variant="outline"
                             size="sm"
-                            disabled={!canResend || actionBusy}
+                            disabled={!canResend || actionPending}
                             onClick={() => void handleResend(invitation.id, invitation.email)}
                           >
-                            {resendingId === invitation.id ? 'Sending…' : 'Resend email'}
+                            {resendingId === invitation.id ? 'Sending…' : 'Send email'}
                           </Button>
                         </div>
                       </DataTableCell>

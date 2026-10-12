@@ -22,8 +22,10 @@ function loadSharedEnv(filePath) {
 
 // Monorepo: shared secrets live in repo-root .env; Next.js only reads apps/web by default.
 // NODE_ENV is omitted so Next.js controls it (development vs production build).
-loadSharedEnv(path.join(monorepoRoot, '.env'));
-loadSharedEnv(path.join(__dirname, '.env.local'));
+if (process.env.SKIP_ENV_FILE !== 'true') {
+  loadSharedEnv(path.join(monorepoRoot, '.env'));
+  loadSharedEnv(path.join(__dirname, '.env.local'));
+}
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

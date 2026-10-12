@@ -17,7 +17,9 @@
     "dev": "tsc -p tsconfig.json --watch",
     "lint": "eslint \"src/**/*.ts\" --config eslint.config.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "openapi:bot": "tsc -p tsconfig.json && node scripts/generate-bot-openapi.mjs",
+    "openapi:bot:check": "tsc -p tsconfig.json && node scripts/generate-bot-openapi.mjs --check"
   },
   "dependencies": {
     "@openconferences/schemas": "workspace:*",
@@ -26,6 +28,7 @@
   },
   "devDependencies": {
     "@openconferences/config": "workspace:*",
+    "@ts-rest/open-api": "3.52.1",
     "@types/node": "^22.10.2",
     "eslint": "^9.17.0",
     "typescript": "^5.7.2",

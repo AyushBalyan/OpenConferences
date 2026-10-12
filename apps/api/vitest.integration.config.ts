@@ -3,7 +3,9 @@ import swc from 'unplugin-swc';
 import path from 'node:path';
 import { config as loadEnv } from 'dotenv';
 
-loadEnv({ path: path.resolve(__dirname, '../../.env') });
+if (process.env.SKIP_ENV_FILE !== 'true') {
+  loadEnv({ path: path.resolve(__dirname, '../../.env') });
+}
 process.env.NODE_ENV = 'test';
 
 /**
@@ -61,6 +63,7 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['test/integration/**/*.test.ts', 'src/**/*.test.ts'],
+    exclude: ['src/integrations/integrations.integration.test.ts'],
     testTimeout: 30000,
     hookTimeout: 30000,
     pool: 'forks',

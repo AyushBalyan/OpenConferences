@@ -1,6 +1,6 @@
 import { ReviewerOverviewService } from './reviewer-overview.service';
 import { ReviewCoordinationService } from './coordination.service';
-import { Controller, NotFoundException, UseGuards } from '@nestjs/common';
+import { Controller, Header, NotFoundException, UseGuards } from '@nestjs/common';
 import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
 import { reviewContract } from '@openconferences/contracts';
 import type { RoleKind } from '@openconferences/db';
@@ -153,6 +153,7 @@ export class ReviewController {
   }
 
   @TsRestHandler(reviewContract.issueInvitation)
+  @Header('Cache-Control', 'no-store')
   @RequireConferenceOrganizer()
   @RequireMembership()
   issueInvitation(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
@@ -168,6 +169,22 @@ export class ReviewController {
   resendInvitation(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
     return tsRestHandler(reviewContract.resendInvitation, async ({ params }) => {
       const result = await this.invitations.resend(
+        user.id,
+        params.conferenceId,
+        params.invitationId,
+        roles,
+      );
+      return { status: 200 as const, body: result };
+    });
+  }
+
+  @TsRestHandler(reviewContract.invitationLink)
+  @Header('Cache-Control', 'no-store')
+  @RequireConferenceOrganizer()
+  @RequireMembership()
+  invitationLink(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(reviewContract.invitationLink, async ({ params }) => {
+      const result = await this.invitations.link(
         user.id,
         params.conferenceId,
         params.invitationId,

@@ -1,3 +1,5 @@
+import { isIntegrationUrl, integrationLogUrl } from './integrations/integration.http';
+import { IntegrationsModule } from './integrations/integrations.module';
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { LoggerModule } from 'nestjs-pino';
@@ -29,6 +31,13 @@ const config = getConfig();
     LoggerModule.forRoot({
       pinoHttp: {
         level: config.logLevel,
+        redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
+        serializers: {
+          req: (req) =>
+            isIntegrationUrl(req.url ?? '')
+              ? { id: req.id, method: req.method, url: integrationLogUrl(req.url ?? '') }
+              : req,
+        },
         genReqId: (req) => {
           const existing = req.headers['x-request-id'];
           if (typeof existing === 'string') return existing;
@@ -58,6 +67,7 @@ const config = getConfig();
     AnalyticsModule,
     OutreachModule,
     HealthModule,
+    IntegrationsModule,
     ...(config.isDev ? [DebugModule] : []),
   ],
   providers: [

@@ -8,7 +8,8 @@ const globalForPrisma = globalThis as unknown as {
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+    // SQL parameters may contain API credential digests. Never log queries.
+    log: [],
   });
 
 if (process.env.NODE_ENV !== 'production') {
@@ -93,9 +94,17 @@ export async function assertSafeDatabaseRole(client: PrismaClient = prisma): Pro
 export async function withTenantContext<T>(
   ctx: TenantContext,
   fn: (tx: TransactionClient) => Promise<T>,
-  options?: { isolationLevel?: Prisma.TransactionIsolationLevel; timeout?: number },
+  options?: {
+    isolationLevel?: Prisma.TransactionIsolationLevel;
+    timeout?: number;
+    readOnly?: boolean;
+  },
 ): Promise<T> {
   return prisma.$transaction(async (tx) => {
+    if (options?.readOnly) {
+      await tx.$executeRaw`SET TRANSACTION READ ONLY`;
+      await tx.$executeRaw`SET LOCAL statement_timeout = '3s'`;
+    }
     await applyTenantGucs(tx, ctx);
     return fn(tx);
   }, options);
@@ -174,3 +183,5 @@ export {
   validateDigestTargets,
   renderReviewerDigest,
 } from './reviewer-digest.js';
+
+export { pruneIntegrationAccessLogs } from './integration-retention.js';

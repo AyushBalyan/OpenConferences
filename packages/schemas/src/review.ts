@@ -119,9 +119,20 @@ export const reviewerInvitationListQuerySchema = cursorPaginationQuerySchema;
 export const issueReviewerInvitationSchema = z.object({
   email: z.string().email(),
   roleNote: z.string().max(500).optional(),
+  delivery: z.enum(['EMAIL', 'LINK_ONLY']).optional(),
 });
 
 export type IssueReviewerInvitationInput = z.infer<typeof issueReviewerInvitationSchema>;
+
+export const reviewerInvitationLinkSchema = z.object({
+  invitationUrl: z.string().url(),
+  email: z.string().email(),
+  expiresAt: z.string().datetime(),
+});
+
+export const issuedReviewerInvitationSchema = reviewerInvitationSchema.extend({
+  invitationUrl: z.string().url(),
+});
 
 export const invitationTokenSchema = z.object({
   token: z.string().min(32),

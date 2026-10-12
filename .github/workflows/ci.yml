@@ -107,8 +107,37 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Verify generated bot API contract
+        run: pnpm --filter @openconferences/contracts openapi:bot:check
+
+      - name: Prepare isolated bot API test database
+        env:
+          BOT_API_TEST_OWNER_URL: postgresql://openconferences:openconferences@localhost:5432/bot_api_test_ci
+          BOT_API_TEST_DATABASE_URL: postgresql://openconferences_api:bot-ci-only@localhost:5432/bot_api_test_ci
+          BOT_API_TEST_MARKER: github-ci-bot-api-test
+          BOT_API_TEST_ALLOW_MIGRATIONS: 'true'
+        run: |
+          PGPASSWORD=openconferences createdb -h localhost -U openconferences bot_api_test_ci
+          pnpm db:prepare:bot
+          PGPASSWORD=openconferences psql -h localhost -U openconferences -d bot_api_test_ci -v ON_ERROR_STOP=1 -c "ALTER ROLE openconferences_api LOGIN PASSWORD 'bot-ci-only'; ALTER ROLE openconferences_worker LOGIN PASSWORD 'bot-ci-only';"
+
+      - name: Bot API HTTP and actual RLS tests
+        env:
+          BOT_API_TEST_OWNER_URL: postgresql://openconferences:openconferences@localhost:5432/bot_api_test_ci
+          BOT_API_TEST_DATABASE_URL: postgresql://openconferences_api:bot-ci-only@localhost:5432/bot_api_test_ci
+          BOT_API_TEST_REDIS_URL: redis://localhost:6379/15
+          BOT_API_TEST_MARKER: github-ci-bot-api-test
+          ENFORCE_DB_ROLE_CHECK: 'true'
+        run: pnpm test:bot
+
       - name: Install Playwright browsers
         run: pnpm exec playwright install chromium --with-deps
+
+      - name: Bot integration management browser tests
+        run: pnpm test:e2e:bot
+
+      - name: Reviewer invitation browser tests
+        run: pnpm exec playwright test --config playwright.reviewer-invitations.config.ts
 
       - name: E2E tests
         run: pnpm test:e2e

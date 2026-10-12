@@ -521,6 +521,141 @@ describe('Reviewer management & assignment integration', () => {
     expect(lastTestNotification?.html).not.toContain('magic-link');
   });
 
+  it('creates a manual invitation without mail, lists it as pending, and accepts only the invited account', async () => {
+    const email = `manual-invite-${Date.now()}@example.com`;
+    const user = await createUserWithSession(app, email, 'Manual Invitee');
+    resetLastTestNotification();
+    const created = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/reviewer-invitations`)
+      .set('Cookie', chairCookie)
+      .send({ email: email.toUpperCase(), delivery: 'LINK_ONLY' });
+    expect(created.status).toBe(201);
+    expect(created.headers['cache-control']).toBe('no-store');
+    expect(created.body.status).toBe('PENDING');
+    expect(created.body.email).toBe(email);
+    expect(lastTestNotification).toBeNull();
+    const url = new URL(created.body.invitationUrl);
+    expect(url.origin).toBe(new URL(config.webUrl).origin);
+    expect(url.pathname).toBe('/sign-in');
+    expect(url.searchParams.has('token')).toBe(false);
+    const token = url.searchParams.get('reviewerInvite');
+    expect(token).toHaveLength(64);
+
+    const listed = await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/reviewer-invitations`)
+      .set('Cookie', chairCookie);
+    const pending = listed.body.data.find((item: { id: string }) => item.id === created.body.id);
+    expect(pending).toMatchObject({ email, status: 'PENDING' });
+    expect(pending.token).toBeUndefined();
+    expect(pending.invitationUrl).toBeUndefined();
+
+    const path = `/api/v1/conferences/${confId}/reviewer-invitations/${created.body.id}/link`;
+    const link = await request(app.getHttpServer()).get(path).set('Cookie', chairCookie);
+    expect(link.status).toBe(200);
+    expect(link.body.invitationUrl).toBe(created.body.invitationUrl);
+    expect(link.headers['cache-control']).toBe('no-store');
+    expect(lastTestNotification).toBeNull();
+    expect((await request(app.getHttpServer()).get(path)).status).toBe(401);
+    expect(
+      (await request(app.getHttpServer()).get(path).set('Cookie', reviewerCookie)).status,
+    ).toBe(403);
+    expect(
+      (
+        await request(app.getHttpServer())
+          .get(`/api/v1/conferences/${confSingleId}/reviewer-invitations/${created.body.id}/link`)
+          .set('Cookie', chairCookie)
+      ).status,
+    ).toBe(403);
+
+    // Even an organizer of both conferences cannot use the wrong conference URL.
+    const otherMembership = await prisma.membership.findFirstOrThrow({
+      where: { userId: chairUserId, conferenceId: confSingleId },
+    });
+    await prisma.roleGrant.create({
+      data: { id: generateId(), membershipId: otherMembership.id, role: 'ORGANIZER' },
+    });
+    expect(
+      (
+        await request(app.getHttpServer())
+          .get(`/api/v1/conferences/${confSingleId}/reviewer-invitations/${created.body.id}/link`)
+          .set('Cookie', chairCookie)
+      ).status,
+    ).toBe(404);
+
+    const duplicate = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/reviewer-invitations`)
+      .set('Cookie', chairCookie)
+      .send({ email, delivery: 'LINK_ONLY' });
+    expect(duplicate.status).toBe(409);
+    const wrongUser = await request(app.getHttpServer())
+      .post('/api/v1/reviewer-invitations/accept')
+      .set('Cookie', outsiderCookie)
+      .send({ token });
+    expect(wrongUser.status).toBe(403);
+    const accepted = await request(app.getHttpServer())
+      .post('/api/v1/reviewer-invitations/accept')
+      .set('Cookie', user.cookie)
+      .send({ token });
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.invitation.status).toBe('ACCEPTED');
+    expect((await request(app.getHttpServer()).get(path).set('Cookie', chairCookie)).status).toBe(
+      409,
+    );
+    const membership = await prisma.membership.findFirst({
+      where: { userId: user.userId, conferenceId: confId },
+      include: { roles: true },
+    });
+    expect(membership?.roles.some((role) => role.role === 'REVIEWER')).toBe(true);
+  });
+
+  it('can explicitly send an email for a manually generated invitation', async () => {
+    const email = `manual-send-${Date.now()}@example.com`;
+    resetLastTestNotification();
+    const created = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/reviewer-invitations`)
+      .set('Cookie', chairCookie)
+      .send({ email, delivery: 'LINK_ONLY' });
+    expect(created.status).toBe(201);
+    expect(lastTestNotification).toBeNull();
+    const sent = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/reviewer-invitations/${created.body.id}/resend`)
+      .set('Cookie', chairCookie)
+      .send();
+    expect(sent.status).toBe(200);
+    expect(lastTestNotification?.to).toBe(email);
+    expect(lastTestNotification?.html).toContain('/join/reviewer');
+  });
+
+  it('does not share expired or removed manual invitation links', async () => {
+    const created = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/reviewer-invitations`)
+      .set('Cookie', chairCookie)
+      .send({ email: `manual-expired-${Date.now()}@example.com`, delivery: 'LINK_ONLY' });
+    expect(created.status).toBe(201);
+    await prisma.reviewerInvitation.update({
+      where: { id: created.body.id },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    const path = `/api/v1/conferences/${confId}/reviewer-invitations/${created.body.id}`;
+    expect(
+      (await request(app.getHttpServer()).get(`${path}/link`).set('Cookie', chairCookie)).status,
+    ).toBe(409);
+    expect(
+      (await request(app.getHttpServer()).delete(path).set('Cookie', chairCookie)).status,
+    ).toBe(204);
+    expect(
+      (await request(app.getHttpServer()).get(`${path}/link`).set('Cookie', chairCookie)).status,
+    ).toBe(404);
+  });
+
+  it('rejects an invalid invitation delivery mode', async () => {
+    const result = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/reviewer-invitations`)
+      .set('Cookie', chairCookie)
+      .send({ email: 'reviewer@example.com', delivery: 'UNKNOWN' });
+    expect(result.status).toBe(400);
+  });
+
   it('revokes a pending reviewer invitation', async () => {
     const revokeEmail = `revoke-${Date.now()}@example.com`;
 

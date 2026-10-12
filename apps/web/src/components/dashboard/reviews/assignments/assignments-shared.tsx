@@ -67,8 +67,16 @@ export function AssignmentsAlerts() {
 
   return (
     <>
-      {error ? <p className="mb-4 text-sm text-rose-600">{error}</p> : null}
-      {message ? <p className="mb-4 text-sm text-emerald-700">{message}</p> : null}
+      {error ? (
+        <p role="alert" className="mb-4 text-sm text-rose-600">
+          {error}
+        </p>
+      ) : null}
+      {message ? (
+        <p role="status" className="mb-4 text-sm text-emerald-700">
+          {message}
+        </p>
+      ) : null}
     </>
   );
 }

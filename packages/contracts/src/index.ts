@@ -209,3 +209,5 @@ export { analyticsContract } from './analytics.js';
 export type { AnalyticsContract } from './analytics.js';
 export { outreachContract, outreachWebhookContract } from './outreach.js';
 export type { OutreachContract, OutreachWebhookContract } from './outreach.js';
+
+export { integrationManagementContract, botReadContract } from './integrations.js';

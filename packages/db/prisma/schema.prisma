@@ -197,6 +197,7 @@ enum OutreachRecipientStatus {
 }
 
 model Organization {
+  apiIntegrations ApiIntegration[]
   conferenceUpdates ConferenceUpdate[]
   reviewerReminderDigests ReviewerReminderDigest[]
   inboxReadStates InboxReadState[]
@@ -235,6 +236,9 @@ model Organization {
 }
 
 model User {
+  authorizedIntegrations ApiIntegration[] @relation("IntegrationAuthorizer")
+  createdIntegrations ApiIntegration[] @relation("IntegrationCreator")
+  integrationReviewerReferences ApiIntegrationReviewerReference[]
   reviewerReminderDigests ReviewerReminderDigest[] @relation("DigestReviewer")
   requestedReviewerDigests ReviewerReminderDigest[] @relation("DigestRequester")
   inboxReadStates InboxReadState[]
@@ -338,6 +342,7 @@ model TwoFactor {
 }
 
 model Conference {
+  apiIntegrations ApiIntegration[]
   conferenceUpdates ConferenceUpdate[]
   reviewerReminderDigests ReviewerReminderDigest[]
   inboxReadStates InboxReadState[]
@@ -382,6 +387,7 @@ model Conference {
   outreachRecipients  OutreachRecipient[]
 
   @@index([organizationId, status])
+  @@unique([id, organizationId])
   @@map("conferences")
 }
 
@@ -1086,4 +1092,90 @@ model ConferenceUpdate {
   @@index([conferenceId, createdAt(sort: Desc), id(sort: Desc)])
   @@index([organizationId])
   @@map("conference_updates")
+}
+
+model ApiIntegration {
+  id                 String                            @id @db.Uuid
+  organizationId     String                            @db.Uuid
+  conferenceId       String                            @db.Uuid
+  name               String                            @db.VarChar(100)
+  purpose            String?                           @db.VarChar(500)
+  status             String                            @default("ACTIVE")
+  scopes             String[]
+  authorizedByUserId String                            @db.Uuid
+  createdByUserId    String                            @db.Uuid
+  version            Int                               @default(0)
+  createdAt          DateTime                          @default(now())
+  updatedAt          DateTime                          @updatedAt
+  revokedAt          DateTime?
+  revokedByUserId    String?                           @db.Uuid
+  organization       Organization                      @relation(fields: [organizationId], references: [id])
+  conference         Conference                        @relation(fields: [conferenceId, organizationId], references: [id, organizationId])
+  authorizer         User                              @relation("IntegrationAuthorizer", fields: [authorizedByUserId], references: [id])
+  creator            User                              @relation("IntegrationCreator", fields: [createdByUserId], references: [id])
+  keys               ApiIntegrationKey[]
+  reviewerReferences ApiIntegrationReviewerReference[]
+
+  @@unique([id, conferenceId, organizationId])
+  @@index([conferenceId, createdAt, id])
+  @@map("api_integrations")
+}
+
+model ApiIntegrationKey {
+  id              String                    @id @db.Uuid
+  integrationId   String                    @db.Uuid
+  organizationId  String                    @db.Uuid
+  conferenceId    String                    @db.Uuid
+  label           String                    @db.VarChar(100)
+  secretHash      String                    @unique @db.Char(64)
+  scopes          String[]
+  createdByUserId String                    @db.Uuid
+  requestId       String                    @db.Uuid
+  createdAt       DateTime                  @default(now())
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  revokedByUserId String?                   @db.Uuid
+  lastUsedAt      DateTime?
+  integration     ApiIntegration            @relation(fields: [integrationId, conferenceId, organizationId], references: [id, conferenceId, organizationId])
+  accessLogs      ApiIntegrationAccessLog[]
+
+  @@unique([integrationId, requestId])
+  @@unique([id, integrationId, conferenceId, organizationId])
+  @@index([integrationId, expiresAt, revokedAt])
+  @@map("api_integration_keys")
+}
+
+model ApiIntegrationAccessLog {
+  id             String            @id @db.Uuid
+  integrationId  String            @db.Uuid
+  keyId          String            @db.Uuid
+  organizationId String            @db.Uuid
+  conferenceId   String            @db.Uuid
+  requestId      String            @db.Uuid
+  route          String            @db.VarChar(150)
+  method         String            @db.VarChar(8)
+  status         Int
+  resultCount    Int               @default(0)
+  durationMs     Int
+  observedAt     DateTime          @default(now())
+  key            ApiIntegrationKey @relation(fields: [keyId, integrationId, conferenceId, organizationId], references: [id, integrationId, conferenceId, organizationId])
+
+  @@index([conferenceId, observedAt, id])
+  @@index([integrationId, observedAt, id])
+  @@map("api_integration_access_logs")
+}
+
+model ApiIntegrationReviewerReference {
+  id             String         @id @db.Uuid
+  integrationId  String         @db.Uuid
+  conferenceId   String         @db.Uuid
+  organizationId String         @db.Uuid
+  reviewerUserId String         @db.Uuid
+  createdAt      DateTime       @default(now())
+  integration    ApiIntegration @relation(fields: [integrationId, conferenceId, organizationId], references: [id, conferenceId, organizationId])
+  reviewer       User           @relation(fields: [reviewerUserId], references: [id])
+
+  @@unique([integrationId, reviewerUserId])
+  @@index([conferenceId])
+  @@map("api_integration_reviewer_references")
 }

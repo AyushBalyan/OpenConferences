@@ -127,22 +127,56 @@ export class InvitationsService {
       action: 'reviewer_invitation.issued',
       entity: 'ReviewerInvitation',
       entityId: invitation.id,
-      diff: { email: normalizedEmail },
+      diff: { email: normalizedEmail, delivery: input.delivery ?? 'EMAIL' },
     });
 
-    try {
-      await this.sendInvitationEmail(invitation, conference);
-    } catch {
-      await withTenantContext(
-        { userId, conferenceId, organizationId: conference.organizationId },
-        async (tx) => {
-          await tx.reviewerInvitation.delete({ where: { id: invitation.id } });
-        },
-      );
-      throw new InternalServerErrorException('Unable to send reviewer invitation email');
+    if (input.delivery !== 'LINK_ONLY') {
+      try {
+        await this.sendInvitationEmail(invitation, conference);
+      } catch {
+        await withTenantContext(
+          { userId, conferenceId, organizationId: conference.organizationId },
+          async (tx) => {
+            await tx.reviewerInvitation.delete({ where: { id: invitation.id } });
+          },
+        );
+        throw new InternalServerErrorException('Unable to send reviewer invitation email');
+      }
     }
 
-    return mapReviewerInvitation(invitation);
+    return {
+      ...mapReviewerInvitation(invitation),
+      invitationUrl: this.buildInvitationUrl(invitation.token),
+    };
+  }
+
+  async link(userId: string, conferenceId: string, invitationId: string, roles: RoleKind[]) {
+    if (!canManageConferenceReview(roles)) {
+      throw new ForbiddenException('Insufficient permissions to access invitation links');
+    }
+
+    const conference = await this.conferences.loadConference(userId, conferenceId, roles);
+    const invitation = await withTenantContext(
+      { userId, conferenceId, organizationId: conference.organizationId },
+      async (tx) => tx.reviewerInvitation.findFirst({ where: { id: invitationId, conferenceId } }),
+    );
+    if (!invitation) throw new NotFoundException('Invitation not found');
+    if (invitation.status !== 'PENDING' || invitation.expiresAt <= new Date()) {
+      throw new ConflictException('Only unexpired pending invitation links can be shared');
+    }
+    return {
+      invitationUrl: this.buildInvitationUrl(invitation.token),
+      email: invitation.email,
+      expiresAt: invitation.expiresAt.toISOString(),
+    };
+  }
+
+  private buildInvitationUrl(token: string): string {
+    // A shareable invitation is not an authentication credential. The recipient
+    // must authenticate with the invited email before the existing accept flow.
+    const url = new URL('/sign-in', getConfig().webUrl);
+    url.searchParams.set('reviewerInvite', token);
+    return url.toString();
   }
 
   async resend(userId: string, conferenceId: string, invitationId: string, roles: RoleKind[]) {

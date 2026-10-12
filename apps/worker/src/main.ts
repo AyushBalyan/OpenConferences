@@ -2,7 +2,7 @@ import { processReviewerDigestJob, recordDigestFailure } from './reviewer-digest
 import PgBoss from 'pg-boss';
 import pino from 'pino';
 import { getConfig } from '@openconferences/config/env';
-import { assertSafeDatabaseRole } from '@openconferences/db';
+import { assertSafeDatabaseRole, pruneIntegrationAccessLogs } from '@openconferences/db';
 import {
   REVIEWER_DIGEST_JOB_NAME,
   reviewerDigestJobSchema,
@@ -58,6 +58,17 @@ async function startWorker(): Promise<void> {
 
   await boss.createQueue(REVIEWER_DIGEST_JOB_NAME);
   await boss.createQueue(NOOP_JOB_NAME);
+  await boss.createQueue('integration.access-retention');
+  await boss.work('integration.access-retention', async () => {
+    const removed = await pruneIntegrationAccessLogs();
+    logger.info({ removed }, 'Integration access retention completed');
+  });
+  await boss.schedule(
+    'integration.access-retention',
+    '*/15 * * * *',
+    {},
+    { singletonKey: 'integration-access-retention' },
+  );
   await boss.createQueue(EMAIL_SEND_JOB_NAME);
   await boss.createQueue(NOTIFICATION_SEND_JOB_NAME);
   await boss.createQueue(REMINDER_SWEEP_JOB_NAME);

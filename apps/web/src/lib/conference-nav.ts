@@ -137,6 +137,7 @@ export const NAV_SECTIONS = {
     children: [
       { label: 'Phases & blinding', segment: 'phases' },
       { label: 'Fee schedule', segment: 'fees' },
+      { label: 'Integrations', segment: 'integrations' },
     ],
   },
   tracks: {
@@ -218,6 +219,7 @@ export const BREADCRUMB_SEGMENT_LABELS: Record<string, string> = {
   recorded: 'Recorded decisions',
   phases: 'Phases & blinding',
   fees: 'Fee schedule',
+  integrations: 'Integrations',
   organisers: 'Organisers',
   reviewers: 'Reviewers',
   authors: 'Authors',
@@ -284,6 +286,14 @@ export function navGroupsForRoles(roles: string[]): NavGroupConfig[] {
         NAV_SECTIONS.decisions,
         NAV_SECTIONS.registrations,
       );
+    }
+
+    if (canCoordinateReview(roles) && !canManageConference(roles)) {
+      organizeItems.push({
+        ...NAV_SECTIONS.settings,
+        href: (id) => `/dashboard/conferences/${id}/settings`,
+        children: [{ label: 'Integrations', segment: 'integrations' }],
+      });
     }
 
     if (canManageConference(roles)) {
