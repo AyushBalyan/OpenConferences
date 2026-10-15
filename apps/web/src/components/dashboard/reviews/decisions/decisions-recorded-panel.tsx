@@ -16,7 +16,7 @@ import { decisionOutcomeLabel } from '@/lib/review-types';
 import { useDecisionsWorkspace } from './decisions-workspace';
 
 export function DecisionsRecordedPanel() {
-  const { decisions, loading } = useDecisionsWorkspace();
+  const { decisions, filteredDecisions, search, loading } = useDecisionsWorkspace();
 
   if (loading) {
     return <Skeleton className="h-40 w-full rounded-xl" />;
@@ -32,10 +32,19 @@ export function DecisionsRecordedPanel() {
     );
   }
 
+  if (filteredDecisions.length === 0) {
+    return (
+      <p role="status" className="py-10 text-center text-sm text-slate-600">
+        No recorded decisions match this search. Try another title or paper code.
+      </p>
+    );
+  }
+
   return (
     <DataTable
       footer={
         <DataTableFooter>
+          {search.trim() ? `${filteredDecisions.length} of ` : ''}
           {decisions.length} decision{decisions.length === 1 ? '' : 's'} recorded
         </DataTableFooter>
       }
@@ -49,7 +58,7 @@ export function DecisionsRecordedPanel() {
         </tr>
       </DataTableHeader>
       <DataTableBody>
-        {decisions.map((decision) => (
+        {filteredDecisions.map((decision) => (
           <DataTableRow key={decision.id}>
             <DataTableCell>
               <p className="font-medium text-slate-900">

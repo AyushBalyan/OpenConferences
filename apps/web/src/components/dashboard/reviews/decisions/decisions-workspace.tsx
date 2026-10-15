@@ -45,6 +45,10 @@ type DecisionsWorkspaceValue = {
     roundNumber?: number;
   })[];
   undecidedPapers: PaperRow[];
+  search: string;
+  setSearch: (value: string) => void;
+  filteredUndecidedPapers: PaperRow[];
+  filteredDecisions: DecisionsWorkspaceValue['decisions'];
   decisionByPaper: Map<
     string,
     DecisionDto & { paperTitle?: string; submissionNumber?: string | null; roundNumber?: number }
@@ -96,6 +100,7 @@ export function DecisionsWorkspaceProvider({
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [search, setSearchText] = useState('');
 
   const decisionByPaper = useMemo(
     () => currentCycleDecisions(papers, allDecisions),
@@ -106,6 +111,30 @@ export function DecisionsWorkspaceProvider({
     () => papers.filter((p) => !decisionByPaper.has(p.id) && p.status === 'UNDER_REVIEW'),
     [papers, decisionByPaper],
   );
+
+  const query = search.trim().toLocaleLowerCase();
+  const filteredUndecidedPapers = useMemo(
+    () =>
+      undecidedPapers.filter(
+        (p) =>
+          p.title.toLocaleLowerCase().includes(query) ||
+          (p.submissionNumber ?? '').toLocaleLowerCase().includes(query),
+      ),
+    [undecidedPapers, query],
+  );
+  const filteredDecisions = useMemo(
+    () =>
+      decisions.filter(
+        (d) =>
+          (d.paperTitle ?? '').toLocaleLowerCase().includes(query) ||
+          (d.submissionNumber ?? '').toLocaleLowerCase().includes(query),
+      ),
+    [decisions, query],
+  );
+  function setSearch(value: string) {
+    setSearchText(value);
+    setSelected(new Set());
+  }
 
   const refresh = useCallback(async () => {
     const [roundList, paperList, progress] = await Promise.all([
@@ -175,6 +204,10 @@ export function DecisionsWorkspaceProvider({
     papers,
     decisions,
     undecidedPapers,
+    search,
+    setSearch,
+    filteredUndecidedPapers,
+    filteredDecisions,
     decisionByPaper,
     selected,
     setSelected,

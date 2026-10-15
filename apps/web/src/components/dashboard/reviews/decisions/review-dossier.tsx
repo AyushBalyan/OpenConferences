@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { fetchPaper, fetchPaperReviews, fetchRebuttal } from '@/lib/api-client';
+import { useConferenceWorkspace } from '@/components/dashboard/conference-workspace';
 import {
   RECOMMENDATION_OPTIONS,
   recommendationLabel,
@@ -155,14 +156,27 @@ function ScoreMatrix({ reviews }: { reviews: ReviewDto[] }) {
   );
 }
 
-function ReviewCard({ review, index }: { review: ReviewDto; index: number }) {
+function ReviewCard({
+  review,
+  index,
+  showIdentity,
+}: {
+  review: ReviewDto;
+  index: number;
+  showIdentity: boolean;
+}) {
+  const identity = showIdentity
+    ? review.reviewerName?.trim() || review.reviewerEmail?.trim()
+    : null;
   return (
     <article className="rounded-xl border border-slate-200 bg-white">
       <header className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-5 py-3">
         <span className="flex size-8 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
           {reviewerLabel(index)}
         </span>
-        <p className="font-semibold text-slate-900">Reviewer {index + 1}</p>
+        <p className="min-w-0 break-words font-semibold text-slate-900">
+          {identity || `Reviewer ${index + 1}`}
+        </p>
         {review.recommendation ? (
           <span
             className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${RECOMMENDATION_TONE[review.recommendation]}`}
@@ -229,6 +243,10 @@ export function ReviewDossier({
   paperId: string;
   roundId: string;
 }) {
+  const { conference } = useConferenceWorkspace();
+  const showIdentity =
+    conference?.myRoles.some((role) => ['CHAIR', 'ORGANIZER', 'PLATFORM_ADMIN'].includes(role)) ??
+    false;
   const [reviews, setReviews] = useState<ReviewDto[]>([]);
   const [response, setResponse] = useState<string | null>(null);
   const [revisionResponse, setRevisionResponse] = useState<string | null>(null);
@@ -317,7 +335,7 @@ export function ReviewDossier({
           <ConsensusSpectrum reviews={reviews} />
           <ScoreMatrix reviews={reviews} />
           {reviews.map((review, index) => (
-            <ReviewCard key={review.id} review={review} index={index} />
+            <ReviewCard key={review.id} review={review} index={index} showIdentity={showIdentity} />
           ))}
         </>
       )}

@@ -31,6 +31,7 @@ vi.mock('@openconferences/db', () => ({
     callback({
       $queryRaw: lockRound,
       reviewRound: {
+        findFirst: async () => ({ reviewsReleasedAt: new Date(), decisions: [] }),
         updateMany: transitionRound,
         findUniqueOrThrow: async () => ({
           id: 'round',
@@ -66,12 +67,15 @@ const assignment = {
 
 const publishReviewThankYou = vi.fn();
 
-function service(_status: string) {
+function service(_status: string, blindingMode = 'DOUBLE') {
   return new ReviewsService(
     {
-      loadConference: vi
-        .fn()
-        .mockResolvedValue({ organizationId: 'org', name: 'Test Conference', reviewConfig: {} }),
+      loadConference: vi.fn().mockResolvedValue({
+        organizationId: 'org',
+        name: 'Test Conference',
+        reviewConfig: {},
+        blindingMode,
+      }),
     } as never,
     {
       loadRound: vi
@@ -85,6 +89,109 @@ function service(_status: string) {
 }
 
 describe('review phase capabilities', () => {
+  const releasedReview = {
+    id: 'review',
+    organizationId: 'org',
+    conferenceId: 'conf',
+    assignmentId: 'assignment',
+    paperId: 'paper',
+    roundId: 'round',
+    reviewerUserId: 'reviewer',
+    scores: { originality: 4 },
+    recommendation: 'ACCEPT',
+    confidence: 4,
+    commentsToAuthors: 'Useful feedback',
+    commentsToChairs: 'Private feedback',
+    visibility: 'AUTHOR_VISIBLE',
+    submittedAt: new Date(),
+    version: 1,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    round: { roundNumber: 1 },
+    reviewer: { name: 'Ada Reviewer', email: 'ada@example.test' },
+  };
+  describe.each(['SINGLE', 'DOUBLE', 'OPEN'])('%s reviewer identity', (mode) => {
+    it.each(['CHAIR', 'ORGANIZER', 'PLATFORM_ADMIN'] as const)(
+      'exposes identity to a non-author %s',
+      async (role) => {
+        paperLookup.mockResolvedValue({
+          conferenceId: 'conf',
+          submittedById: 'author',
+          authorships: [],
+        });
+        reviewLookup.mockResolvedValue([releasedReview]);
+        const result = await service('REVIEWING', mode).listReviewsForPaper(
+          'committee',
+          'conf',
+          'paper',
+          [role],
+        );
+        expect(result.data[0]).toMatchObject({
+          reviewerName: 'Ada Reviewer',
+          reviewerEmail: 'ada@example.test',
+        });
+      },
+    );
+    it.each(['AUTHOR', 'CHAIR', 'ORGANIZER', 'PLATFORM_ADMIN'] as const)(
+      'anonymizes the paper author with role %s',
+      async (role) => {
+        paperLookup.mockResolvedValue({
+          conferenceId: 'conf',
+          submittedById: 'author',
+          authorships: [],
+        });
+        reviewLookup.mockResolvedValue([releasedReview]);
+        const result = await service('REVIEWING', mode).listReviewsForPaper(
+          'author',
+          'conf',
+          'paper',
+          [role],
+        );
+        expect(result.data[0]?.reviewerUserId).toBeUndefined();
+        expect(result.data[0]?.reviewerName).toBeUndefined();
+        expect(result.data[0]?.reviewerEmail).toBeUndefined();
+        expect(result.data[0]?.commentsToChairs).toBeUndefined();
+        expect(reviewLookup).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({ visibility: 'AUTHOR_VISIBLE' }),
+            include: { round: { select: { roundNumber: true } } },
+          }),
+        );
+      },
+    );
+    it('treats a chair who is a coauthor as an author', async () => {
+      paperLookup.mockResolvedValue({
+        conferenceId: 'conf',
+        submittedById: 'someone',
+        authorships: [{ userId: 'coauthor' }],
+      });
+      reviewLookup.mockResolvedValue([releasedReview]);
+      const result = await service('REVIEWING', mode).listReviewsForPaper(
+        'coauthor',
+        'conf',
+        'paper',
+        ['CHAIR', 'AUTHOR'],
+      );
+      expect(JSON.stringify(result)).not.toContain('ada@example.test');
+      expect(JSON.stringify(result)).not.toContain('Ada Reviewer');
+    });
+    it('does not grant identity access to an organization admin alone', async () => {
+      paperLookup.mockResolvedValue({
+        conferenceId: 'conf',
+        submittedById: 'author',
+        authorships: [],
+      });
+      reviewLookup.mockResolvedValue([releasedReview]);
+      const result = await service('REVIEWING', mode).listReviewsForPaper(
+        'admin',
+        'conf',
+        'paper',
+        ['ORG_ADMIN'],
+      );
+      expect(result.data[0]?.reviewerName).toBeUndefined();
+      expect(result.data[0]?.reviewerEmail).toBeUndefined();
+    });
+  });
   it('does not expose hidden reviews to a chair who authored the paper', async () => {
     paperLookup.mockResolvedValue({
       conferenceId: 'conf',

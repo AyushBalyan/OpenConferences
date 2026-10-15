@@ -1,9 +1,35 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { notifyDecisions } from '@/lib/api-client';
 import { ReviewRoundSelector } from '@/components/dashboard/reviews/review-round-selector';
 import { useDecisionsWorkspace } from './decisions-workspace';
+
+export function DecisionsSearch() {
+  const { search, setSearch, busy, loading } = useDecisionsWorkspace();
+  return (
+    <div className="flex flex-wrap items-end gap-3">
+      <label htmlFor="decision-search" className="w-full space-y-1 text-sm sm:max-w-md">
+        <span className="font-medium text-slate-700">Find a paper</span>
+        <Input
+          id="decision-search"
+          type="search"
+          placeholder="Title or paper code"
+          className="text-base placeholder:text-slate-500 sm:text-sm"
+          value={search}
+          disabled={busy || loading}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+      </label>
+      {search ? (
+        <Button variant="outline" disabled={busy || loading} onClick={() => setSearch('')}>
+          Clear search
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 export function DecisionsRoundBar() {
   const {

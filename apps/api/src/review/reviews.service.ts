@@ -499,6 +499,8 @@ export class ReviewsService {
       paper.submittedById === userId || paper.authorships.some((a) => a.userId === userId);
     // A committee role must not expose private reviews of the reader's own paper.
     const privileged = canCoordinateReview(roles) && !isAuthor;
+    const canSeeReviewerIdentity =
+      privileged && roles.some((role) => ['CHAIR', 'ORGANIZER', 'PLATFORM_ADMIN'].includes(role));
 
     if (!privileged && !isAuthor) {
       throw new ForbiddenException('Insufficient permissions to view reviews');
@@ -515,7 +517,12 @@ export class ReviewsService {
             ...(privileged ? {} : { visibility: 'AUTHOR_VISIBLE' }),
           },
           orderBy: [{ round: { roundNumber: 'asc' } }, { createdAt: 'asc' }],
-          include: { round: { select: { roundNumber: true } } },
+          include: {
+            round: { select: { roundNumber: true } },
+            ...(canSeeReviewerIdentity
+              ? { reviewer: { select: { name: true, email: true } } }
+              : {}),
+          },
           ...prismaCursorArgs(options, limit),
         }),
     );
@@ -543,6 +550,9 @@ export class ReviewsService {
 
     const data = page.data.map((review) => ({
       ...(privileged ? mapReview(review) : mapReviewForAuthor(review)),
+      ...(canSeeReviewerIdentity
+        ? { reviewerName: review.reviewer.name, reviewerEmail: review.reviewer.email }
+        : {}),
       roundNumber: review.round.roundNumber,
     }));
 

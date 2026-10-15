@@ -81,6 +81,8 @@ export function DecisionsPendingPanel() {
     papers,
     decisions,
     undecidedPapers,
+    filteredUndecidedPapers: visiblePapers,
+    search,
     selected,
     setSelected,
     pending,
@@ -97,16 +99,15 @@ export function DecisionsPendingPanel() {
   const [activeId, setActiveId] = useState<string | null>(searchParams.get('paper'));
   const [confirming, setConfirming] = useState<'single' | 'bulk' | null>(null);
 
-  const active =
-    undecidedPapers.find((paper) => paper.id === activeId) ?? undecidedPapers[0] ?? null;
-  const activeIndex = active ? undecidedPapers.indexOf(active) : -1;
+  const active = visiblePapers.find((paper) => paper.id === activeId) ?? visiblePapers[0] ?? null;
+  const activeIndex = active ? visiblePapers.indexOf(active) : -1;
   const draft = active ? pending[active.id] : undefined;
 
   const decidedCount = decisions.length;
   const totalInRound = decidedCount + undecidedPapers.length;
   const drafted = undecidedPapers.filter((paper) => pending[paper.id]?.outcome).length;
 
-  useEffect(() => setConfirming(null), [active?.id, draft?.outcome]);
+  useEffect(() => setConfirming(null), [active?.id, draft?.outcome, search]);
 
   function updatePending(
     paperId: string,
@@ -132,9 +133,9 @@ export function DecisionsPendingPanel() {
   }
 
   function move(delta: number) {
-    if (undecidedPapers.length === 0) return;
-    const next = Math.min(Math.max(activeIndex + delta, 0), undecidedPapers.length - 1);
-    const paper = undecidedPapers[next];
+    if (visiblePapers.length === 0) return;
+    const next = Math.min(Math.max(activeIndex + delta, 0), visiblePapers.length - 1);
+    const paper = visiblePapers[next];
     if (paper) setActiveId(paper.id);
   }
 
@@ -188,7 +189,7 @@ export function DecisionsPendingPanel() {
     setBusy(true);
     setError(null);
     setMessage(null);
-    const nextPaper = undecidedPapers[activeIndex + 1] ?? undecidedPapers[activeIndex - 1];
+    const nextPaper = visiblePapers[activeIndex + 1] ?? visiblePapers[activeIndex - 1];
     try {
       const result = await recordDecisionWithFreshVersion(paper.id, {
         roundId: paper.cycleId,
@@ -327,22 +328,29 @@ export function DecisionsPendingPanel() {
               <input
                 type="checkbox"
                 className="size-4 accent-slate-900"
-                checked={selected.size === undecidedPapers.length}
+                checked={visiblePapers.length > 0 && visiblePapers.every((p) => selected.has(p.id))}
+                disabled={busy || visiblePapers.length === 0}
                 onChange={(event) =>
                   setSelected(
-                    event.target.checked ? new Set(undecidedPapers.map((p) => p.id)) : new Set(),
+                    event.target.checked ? new Set(visiblePapers.map((p) => p.id)) : new Set(),
                   )
                 }
-                aria-label="Select all pending papers"
+                aria-label="Select all visible pending papers"
               />
               Queue
             </label>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-600">
+              {search.trim() ? `${visiblePapers.length} of ` : ''}
               {undecidedPapers.length}
             </span>
           </div>
           <ul className="max-h-[calc(100vh-16rem)] divide-y divide-slate-100 overflow-y-auto">
-            {undecidedPapers.map((paper, index) => {
+            {visiblePapers.length === 0 ? (
+              <li role="status" className="px-4 py-8 text-sm text-slate-600">
+                No pending papers match this search. Try another title or paper code.
+              </li>
+            ) : null}
+            {visiblePapers.map((paper, index) => {
               const outcome = pending[paper.id]?.outcome;
               const isActive = paper.id === active?.id;
               return (
@@ -409,7 +417,7 @@ export function DecisionsPendingPanel() {
               <header className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-indigo-600">
-                    Paper {activeIndex + 1} of {undecidedPapers.length}
+                    Paper {activeIndex + 1} of {visiblePapers.length}
                   </p>
                   <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 [text-wrap:balance]">
                     {active.title}
@@ -429,7 +437,7 @@ export function DecisionsPendingPanel() {
                     variant="outline"
                     size="sm"
                     onClick={() => move(1)}
-                    disabled={activeIndex >= undecidedPapers.length - 1}
+                    disabled={activeIndex >= visiblePapers.length - 1}
                     aria-label="Next paper"
                   >
                     ↓
@@ -452,7 +460,7 @@ export function DecisionsPendingPanel() {
             >
               <h3 className="text-sm font-semibold text-slate-900">Your decision</h3>
               <p className="mt-0.5 text-xs text-slate-500">
-                Recorded privately until authors are notified.
+                Recording a decision queues an email to the corresponding author.
               </p>
               <div role="radiogroup" aria-label="Outcome" className="mt-4 grid grid-cols-2 gap-2">
                 {ORDERED_OUTCOMES.map((value) => {

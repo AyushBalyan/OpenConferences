@@ -395,6 +395,9 @@ export const reviewSchema = z.object({
   roundNumber: z.number().int().positive().optional(),
   paperId: z.string().uuid(),
   reviewerUserId: z.string().uuid().optional(),
+  /** Committee-only identity fields; omitted from author-facing reviews. */
+  reviewerName: z.string().optional(),
+  reviewerEmail: z.string().email().optional(),
   /** Present on assignment review payloads so reviewers can download the assigned PDF. */
   paperTitle: z.string().optional(),
   submissionNumber: z.string().nullable().optional(),

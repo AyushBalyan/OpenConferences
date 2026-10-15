@@ -5,6 +5,7 @@ import { DecisionsWorkspaceProvider } from '@/components/dashboard/reviews/decis
 import {
   DecisionsAlerts,
   DecisionsRoundBar,
+  DecisionsSearch,
 } from '@/components/dashboard/reviews/decisions/decisions-panels';
 import { SectionLayoutFrame } from '@/components/dashboard/section-layout-frame';
 import { SECTION_PAGE_META } from '@/lib/conference-nav';
@@ -19,7 +20,12 @@ export default function DecisionsLayout({ children }: { children: React.ReactNod
         title={meta.title}
         description={meta.description}
         alerts={<DecisionsAlerts />}
-        toolbar={<DecisionsRoundBar />}
+        toolbar={
+          <div className="mb-6 space-y-4">
+            <DecisionsRoundBar />
+            <DecisionsSearch />
+          </div>
+        }
       >
         {children}
       </SectionLayoutFrame>

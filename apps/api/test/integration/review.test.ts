@@ -1202,8 +1202,39 @@ describe('Reviewer management & assignment integration', () => {
       expect(authorView.status).toBe(200);
       expect(authorView.body.data).toHaveLength(1);
       expect(authorView.body.data[0].reviewerUserId).toBeUndefined();
+      expect(authorView.body.data[0].reviewerName).toBeUndefined();
+      expect(authorView.body.data[0].reviewerEmail).toBeUndefined();
       expect(authorView.body.data[0].commentsToChairs).toBeUndefined();
     });
+
+    it.each(['SINGLE', 'DOUBLE'] as const)(
+      'keeps reviewer identity committee-only in %s blind conferences',
+      async (blindingMode) => {
+        await withTenantContext({}, (tx) =>
+          tx.conference.update({ where: { id: confId }, data: { blindingMode } }),
+        );
+        try {
+          const chairView = await request(app.getHttpServer())
+            .get(`/api/v1/conferences/${confId}/papers/${paperId}/reviews`)
+            .set('Cookie', chairCookie);
+          expect(chairView.status).toBe(200);
+          expect(chairView.body.data[0]).toMatchObject({ reviewerName: 'Reviewer', reviewerEmail });
+          const authorView = await request(app.getHttpServer())
+            .get(`/api/v1/conferences/${confId}/papers/${paperId}/reviews`)
+            .set('Cookie', authorReviewerCookie);
+          expect(authorView.status).toBe(200);
+          expect(authorView.body.data).toHaveLength(1);
+          expect(authorView.body.data[0].reviewerUserId).toBeUndefined();
+          expect(authorView.body.data[0].reviewerName).toBeUndefined();
+          expect(authorView.body.data[0].reviewerEmail).toBeUndefined();
+          expect(JSON.stringify(authorView.body)).not.toContain(reviewerEmail);
+        } finally {
+          await withTenantContext({}, (tx) =>
+            tx.conference.update({ where: { id: confId }, data: { blindingMode: 'DOUBLE' } }),
+          );
+        }
+      },
+    );
 
     it('blocks rebuttal before reviews are visible to authors', async () => {
       const secondPaperId = generateId();
