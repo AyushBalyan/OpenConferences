@@ -15,6 +15,7 @@ const current = {
   trackId: 'systems',
   isCurrentCycle: true,
   canIntervene: true,
+  canReleaseReviews: false,
   needsReviewers: true,
   overdueReviewCount: 1,
   readyForDecision: false,

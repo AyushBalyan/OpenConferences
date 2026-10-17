@@ -638,6 +638,7 @@ export const reviewLedgerPaperSchema = paperReviewProgressSchema.extend({
   overdueReviewCount: z.number().int().nonnegative(),
   readyForDecision: z.boolean(),
   canIntervene: z.boolean(),
+  canReleaseReviews: z.boolean(),
 });
 export const reviewCoordinationSchema = z.object({
   observedAt: z.string().datetime(),

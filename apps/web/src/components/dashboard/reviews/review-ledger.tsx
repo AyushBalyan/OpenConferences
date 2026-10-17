@@ -741,7 +741,7 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
                               </Link>
                             </Button>
                           )}
-                          {row.canIntervene && row.submittedReviewCount > 0 ? (
+                          {row.canReleaseReviews ? (
                             <Button
                               size="sm"
                               variant="outline"
@@ -760,8 +760,8 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
                           <div id={`assignments-${key}`} className="space-y-3 py-3">
                             {!row.isCurrentCycle ? (
                               <p className="text-xs text-slate-600">
-                                Historical cycle · available for reference. Review actions apply to
-                                the current cycle.
+                                Historical cycle · review editing is closed. Submitted reviews can
+                                still be released to authors.
                               </p>
                             ) : null}
                             {row.assignments.length ? (

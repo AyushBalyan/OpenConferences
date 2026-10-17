@@ -287,6 +287,53 @@ describe('chair review interventions', () => {
 });
 
 describe('conference coordination snapshot', () => {
+  it.each(['MINOR_REVISION', 'MAJOR_REVISION', 'ACCEPT', 'REJECT'])(
+    'allows release of hidden submitted feedback in current and historical %s cycles',
+    async (outcome) => {
+      const cycle = {
+        id: 'round',
+        version: 1,
+        roundNumber: 1,
+        reviewDueAt: null,
+        reviewsReleasedAt: null,
+        decisions: [{ outcome }],
+        assignments: [assignment({ review: { submittedAt: now, visibility: 'HIDDEN' } })],
+      };
+      mocks.papers.mockResolvedValue([
+        {
+          id: 'paper',
+          title: 'Paper',
+          status: 'UNDER_REVIEW',
+          version: 1,
+          trackId: 'track',
+          track: { name: 'Systems' },
+          submissionNumber: 'SYS-1',
+          reviewRounds: [
+            { ...cycle, id: 'current', roundNumber: 5 },
+            cycle,
+            {
+              ...cycle,
+              id: 'released',
+              reviewsReleasedAt: now,
+              assignments: [
+                assignment({ review: { submittedAt: now, visibility: 'AUTHOR_VISIBLE' } }),
+              ],
+            },
+            {
+              ...cycle,
+              id: 'draft',
+              assignments: [assignment({ review: { submittedAt: null, visibility: 'HIDDEN' } })],
+            },
+          ],
+        },
+      ]);
+      const result = await service().snapshot('chair', 'conf', ['CHAIR']);
+      expect(result.data.map((row) => row.canReleaseReviews)).toEqual([true, true, false, false]);
+      expect(result.data.every((row) => !row.canIntervene)).toBe(true);
+      expect(result.data.every((row) => !row.readyForDecision)).toBe(true);
+    },
+  );
+
   it('keeps historical cycles and retired records visible without counting them in current queues', async () => {
     const base = assignment();
     mocks.papers.mockResolvedValue([

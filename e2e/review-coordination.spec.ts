@@ -78,6 +78,7 @@ function snapshot(): ReviewCoordinationDto {
     overdueReviewCount: 1,
     readyForDecision: false,
     canIntervene: true,
+    canReleaseReviews: false,
     isCurrentCycle: true,
   };
   return {
@@ -127,6 +128,7 @@ async function mockApi(
   } = {},
 ) {
   const data = snapshot();
+  const date = new Date(data.observedAt);
   const grace = {
     userId: '00000000-0000-4000-8000-000000000008',
     name: 'Grace Reviewer',
@@ -148,6 +150,7 @@ async function mockApi(
       ]
     : [grace];
   const assignments: Array<{ reviewerUserId: string; dueAt: string }> = [];
+  const releases: Array<{ cycleId: string; version: number }> = [];
   const actions: Array<{
     action: string;
     version: number;
@@ -176,7 +179,34 @@ async function mockApi(
           twoFactorEnabled: true,
         },
       };
-    else if (endpoint.endsWith('/intervene')) {
+    else if (endpoint.endsWith('/reviews/release')) {
+      const cycleId = endpoint.split('/').at(-3)!;
+      const row = data.data.find((item) => item.cycleId === cycleId)!;
+      releases.push({ cycleId, ...route.request().postDataJSON() });
+      row.canReleaseReviews = false;
+      row.reviewsReleasedAt = date.toISOString();
+      row.cycleVersion += 1;
+      body = {
+        releasedCount: 1,
+        message: 'Reviews released to authors',
+        round: {
+          id: cycleId,
+          organizationId: conference.organizationId,
+          conferenceId,
+          paperId: row.paperId,
+          submissionNumber: row.submissionNumber,
+          roundNumber: row.roundNumber,
+          reviewStage: row.reviewStage,
+          version: row.cycleVersion,
+          reviewsReleasedAt: row.reviewsReleasedAt,
+          reviewDueAt: null,
+          rebuttalDueAt: null,
+          revisionDueAt: null,
+          createdAt: date.toISOString(),
+          updatedAt: date.toISOString(),
+        },
+      };
+    } else if (endpoint.endsWith('/intervene')) {
       const input = route.request().postDataJSON();
       actions.push(input);
       if (options.failSecond && actions.length === 2) {
@@ -262,7 +292,32 @@ async function mockApi(
       },
     });
   });
-  return { data, actions, assignments };
+  return { data, actions, assignments, releases };
+}
+
+for (const history of ['CURRENT', 'HISTORICAL']) {
+  test(`releases reviews after a revision decision in a ${history.toLowerCase()} cycle`, async ({
+    page,
+  }) => {
+    const { data, releases } = await mockApi(page);
+    const row = data.data[history === 'CURRENT' ? 0 : 1]!;
+    row.canIntervene = false;
+    row.canReleaseReviews = true;
+    row.reviewStage = 'REVISION_REQUESTED';
+    row.submittedReviewCount = 1;
+    page.on('dialog', (dialog) => dialog.accept());
+    await page.goto(`${path}?history=${history}`);
+    await page.getByRole('button', { name: 'Release reviews', exact: true }).click();
+    await expect(
+      page.getByRole('listitem').filter({ hasText: 'Reviews released to authors' }),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Release reviews', exact: true })).toHaveCount(0);
+    expect(releases).toEqual([{ cycleId: row.cycleId, version: 0 }]);
+    await page.getByRole('button', { name: 'Reviewers (1)', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Replace reviewer', exact: true })).toHaveCount(
+      0,
+    );
+  });
 }
 
 test('manual assignment saves the chosen local deadline as UTC', async ({ page }) => {

@@ -65,7 +65,7 @@ export class ReviewCoordinationService {
                 orderBy: { createdAt: 'asc' },
                 include: {
                   reviewer: { select: { name: true, email: true } },
-                  review: { select: { submittedAt: true } },
+                  review: { select: { submittedAt: true, visibility: true } },
                 },
               },
             },
@@ -157,6 +157,11 @@ export class ReviewCoordinationService {
           warning: canIntervene ? reviewCountWarning(submittedReviewCount, minimumReviews) : null,
           assignments,
           canIntervene,
+          canReleaseReviews: Boolean(
+            cycle?.assignments.some(
+              (a) => a.review?.submittedAt && a.review.visibility === 'HIDDEN',
+            ),
+          ),
           readyForDecision,
           needsReviewers: canIntervene && activeAssignments.length < minimumReviews,
           overdueReviewCount: assignments.filter((a) => a.overdue).length,

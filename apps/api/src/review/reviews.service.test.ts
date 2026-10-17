@@ -12,6 +12,7 @@ const {
   lockRound,
   transitionRound,
   decisionLookup,
+  readRound,
 } = vi.hoisted(() => ({
   assignmentLookup: vi.fn(),
   paperLookup: vi.fn(),
@@ -23,6 +24,7 @@ const {
   lockRound: vi.fn(),
   transitionRound: vi.fn(),
   decisionLookup: vi.fn(),
+  readRound: vi.fn(),
 }));
 vi.mock('@openconferences/db', () => ({
   generateId: () => 'test-id',
@@ -33,11 +35,7 @@ vi.mock('@openconferences/db', () => ({
       reviewRound: {
         findFirst: async () => ({ reviewsReleasedAt: new Date(), decisions: [] }),
         updateMany: transitionRound,
-        findUniqueOrThrow: async () => ({
-          id: 'round',
-          reviewsReleasedAt: new Date(),
-          decisions: [],
-        }),
+        findUniqueOrThrow: readRound,
       },
       decision: { findFirst: decisionLookup },
       reviewerAssignment: { findFirst: assignmentLookup, update: updateAssignment },
@@ -66,6 +64,7 @@ const assignment = {
 };
 
 const publishReviewThankYou = vi.fn();
+const publishReviewReleased = vi.fn();
 
 function service(_status: string, blindingMode = 'DOUBLE') {
   return new ReviewsService(
@@ -84,7 +83,7 @@ function service(_status: string, blindingMode = 'DOUBLE') {
     } as never,
     { checkReviewerPaperConflict: vi.fn().mockResolvedValue({ hasConflict: false }) } as never,
     { log: vi.fn() } as never,
-    { publishReviewThankYou } as never,
+    { publishReviewThankYou, publishReviewReleased } as never,
   );
 }
 
@@ -256,6 +255,99 @@ describe('review phase capabilities', () => {
       ]),
     ).rejects.toMatchObject({ status: 409 });
     expect(updateReview).not.toHaveBeenCalled();
+  });
+
+  it.each(['MINOR_REVISION', 'MAJOR_REVISION', 'ACCEPT', 'REJECT'])(
+    'releases hidden submitted reviews after a %s decision without reopening the cycle',
+    async (outcome) => {
+      const now = new Date();
+      decisionLookup.mockResolvedValue({ id: 'decision', outcome });
+      reviewLookup.mockResolvedValue([
+        {
+          id: 'review',
+          paperId: 'paper',
+          paper: { title: 'Paper', authorships: [{ email: 'author@example.edu' }] },
+        },
+      ]);
+      transitionRound.mockResolvedValue({ count: 1 });
+      readRound.mockResolvedValue({
+        id: 'round',
+        reviewsReleasedAt: now,
+        decisions: [{ outcome }],
+        version: 2,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const reviews = service('REVIEWING');
+      const result = await reviews.releaseReviews(
+        'chair',
+        'conf',
+        'paper',
+        'round',
+        { version: 1 },
+        ['CHAIR'],
+      );
+
+      expect(result.releasedCount).toBe(1);
+      expect(result.round.reviewStage).toBe(
+        outcome.endsWith('REVISION') ? 'REVISION_REQUESTED' : 'DECIDED',
+      );
+      expect(reviewLookup).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            roundId: 'round',
+            conferenceId: 'conf',
+            paperId: 'paper',
+            submittedAt: { not: null },
+            visibility: 'HIDDEN',
+          },
+        }),
+      );
+      expect(updateReview).toHaveBeenCalledWith({
+        where: { id: { in: ['review'] }, visibility: 'HIDDEN' },
+        data: { visibility: 'AUTHOR_VISIBLE' },
+      });
+      expect(publishReviewReleased).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'author@example.edu',
+          paperId: 'paper',
+          roundId: 'round',
+        }),
+      );
+
+      await expect(
+        reviews.saveReview('reviewer', 'conf', 'assignment', { scores: {}, version: 0 }, [
+          'REVIEWER',
+        ]),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'REVIEW_PHASE_LOCKED' }),
+      });
+    },
+  );
+
+  it('rejects submitting a review after a decision', async () => {
+    decisionLookup.mockResolvedValue({ id: 'decision' });
+    assignmentLookup.mockResolvedValue({
+      ...assignment,
+      review: {
+        id: 'review',
+        version: 1,
+        submittedAt: null,
+        recommendation: 'ACCEPT',
+        commentsToAuthors: 'Feedback',
+        scores: {},
+      },
+    });
+    await expect(
+      service('REVIEWING').submitReview('reviewer', 'conf', 'assignment', { version: 1 }, [
+        'REVIEWER',
+      ]),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'REVIEW_PHASE_LOCKED' }),
+    });
+    expect(updateReview).not.toHaveBeenCalled();
+    expect(updateAssignment).not.toHaveBeenCalled();
   });
 
   it('stores edits after submit without changing the review chairs already see', async () => {

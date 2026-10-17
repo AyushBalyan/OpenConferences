@@ -591,7 +591,7 @@ export class ReviewsService {
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
         await lockReviewRound(tx, conferenceId, cycleId);
-        await this.assertCycleOpen(tx, conferenceId, cycleId);
+        // Releasing submitted feedback does not reopen review editing after a decision.
         const hiddenSubmitted = await tx.review.findMany({
           where: {
             roundId: cycleId,
