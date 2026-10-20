@@ -14,26 +14,40 @@ export class CoiCheckService {
     paperId: string,
     conferenceId: string,
   ): Promise<CoiCheckResult> {
-    const authorship = await tx.authorship.findFirst({
-      where: { paperId, userId: reviewerUserId },
+    const paper = await tx.paper.findFirst({
+      where: { id: paperId, conferenceId },
+      select: {
+        submittedById: true,
+        authorships: { select: { userId: true, email: true } },
+      },
     });
 
-    if (authorship) {
+    if (!paper) return { hasConflict: false };
+
+    if (
+      paper.submittedById === reviewerUserId ||
+      paper.authorships.some((a) => a.userId === reviewerUserId)
+    ) {
       return { hasConflict: true, reason: 'AUTHORSHIP' };
     }
 
-    const paper = await tx.paper.findFirst({
-      where: { id: paperId, conferenceId },
-      include: { authorships: true },
+    // Coauthors can be entered by email before they have a linked account.
+    // Match their registered address in every path that uses this shared check.
+    const reviewer = await tx.user.findUnique({
+      where: { id: reviewerUserId },
+      select: { email: true },
     });
-
-    if (!paper) {
-      return { hasConflict: false };
+    const email = reviewer?.email.trim().toLowerCase();
+    if (email && paper.authorships.some((a) => a.email.trim().toLowerCase() === email)) {
+      return { hasConflict: true, reason: 'AUTHORSHIP' };
     }
 
-    const authorUserIds = paper.authorships
-      .map((a) => a.userId)
-      .filter((id): id is string => id !== null);
+    const authorUserIds = [
+      ...new Set([
+        paper.submittedById,
+        ...paper.authorships.map((a) => a.userId).filter((id): id is string => id !== null),
+      ]),
+    ];
 
     const declaredCoi = await tx.conflictOfInterest.findFirst({
       where: {

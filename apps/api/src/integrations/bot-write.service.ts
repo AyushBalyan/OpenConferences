@@ -98,7 +98,6 @@ export class BotWriteService {
               organizationId: p.organizationId,
               status: { not: 'DRAFT' },
             },
-            include: { authorships: { select: { userId: true, email: true } } },
           });
           if (!paper) throw new NotFoundException('Resource not found');
           if (paper.status !== 'SUBMITTED' && paper.status !== 'UNDER_REVIEW')
@@ -124,15 +123,18 @@ export class BotWriteService {
           });
           if (!member)
             throw new ConflictException('Reviewer must have accepted access to this conference');
-          if (
-            paper.submittedById === ref.reviewerUserId ||
-            paper.authorships.some(
-              (a) =>
-                a.userId === ref.reviewerUserId ||
-                a.email.trim().toLowerCase() === member.user.email.toLowerCase(),
-            )
-          )
-            throw new ConflictException('Reviewer is an author of this paper');
+          const conflict = await this.coi.checkReviewerPaperConflict(
+            tx,
+            ref.reviewerUserId,
+            paper.id,
+            p.conferenceId,
+          );
+          if (conflict.hasConflict)
+            throw new ConflictException(
+              conflict.reason === 'AUTHORSHIP'
+                ? 'Reviewer is an author of this paper'
+                : 'Reviewer has a conflict of interest',
+            );
           const round = await this.rounds.ensureOpenCycle(tx, {
             organizationId: p.organizationId,
             conferenceId: p.conferenceId,
@@ -163,19 +165,13 @@ export class BotWriteService {
             })
           )
             throw new ConflictException('Reviewer is already assigned in this cycle');
-          const conflict = await this.coi.checkReviewerPaperConflict(
-            tx,
-            ref.reviewerUserId,
-            paper.id,
-            p.conferenceId,
-          );
           const bid = await tx.bid.findUnique({
             where: {
               paperId_reviewerUserId: { paperId: paper.id, reviewerUserId: ref.reviewerUserId },
             },
             select: { value: true },
           });
-          if (conflict.hasConflict || bid?.value === 'CONFLICT')
+          if (bid?.value === 'CONFLICT')
             throw new ConflictException('Reviewer has a conflict of interest');
           const assignment = await tx.reviewerAssignment.create({
             data: {

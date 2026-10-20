@@ -1802,4 +1802,247 @@ describe('Reviewer management & assignment integration', () => {
     expect(copyAgain.body.createdCount).toBe(0);
     expect(copyAgain.body.skippedCount).toBe(1);
   });
+  describe('email-only author conflict protection', () => {
+    async function conflictPaper(
+      match: 'EMAIL' | 'SUBMITTER',
+      target = reviewerUserId,
+      email = reviewerEmail,
+    ) {
+      const p = await prisma.paper.create({
+        data: {
+          id: generateId(),
+          organizationId: orgId,
+          conferenceId: confId,
+          trackId,
+          submittedById: match === 'SUBMITTER' ? target : chairUserId,
+          title: 'Authorship conflict regression',
+          abstract: 'Synthetic',
+          keywords: [],
+          status: 'SUBMITTED',
+          authorships: {
+            create: {
+              id: generateId(),
+              userId: null,
+              order: 1,
+              isCorresponding: true,
+              fullName: 'Email-only coauthor',
+              email: match === 'EMAIL' ? `  ${email.toUpperCase()}  ` : 'unrelated@example.com',
+            },
+          },
+        },
+      });
+      const cycle = await prisma.reviewRound.create({
+        data: {
+          id: generateId(),
+          organizationId: orgId,
+          conferenceId: confId,
+          paperId: p.id,
+          roundNumber: 1,
+        },
+      });
+      return { paper: p, cycle };
+    }
+    it.each(['EMAIL', 'SUBMITTER'] as const)(
+      'blocks a dashboard assignment for %s authorship',
+      async (match) => {
+        const { paper, cycle } = await conflictPaper(match);
+        const r = await request(app.getHttpServer())
+          .post(`/api/v1/conferences/${confId}/papers/${paper.id}/assignments`)
+          .set('Cookie', chairCookie)
+          .send({ reviewerUserId, roundId: cycle.id });
+        expect(r.status).toBe(409);
+        expect(r.body.detail).toMatch(/author/i);
+        expect(await prisma.reviewerAssignment.count({ where: { paperId: paper.id } })).toBe(0);
+      },
+    );
+    it.each(['EMAIL', 'SUBMITTER'] as const)(
+      'blocks replacement with a %s author and preserves the original assignment',
+      async (match) => {
+        const { paper, cycle } = await conflictPaper(
+          match,
+          authorReviewerUserId,
+          authorReviewerEmail,
+        );
+        const assigned = await request(app.getHttpServer())
+          .post(`/api/v1/conferences/${confId}/papers/${paper.id}/assignments`)
+          .set('Cookie', chairCookie)
+          .send({ reviewerUserId, roundId: cycle.id });
+        expect(assigned.status).toBe(201);
+        const original = assigned.body.assignment;
+        const replaced = await request(app.getHttpServer())
+          .post(`/api/v1/conferences/${confId}/assignments/${original.id}/intervene`)
+          .set('Cookie', chairCookie)
+          .send({
+            action: 'REPLACE',
+            version: original.version,
+            reason: 'Replacement regression',
+            reviewerUserId: authorReviewerUserId,
+            dueAt: new Date(Date.now() + 86400000).toISOString(),
+          });
+        expect(replaced.status).toBe(409);
+        expect(replaced.body.detail).toMatch(/conflict/i);
+        expect(await prisma.reviewerAssignment.count({ where: { paperId: paper.id } })).toBe(1);
+        expect(
+          await prisma.reviewerAssignment.findUnique({ where: { id: original.id } }),
+        ).toMatchObject({ status: 'ASSIGNED', version: original.version });
+      },
+    );
+    it('blocks saving and submitting a legacy assignment once email-only authorship is recognized', async () => {
+      const { paper, cycle } = await conflictPaper('EMAIL');
+      // Simulate an old invalid assignment that predates the shared authorship check.
+      const assignment = await prisma.reviewerAssignment.create({
+        data: {
+          id: generateId(),
+          organizationId: orgId,
+          conferenceId: confId,
+          paperId: paper.id,
+          roundId: cycle.id,
+          reviewerUserId,
+        },
+      });
+      const payload = {
+        scores: { originality: 4, clarity: 3, significance: 4 },
+        recommendation: 'WEAK_ACCEPT',
+        confidence: 4,
+        commentsToAuthors: 'Synthetic regression draft',
+        commentsToChairs: 'Synthetic private note',
+        version: 0,
+      };
+      const save = await request(app.getHttpServer())
+        .put(`/api/v1/conferences/${confId}/assignments/${assignment.id}/review`)
+        .set('Cookie', reviewerCookie)
+        .send(payload);
+      expect(save.status).toBe(409);
+      expect(save.body.detail).toMatch(/conflict/i);
+      expect(await prisma.review.count({ where: { assignmentId: assignment.id } })).toBe(0);
+      const review = await prisma.review.create({
+        data: {
+          id: generateId(),
+          organizationId: orgId,
+          conferenceId: confId,
+          paperId: paper.id,
+          roundId: cycle.id,
+          assignmentId: assignment.id,
+          reviewerUserId,
+          scores: payload.scores,
+          recommendation: 'WEAK_ACCEPT',
+          confidence: 4,
+          commentsToAuthors: payload.commentsToAuthors,
+          commentsToChairs: payload.commentsToChairs,
+        },
+      });
+      const submit = await request(app.getHttpServer())
+        .post(`/api/v1/conferences/${confId}/assignments/${assignment.id}/review/submit`)
+        .set('Cookie', reviewerCookie)
+        .send({ version: review.version });
+      expect(submit.status).toBe(409);
+      expect(submit.body.detail).toMatch(/conflict/i);
+      expect(await prisma.review.findUnique({ where: { id: review.id } })).toMatchObject({
+        submittedAt: null,
+        version: review.version,
+      });
+    });
+  });
+
+  it('emails an existing author, reuses their login and adds reviewer access without changing authorship or credentials', async () => {
+    const email = `registered-author-invite-${Date.now()}@example.com`;
+    const existing = await createUserWithSession(app, email, 'Existing Author Profile');
+    const membership = await prisma.membership.create({
+      data: {
+        id: generateId(),
+        userId: existing.userId,
+        organizationId: orgId,
+        conferenceId: confId,
+        scope: 'CONFERENCE',
+        roles: { create: { id: generateId(), role: 'AUTHOR' } },
+      },
+    });
+    const paper = await prisma.paper.create({
+      data: {
+        id: generateId(),
+        organizationId: orgId,
+        conferenceId: confId,
+        trackId,
+        submittedById: existing.userId,
+        title: 'Existing author submission',
+        abstract: 'Synthetic',
+        keywords: [],
+        status: 'SUBMITTED',
+        authorships: {
+          create: {
+            id: generateId(),
+            userId: existing.userId,
+            order: 1,
+            isCorresponding: true,
+            fullName: 'Existing Author Profile',
+            email,
+          },
+        },
+      },
+      include: { authorships: true },
+    });
+    const accountBefore = await prisma.account.findFirstOrThrow({
+      where: { userId: existing.userId, providerId: 'credential' },
+    });
+    resetLastTestNotification();
+    const invitation = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/reviewer-invitations`)
+      .set('Cookie', chairCookie)
+      .send({ email });
+    expect(invitation.status).toBe(201);
+    expect(lastTestNotification?.to).toBe(email);
+    const saved = await prisma.reviewerInvitation.findUniqueOrThrow({
+      where: { id: invitation.body.id },
+    });
+    expect(saved).toMatchObject({ status: 'PENDING', invitedUserId: existing.userId });
+    expect(
+      (
+        await prisma.membership.findUniqueOrThrow({
+          where: { id: membership.id },
+          include: { roles: true },
+        })
+      ).roles.map((r) => r.role),
+    ).toEqual(['AUTHOR']);
+    const joinUrl = extractReviewerJoinUrlFromEmail(lastTestNotification!.html);
+    expect(joinUrl).toBeTruthy();
+    const verify = await request(app.getHttpServer())
+      .get(buildMagicLinkVerifyPath(joinUrl!))
+      .set('Origin', config.api.corsOrigins[0] ?? 'http://localhost:3000');
+    expect(verify.status).toBe(302);
+    expect(verify.headers.location).toContain('/join/reviewer/complete');
+    expect(verify.headers.location).not.toContain('error=');
+    const cookie = extractCookies(verify.headers['set-cookie']);
+    expect(cookie).toBeTruthy();
+    const accepted = await request(app.getHttpServer())
+      .post('/api/v1/reviewer-invitations/accept')
+      .set('Cookie', cookie)
+      .send({ token: saved.token });
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.invitation.status).toBe('ACCEPTED');
+    const updatedMembership = await prisma.membership.findUniqueOrThrow({
+      where: { id: membership.id },
+      include: { roles: true },
+    });
+    expect(updatedMembership.roles.map((r) => r.role).sort()).toEqual(['AUTHOR', 'REVIEWER']);
+    expect(await prisma.user.count({ where: { email } })).toBe(1);
+    expect(await prisma.user.findUnique({ where: { id: existing.userId } })).toMatchObject({
+      name: 'Existing Author Profile',
+      email,
+    });
+    expect(await prisma.account.findUnique({ where: { id: accountBefore.id } })).toEqual(
+      accountBefore,
+    );
+    expect(
+      await prisma.paper.findUnique({ where: { id: paper.id }, include: { authorships: true } }),
+    ).toEqual(paper);
+    const me = await request(app.getHttpServer()).get('/api/v1/auth/me').set('Cookie', cookie);
+    expect(me.status).toBe(200);
+    expect(me.body.needsProfileSetup).toBe(false);
+    const ownAssignment = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/papers/${paper.id}/assignments`)
+      .set('Cookie', chairCookie)
+      .send({ reviewerUserId: existing.userId });
+    expect(ownAssignment.status).toBe(409);
+    expect(ownAssignment.body.detail).toMatch(/author/i);
+  });
 });
