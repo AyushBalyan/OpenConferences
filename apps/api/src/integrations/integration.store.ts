@@ -414,30 +414,43 @@ export class IntegrationStore {
     status: number,
     count: number,
     durationMs: number,
+    method = 'GET',
   ) {
     await withTenantContext(p, async (tx) => {
-      await tx.apiIntegrationAccessLog.create({
-        data: {
-          id: randomUUID(),
-          integrationId: p.integrationId,
-          keyId: p.keyId,
-          conferenceId: p.conferenceId,
-          organizationId: p.organizationId,
-          requestId,
-          route,
-          method: 'GET',
-          status,
-          resultCount: count,
-          durationMs: Math.max(0, Math.round(durationMs)),
-        },
-      });
-      await tx.apiIntegrationKey.updateMany({
-        where: {
-          id: p.keyId,
-          OR: [{ lastUsedAt: null }, { lastUsedAt: { lt: new Date(Date.now() - 60000) } }],
-        },
-        data: { lastUsedAt: new Date() },
-      });
+      await this.recordInTransaction(tx, p, requestId, route, status, count, durationMs, method);
+    });
+  }
+  async recordInTransaction(
+    tx: Tx,
+    p: IntegrationPrincipal,
+    requestId: string,
+    route: string,
+    status: number,
+    count: number,
+    durationMs: number,
+    method = 'GET',
+  ) {
+    await tx.apiIntegrationAccessLog.create({
+      data: {
+        id: randomUUID(),
+        integrationId: p.integrationId,
+        keyId: p.keyId,
+        conferenceId: p.conferenceId,
+        organizationId: p.organizationId,
+        requestId,
+        route,
+        method,
+        status,
+        resultCount: count,
+        durationMs: Math.max(0, Math.round(durationMs)),
+      },
+    });
+    await tx.apiIntegrationKey.updateMany({
+      where: {
+        id: p.keyId,
+        OR: [{ lastUsedAt: null }, { lastUsedAt: { lt: new Date(Date.now() - 60000) } }],
+      },
+      data: { lastUsedAt: new Date() },
     });
   }
   async references(p: IntegrationPrincipal, ids: string[]) {

@@ -3,7 +3,7 @@
   "paths": {
     "/integrations/v1/conferences/{conferenceId}/capabilities": {
       "get": {
-        "description": "Required scopes: No additional scope. Supported filters: No filters. Reports effective scopes and limits. Unsupported non-default filters return 400. Lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
+        "description": "Required scopes: No additional scope. Supported filters: No filters. Reports effective scopes and limits. Unsupported fields/non-default filters return 400. Read lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. Read history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 409 assignment conflict; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
         "tags": [],
         "parameters": [
           {
@@ -58,6 +58,7 @@
                           "reviewers:identity:read",
                           "reviewers:contacts:read",
                           "assignments:read",
+                          "assignments:write",
                           "analytics:read"
                         ]
                       }
@@ -393,7 +394,7 @@
     },
     "/integrations/v1/conferences/{conferenceId}/papers": {
       "get": {
-        "description": "Required scopes: papers:read. Supported filters: trackId, status, includeWithdrawn, q. Draft papers are always excluded. Unsupported non-default filters return 400. Lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
+        "description": "Required scopes: papers:read. Supported filters: trackId, status, includeWithdrawn, q. Draft papers are always excluded. Unsupported fields/non-default filters return 400. Read lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. Read history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 409 assignment conflict; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
         "tags": [],
         "parameters": [
           {
@@ -534,6 +535,14 @@
             "in": "query",
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "invitationStatus",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["PENDING", "ACCEPTED", "DECLINED", "EXPIRED"]
             }
           }
         ],
@@ -950,7 +959,7 @@
     },
     "/integrations/v1/conferences/{conferenceId}/papers/{paperId}": {
       "get": {
-        "description": "Required scopes: papers:read. Supported filters: includeWithdrawn. Draft papers are always excluded. Unsupported non-default filters return 400. Lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
+        "description": "Required scopes: papers:read. Supported filters: includeWithdrawn. Draft papers are always excluded. Unsupported fields/non-default filters return 400. Read lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. Read history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 409 assignment conflict; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
         "tags": [],
         "parameters": [
           {
@@ -1100,6 +1109,14 @@
             "in": "query",
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "invitationStatus",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["PENDING", "ACCEPTED", "DECLINED", "EXPIRED"]
             }
           }
         ],
@@ -1509,7 +1526,7 @@
     },
     "/integrations/v1/conferences/{conferenceId}/authors": {
       "get": {
-        "description": "Required scopes: authors:read + papers:read. Supported filters: paperId, trackId, status, includeWithdrawn, q, email (requires authors:contacts:read). Unsupported non-default filters return 400. Lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
+        "description": "Required scopes: authors:read + papers:read. Supported filters: paperId, trackId, status, includeWithdrawn, q, email (requires authors:contacts:read). Unsupported fields/non-default filters return 400. Read lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. Read history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 409 assignment conflict; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
         "tags": [],
         "parameters": [
           {
@@ -1650,6 +1667,14 @@
             "in": "query",
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "invitationStatus",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["PENDING", "ACCEPTED", "DECLINED", "EXPIRED"]
             }
           }
         ],
@@ -2027,7 +2052,7 @@
     },
     "/integrations/v1/conferences/{conferenceId}/papers/{paperId}/authors": {
       "get": {
-        "description": "Required scopes: authors:read + papers:read. Supported filters: trackId, status, includeWithdrawn, q, email (requires authors:contacts:read). Unsupported non-default filters return 400. Lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
+        "description": "Required scopes: authors:read + papers:read. Supported filters: trackId, status, includeWithdrawn, q, email (requires authors:contacts:read). Unsupported fields/non-default filters return 400. Read lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. Read history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 409 assignment conflict; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
         "tags": [],
         "parameters": [
           {
@@ -2177,6 +2202,14 @@
             "in": "query",
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "invitationStatus",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["PENDING", "ACCEPTED", "DECLINED", "EXPIRED"]
             }
           }
         ],
@@ -2554,7 +2587,7 @@
     },
     "/integrations/v1/conferences/{conferenceId}/reviewers": {
       "get": {
-        "description": "Required scopes: reviewers:read. Supported filters: trackId, paperId, history, cycleNumber, attention, q (requires reviewers:identity:read), email (requires reviewers:contacts:read). Unsupported non-default filters return 400. Lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
+        "description": "Required scopes: reviewers:read. Supported filters: trackId, paperId, history, cycleNumber, attention, q (requires reviewers:identity:read), email (requires reviewers:contacts:read). Unsupported fields/non-default filters return 400. Read lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. Read history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 409 assignment conflict; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
         "tags": [],
         "parameters": [
           {
@@ -2696,6 +2729,14 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "invitationStatus",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["PENDING", "ACCEPTED", "DECLINED", "EXPIRED"]
+            }
           }
         ],
         "operationId": "reviewers",
@@ -2721,6 +2762,10 @@
                           },
                           "hasReviewerRole": {
                             "type": "boolean"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["ACCEPTED", "INACTIVE"]
                           },
                           "name": {
                             "type": "string"
@@ -2778,7 +2823,534 @@
                             ]
                           }
                         },
-                        "required": ["id", "label", "hasReviewerRole", "workload"]
+                        "required": ["id", "label", "hasReviewerRole", "status", "workload"]
+                      }
+                    },
+                    "nextCursor": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "observedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "history": {
+                          "type": "string",
+                          "enum": ["CURRENT", "ALL", "HISTORICAL"]
+                        },
+                        "filters": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        },
+                        "returnedCount": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": ["observedAt", "history", "filters", "returnedCount"]
+                    }
+                  },
+                  "required": ["data", "nextCursor", "meta"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "400",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "401",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "403",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "404",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "409",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "429",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds before retry",
+                "schema": {
+                  "type": "integer",
+                  "example": 60
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "503",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/v1/conferences/{conferenceId}/reviewer-invitations": {
+      "get": {
+        "description": "Required scopes: reviewers:read. Supported filters: invitationStatus (PENDING, ACCEPTED, DECLINED, EXPIRED), email (requires reviewers:contacts:read). Pending invitations have no assignable reviewerId. Tokens and invitation links are never returned. Unsupported fields/non-default filters return 400. Read lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. Read history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 409 assignment conflict; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
+        "tags": [],
+        "parameters": [
+          {
+            "name": "conferenceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "default": 25,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          {
+            "name": "trackId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "paperId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "reviewerId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cycleId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cycleNumber",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "history",
+            "in": "query",
+            "schema": {
+              "default": "CURRENT",
+              "type": "string",
+              "enum": ["CURRENT", "ALL", "HISTORICAL"]
+            }
+          },
+          {
+            "name": "includeWithdrawn",
+            "in": "query",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "SUBMITTED",
+                "UNDER_REVIEW",
+                "DECISION_MADE",
+                "CAMERA_READY",
+                "WITHDRAWN",
+                "WITHDRAWN_NONPAYMENT"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "email",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "attention",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["OVERDUE", "REMAINING", "UNASSIGNED", "COMPLETE"]
+            }
+          },
+          {
+            "name": "progress",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["NOT_STARTED", "DRAFT", "SUBMITTED", "CLOSED", "RETIRED", "INCONSISTENT"]
+            }
+          },
+          {
+            "name": "overdue",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "invitationStatus",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["PENDING", "ACCEPTED", "DECLINED", "EXPIRED"]
+            }
+          }
+        ],
+        "operationId": "reviewerInvitations",
+        "responses": {
+          "200": {
+            "description": "200",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["PENDING", "ACCEPTED", "DECLINED", "EXPIRED"]
+                          },
+                          "reviewerId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "nullable": true
+                          },
+                          "canAssign": {
+                            "type": "boolean"
+                          },
+                          "email": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "expiresAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "status",
+                          "reviewerId",
+                          "canAssign",
+                          "createdAt",
+                          "expiresAt"
+                        ]
                       }
                     },
                     "nextCursor": {
@@ -3101,7 +3673,7 @@
     },
     "/integrations/v1/conferences/{conferenceId}/reviewers/{reviewerId}": {
       "get": {
-        "description": "Required scopes: reviewers:read. Supported filters: trackId, paperId, history, cycleNumber. IDs are integration-specific opaque references. Unsupported non-default filters return 400. Lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
+        "description": "Required scopes: reviewers:read. Supported filters: trackId, paperId, history, cycleNumber. IDs are integration-specific opaque references. Unsupported fields/non-default filters return 400. Read lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. Read history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 409 assignment conflict; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
         "tags": [],
         "parameters": [
           {
@@ -3252,6 +3824,14 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "invitationStatus",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["PENDING", "ACCEPTED", "DECLINED", "EXPIRED"]
+            }
           }
         ],
         "operationId": "reviewer",
@@ -3275,6 +3855,10 @@
                         },
                         "hasReviewerRole": {
                           "type": "boolean"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["ACCEPTED", "INACTIVE"]
                         },
                         "name": {
                           "type": "string"
@@ -3332,7 +3916,7 @@
                           ]
                         }
                       },
-                      "required": ["id", "label", "hasReviewerRole", "workload"]
+                      "required": ["id", "label", "hasReviewerRole", "status", "workload"]
                     },
                     "meta": {
                       "type": "object",
@@ -3650,7 +4234,7 @@
     },
     "/integrations/v1/conferences/{conferenceId}/assignments": {
       "get": {
-        "description": "Required scopes: assignments:read + papers:read + reviewers:read. Supported filters: trackId, paperId, reviewerId, history, cycleId, cycleNumber, progress, overdue. Unsupported non-default filters return 400. Lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
+        "description": "Required scopes: assignments:read + papers:read + reviewers:read. Supported filters: trackId, paperId, reviewerId, history, cycleId, cycleNumber, progress, overdue. Unsupported fields/non-default filters return 400. Read lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. Read history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 409 assignment conflict; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
         "tags": [],
         "parameters": [
           {
@@ -3791,6 +4375,14 @@
             "in": "query",
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "invitationStatus",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["PENDING", "ACCEPTED", "DECLINED", "EXPIRED"]
             }
           }
         ],
@@ -4202,11 +4794,447 @@
             }
           }
         }
+      },
+      "post": {
+        "description": "Required scopes: assignments:write + assignments:read + papers:read + reviewers:read. Request: JSON body: requestId (UUID, stable for retries), paperId, integration-specific reviewerId, dueAt (required future ISO timestamp with UTC/offset), optional current cycleId. Only accepted conference reviewers and open current paper cycles. Same requestId and payload replay the original assignment; reuse with different payload returns 409. Normal assignment email uses this deadline; notificationWarning reports a queue failure without undoing the saved assignment. Replays do not send another email. Unsupported fields/non-default filters return 400. Read lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. Read history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 409 assignment conflict; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
+        "tags": [],
+        "parameters": [
+          {
+            "name": "conferenceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "operationId": "createAssignment",
+        "requestBody": {
+          "description": "Body",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "requestId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "paperId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "reviewerId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "cycleId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "dueAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": ["requestId", "paperId", "reviewerId", "dueAt"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "201",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "paperId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "submissionNumber": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "reviewerId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "cycleId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "cycleNumber": {
+                          "type": "number"
+                        },
+                        "isCurrentCycle": {
+                          "type": "boolean"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "progress": {
+                          "type": "string",
+                          "enum": [
+                            "NOT_STARTED",
+                            "DRAFT",
+                            "SUBMITTED",
+                            "CLOSED",
+                            "RETIRED",
+                            "INCONSISTENT"
+                          ]
+                        },
+                        "submittedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true
+                        },
+                        "dueAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "deadlineSource": {
+                          "type": "string",
+                          "enum": ["INDIVIDUAL", "CYCLE", "CONFERENCE", "LEGACY"]
+                        },
+                        "overdue": {
+                          "type": "boolean"
+                        },
+                        "retired": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "paperId",
+                        "submissionNumber",
+                        "reviewerId",
+                        "cycleId",
+                        "cycleNumber",
+                        "isCurrentCycle",
+                        "status",
+                        "progress",
+                        "submittedAt",
+                        "dueAt",
+                        "deadlineSource",
+                        "overdue",
+                        "retired"
+                      ]
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "notificationWarning": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["data", "replayed", "message"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "400",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "401",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "403",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "404",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "409",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "429",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds before retry",
+                "schema": {
+                  "type": "integer",
+                  "example": 60
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "503",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/integrations/v1/conferences/{conferenceId}/assignments/{assignmentId}": {
       "get": {
-        "description": "Required scopes: assignments:read + papers:read + reviewers:read. Supported filters: history. Retired assignments appear only with history=ALL or HISTORICAL. Unsupported non-default filters return 400. Lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
+        "description": "Required scopes: assignments:read + papers:read + reviewers:read. Supported filters: history. Retired assignments appear only with history=ALL or HISTORICAL. Unsupported fields/non-default filters return 400. Read lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. Read history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 409 assignment conflict; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
         "tags": [],
         "parameters": [
           {
@@ -4356,6 +5384,14 @@
             "in": "query",
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "invitationStatus",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["PENDING", "ACCEPTED", "DECLINED", "EXPIRED"]
             }
           }
         ],
@@ -4764,7 +5800,7 @@
     },
     "/integrations/v1/conferences/{conferenceId}/summary": {
       "get": {
-        "description": "Required scopes: analytics:read. Supported filters: trackId only. Current-cycle totals; drafts and withdrawals do not inflate active counts. No pagination. Unsupported non-default filters return 400. Lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
+        "description": "Required scopes: analytics:read. Supported filters: trackId only. Current-cycle totals; drafts and withdrawals do not inflate active counts. No pagination. Unsupported fields/non-default filters return 400. Read lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. Read history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 409 assignment conflict; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
         "tags": [],
         "parameters": [
           {
@@ -4905,6 +5941,14 @@
             "in": "query",
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "invitationStatus",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["PENDING", "ACCEPTED", "DECLINED", "EXPIRED"]
             }
           }
         ],
@@ -5317,9 +6361,9 @@
     }
   },
   "info": {
-    "title": "OpenConferences read-only Bot API",
-    "version": "1.0.0",
-    "description": "Conference-scoped read access. All timestamps are UTC. Names and contacts are omitted without explicit identity/contact scopes. Review content, scores, conflicts, invitations, payments, files and mutations are excluded. Each page is a consistent read snapshot; different pages may observe concurrent updates. A missing historical submittedAt is null, not an estimate. Secrets are shown only once by the human management API."
+    "title": "OpenConferences Bot API",
+    "version": "1.1.0",
+    "description": "Conference-scoped reads plus explicitly granted paper assignments with individual deadlines. Existing keys remain read-only. All response timestamps are UTC. Names and contacts are omitted without explicit identity/contact scopes. Review content, scores, conflict details, invitation tokens/links, payments, files and other mutations are excluded. Each read page is a consistent snapshot; different pages may observe concurrent updates. A missing historical submittedAt is null, not an estimate. Secrets are shown only once by the human management API."
   },
   "servers": [
     {

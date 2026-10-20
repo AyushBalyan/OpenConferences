@@ -21,6 +21,11 @@ import { ProblemExceptionFilter } from '../common/filters/problem-exception.filt
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { IntegrationStore } from './integration.store';
 import { BotReadService } from './bot-read.service';
+import { BotWriteService } from './bot-write.service';
+import { CoiCheckService } from '../review/coi-check.service';
+import { RoundsService } from '../review/rounds.service';
+import { AuditService } from '../audit/audit.service';
+import { NotificationPublisher } from '../messaging/notification.publisher';
 import { IntegrationLimiter } from './integration.limiter';
 import { BotReadController, IntegrationManagementController } from './integration.controllers';
 import { parseCredential } from './integration.security';
@@ -60,6 +65,55 @@ const api = (url: string, key = token) =>
   request(app.getHttpServer())
     .get(url)
     .set('Authorization', 'Bearer ' + key);
+const assignmentEmail = vi.fn().mockResolvedValue(true);
+const write = (body: unknown, key = token, prefix = bot) =>
+  request(app.getHttpServer())
+    .post(prefix + '/assignments')
+    .set('Authorization', 'Bearer ' + key)
+    .send(body);
+async function writePaper() {
+  const p = id();
+  await owner.paper.create({
+    data: {
+      id: p,
+      organizationId: org,
+      conferenceId: conf,
+      trackId: track,
+      submittedById: author,
+      title: 'Assignment test',
+      abstract: 'Synthetic',
+      keywords: [],
+      status: 'SUBMITTED',
+    },
+  });
+  return p;
+}
+async function reviewerRef(userId = emptyReviewer) {
+  const p = await store.authenticate(parseCredential('Bearer ' + token)!);
+  return (await store.references(p, [userId]))[0]!.id;
+}
+async function assignmentInput() {
+  return {
+    requestId: id(),
+    paperId: await writePaper(),
+    reviewerId: await reviewerRef(),
+    dueAt: '2030-01-02T17:30:00+05:30',
+  };
+}
+async function newReadKey() {
+  const g = await store.create(context, {
+    name: 'Read regression',
+    scopes: ['papers:read', 'reviewers:read'],
+  });
+  return (
+    await store.issue(context, g.id, {
+      label: 'Read only',
+      scopes: ['papers:read', 'reviewers:read'],
+      expiresInDays: 30,
+      requestId: id(),
+    })
+  ).token;
+}
 describe('Bot API HTTP + actual PostgreSQL RLS + Redis', () => {
   beforeAll(async () => {
     const urls = [process.env.BOT_API_TEST_OWNER_URL!, process.env.BOT_API_TEST_DATABASE_URL!].map(
@@ -263,6 +317,11 @@ describe('Bot API HTTP + actual PostgreSQL RLS + Redis', () => {
       providers: [
         IntegrationStore,
         BotReadService,
+        BotWriteService,
+        CoiCheckService,
+        RoundsService,
+        { provide: AuditService, useValue: { log: vi.fn() } },
+        { provide: NotificationPublisher, useValue: { publishReviewerAssigned: assignmentEmail } },
         IntegrationLimiter,
         AuthGuard,
         MembershipGuard,
@@ -312,8 +371,13 @@ describe('Bot API HTTP + actual PostgreSQL RLS + Redis', () => {
     restricted = limited.token;
   });
   beforeEach(async () => {
+    assignmentEmail.mockReset().mockResolvedValue(true);
     for (const ip of ['::ffff:127.0.0.1', '127.0.0.1'])
       await redis.del('bot:auth:' + createHash('sha256').update(ip).digest('hex'));
+    await redis.del(
+      `bot:{${conf}}:rate`,
+      `bot:{${conf}}:rate:${parseCredential('Bearer ' + token)!.id}`,
+    );
   });
   afterAll(async () => {
     await app?.close();
@@ -786,4 +850,382 @@ describe('Bot API HTTP + actual PostgreSQL RLS + Redis', () => {
       `Synthetic 1000-paper assignment page: max ${Math.round(Math.max(...timings))}ms (5 local samples; not a production benchmark)`,
     );
   }, 60000);
+  it('reads invitation acceptance, expiry and assignability without exposing tokens or unscoped contacts', async () => {
+    const invites = [
+      {
+        id: id(),
+        status: 'PENDING' as const,
+        invitedUserId: null,
+        expiresAt: new Date('2030-01-01'),
+      },
+      {
+        id: id(),
+        status: 'ACCEPTED' as const,
+        invitedUserId: emptyReviewer,
+        expiresAt: new Date('2020-01-01'),
+      },
+      {
+        id: id(),
+        status: 'PENDING' as const,
+        invitedUserId: null,
+        expiresAt: new Date('2020-01-01'),
+      },
+      {
+        id: id(),
+        status: 'DECLINED' as const,
+        invitedUserId: null,
+        expiresAt: new Date('2030-01-01'),
+      },
+    ];
+    await owner.reviewerInvitation.createMany({
+      data: invites.map((i) => ({
+        ...i,
+        organizationId: org,
+        conferenceId: conf,
+        email: i.invitedUserId ? emptyReviewer + '@example.com' : i.id + '@example.com',
+        token: 'secret-' + i.id,
+      })),
+    });
+    const r = await api(bot + '/reviewer-invitations');
+    expect(r.status).toBe(200);
+    expect(r.body.data).toHaveLength(4);
+    const accepted = r.body.data.find((i: { id: string }) => i.id === invites[1].id);
+    expect(accepted).toMatchObject({
+      status: 'ACCEPTED',
+      canAssign: true,
+      reviewerId: await reviewerRef(),
+    });
+    expect(r.body.data.find((i: { id: string }) => i.id === invites[0].id)).toMatchObject({
+      status: 'PENDING',
+      reviewerId: null,
+      canAssign: false,
+    });
+    expect(r.body.data.find((i: { id: string }) => i.id === invites[2].id).status).toBe('EXPIRED');
+    expect(JSON.stringify(r.body)).not.toMatch(/secret-|invitedUserId|roleNote|"token"/);
+    const readKey = await newReadKey();
+    const limited = await api(bot + '/reviewer-invitations', readKey);
+    expect(limited.status).toBe(200);
+    expect(JSON.stringify(limited.body)).not.toMatch(/@example.com|"name"|secret-/);
+    expect((await api(bot + '/reviewer-invitations?email=example', readKey)).status).toBe(403);
+    expect(
+      (await api(bot + '/reviewer-invitations?invitationStatus=PENDING')).body.data,
+    ).toHaveLength(1);
+    expect(
+      (await api(bot + '/reviewer-invitations?invitationStatus=EXPIRED')).body.data,
+    ).toHaveLength(1);
+    const first = await api(bot + '/reviewer-invitations?limit=1');
+    const next = await api(
+      bot + '/reviewer-invitations?limit=1&cursor=' + encodeURIComponent(first.body.nextCursor),
+    );
+    expect(next.body.data[0].id).not.toBe(first.body.data[0].id);
+    expect(
+      (
+        await api(
+          bot +
+            '/reviewer-invitations?invitationStatus=PENDING&cursor=' +
+            encodeURIComponent(first.body.nextCursor),
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (await api(bot + '/reviewers')).body.data.every(
+        (r: { status: string }) => r.status === 'ACCEPTED',
+      ),
+    ).toBe(true);
+  });
+  it('requires explicit write permission, a valid future deadline, and same-integration reviewer references', async () => {
+    const body = await assignmentInput();
+    expect((await write(body, await newReadKey())).status).toBe(403);
+    const { dueAt: _dueAt, ...missing } = body;
+    expect((await write(missing)).status).toBe(400);
+    expect((await write({ ...body, dueAt: 'not-a-date' })).status).toBe(400);
+    expect((await write({ ...body, dueAt: '2020-01-01T00:00:00Z' })).status).toBe(400);
+    expect((await write({ ...body, reviewerId: emptyReviewer })).status).toBe(404);
+    expect((await write({ ...body, paperId: foreignPaper })).status).toBe(404);
+    expect(
+      (await write(body, token, `/api/v1/integrations/v1/conferences/${otherConf}`)).status,
+    ).toBe(404);
+    const g = await store.create(context, {
+      name: 'Foreign references',
+      scopes: ['reviewers:read'],
+    });
+    const p = await store.authenticate(parseCredential('Bearer ' + token)!);
+    const ref = (await store.references({ ...p, integrationId: g.id }, [emptyReviewer]))[0]!;
+    expect((await write({ ...body, reviewerId: ref.id })).status).toBe(404);
+    expect(await owner.reviewerAssignment.count({ where: { paperId: body.paperId } })).toBe(0);
+  });
+  it('creates a deadline assignment, audits atomically, and replays without duplicate work or email', async () => {
+    const body = await assignmentInput();
+    const r = await write(body);
+    expect(r.status).toBe(201);
+    expect(r.headers['cache-control']).toBe('no-store');
+    expect(r.body).toMatchObject({
+      replayed: false,
+      data: {
+        paperId: body.paperId,
+        reviewerId: body.reviewerId,
+        dueAt: '2030-01-02T12:00:00.000Z',
+        deadlineSource: 'INDIVIDUAL',
+        status: 'ASSIGNED',
+      },
+    });
+    expect(JSON.stringify(r.body)).not.toMatch(/reviewerUserId|@example.com|secretHash/);
+    expect(assignmentEmail).toHaveBeenCalledOnce();
+    expect(assignmentEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assignmentId: r.body.data.id,
+        dueAt: '2030-01-02T12:00:00.000Z',
+        to: emptyReviewer + '@example.com',
+      }),
+    );
+    const row = await owner.reviewerAssignment.findUniqueOrThrow({ where: { id: r.body.data.id } });
+    expect(row.dueAt?.toISOString()).toBe(r.body.data.dueAt);
+    expect((await owner.paper.findUniqueOrThrow({ where: { id: body.paperId } })).status).toBe(
+      'UNDER_REVIEW',
+    );
+    expect(
+      await owner.auditLog.count({
+        where: { entityId: row.id, action: 'integration.assignment.created' },
+      }),
+    ).toBe(1);
+    const replay = await write(body);
+    expect(replay.status).toBe(201);
+    expect(replay.body.replayed).toBe(true);
+    expect(replay.body.data).toEqual(r.body.data);
+    expect(assignmentEmail).toHaveBeenCalledOnce();
+    expect((await write({ ...body, dueAt: '2030-02-01T00:00:00Z' })).status).toBe(409);
+    expect((await write({ ...body, requestId: id() })).status).toBe(409);
+    expect(await owner.reviewerAssignment.count({ where: { paperId: body.paperId } })).toBe(1);
+    const logs = await owner.apiIntegrationAccessLog.findMany({
+      where: { integrationId: grant.id, method: 'POST', status: 201 },
+    });
+    expect(logs.length).toBeGreaterThanOrEqual(2);
+  });
+  it('serializes concurrent identical writes into one assignment and one notification', async () => {
+    const body = await assignmentInput();
+    const results = await Promise.all([write(body), write(body)]);
+    expect(results.map((r) => r.status)).toEqual([201, 201]);
+    expect(results.map((r) => r.body.replayed).sort()).toEqual([false, true]);
+    expect(results[0].body.data.id).toBe(results[1].body.data.id);
+    expect(await owner.reviewerAssignment.count({ where: { paperId: body.paperId } })).toBe(1);
+    expect(assignmentEmail).toHaveBeenCalledOnce();
+  });
+  it('blocks assignments to pending or removed reviewers and exposes inactive roster status', async () => {
+    const body = await assignmentInput();
+    const role = await owner.roleGrant.findFirstOrThrow({
+      where: { membership: { userId: emptyReviewer, conferenceId: conf }, role: 'REVIEWER' },
+    });
+    await owner.roleGrant.delete({ where: { id: role.id } });
+    try {
+      expect((await write(body)).status).toBe(409);
+      const invites = await api(bot + '/reviewer-invitations?invitationStatus=ACCEPTED');
+      expect(invites.body.data[0]).toMatchObject({ canAssign: false, reviewerId: null });
+    } finally {
+      await owner.roleGrant.create({ data: role });
+    }
+    const pending = await owner.user.create({
+      data: { id: id(), name: 'Pending', email: id() + '@example.com' },
+    });
+    const pendingRef = await reviewerRef(pending.id);
+    await owner.reviewerInvitation.create({
+      data: {
+        id: id(),
+        organizationId: org,
+        conferenceId: conf,
+        email: pending.email,
+        invitedUserId: pending.id,
+        status: 'PENDING',
+        expiresAt: new Date('2030-01-01'),
+        token: id(),
+      },
+    });
+    expect((await write({ ...body, reviewerId: pendingRef })).status).toBe(409);
+  });
+  it.each(['authorship', 'declared', 'bid'] as const)('blocks %s conflicts', async (kind) => {
+    const body = await assignmentInput();
+    if (kind === 'authorship')
+      await owner.authorship.create({
+        data: {
+          id: id(),
+          paperId: body.paperId,
+          userId: emptyReviewer,
+          order: 1,
+          fullName: 'Reviewer author',
+          email: emptyReviewer + '@example.com',
+          isCorresponding: true,
+        },
+      });
+    if (kind === 'declared')
+      await owner.conflictOfInterest.create({
+        data: {
+          id: id(),
+          organizationId: org,
+          conferenceId: conf,
+          userId: emptyReviewer,
+          paperId: body.paperId,
+          type: 'PERSONAL',
+          source: 'SELF',
+        },
+      });
+    if (kind === 'bid')
+      await owner.bid.create({
+        data: {
+          id: id(),
+          organizationId: org,
+          conferenceId: conf,
+          paperId: body.paperId,
+          reviewerUserId: emptyReviewer,
+          value: 'CONFLICT',
+        },
+      });
+    expect((await write(body)).status).toBe(409);
+    expect(await owner.reviewerAssignment.count({ where: { paperId: body.paperId } })).toBe(0);
+    expect(assignmentEmail).not.toHaveBeenCalled();
+  });
+  it('rejects drafts, withdrawals, decided cycles and historical cycles', async () => {
+    const body = await assignmentInput();
+    expect((await write({ ...body, paperId: draft })).status).toBe(404);
+    expect((await write({ ...body, paperId: withdrawn })).status).toBe(409);
+    const old = await owner.reviewRound.create({
+      data: {
+        id: id(),
+        organizationId: org,
+        conferenceId: conf,
+        paperId: body.paperId,
+        roundNumber: 1,
+      },
+    });
+    const current = await owner.reviewRound.create({
+      data: {
+        id: id(),
+        organizationId: org,
+        conferenceId: conf,
+        paperId: body.paperId,
+        roundNumber: 2,
+      },
+    });
+    expect((await write({ ...body, cycleId: old.id })).status).toBe(409);
+    expect((await write({ ...body, cycleId: cycle })).status).toBe(404);
+    await owner.decision.create({
+      data: {
+        id: id(),
+        organizationId: org,
+        conferenceId: conf,
+        paperId: body.paperId,
+        roundId: current.id,
+        decidedById: chair,
+        outcome: 'REJECT',
+      },
+    });
+    expect((await write(body)).status).toBe(409);
+  });
+  it('rolls back the assignment, cycle and idempotency record when access logging fails', async () => {
+    const body = await assignmentInput();
+    const spy = vi
+      .spyOn(store, 'recordInTransaction')
+      .mockRejectedValueOnce(new Error('Audit unavailable'));
+    try {
+      expect((await write(body)).status).toBe(503);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await owner.reviewerAssignment.count({ where: { paperId: body.paperId } })).toBe(0);
+    expect(await owner.reviewRound.count({ where: { paperId: body.paperId } })).toBe(0);
+    expect(
+      await owner.apiIntegrationMutation.count({
+        where: { integrationId: grant.id, requestId: body.requestId },
+      }),
+    ).toBe(0);
+    expect(assignmentEmail).not.toHaveBeenCalled();
+    expect((await write(body)).status).toBe(201);
+  });
+  it('returns an actionable email warning without creating duplicate assignments on retry', async () => {
+    const body = await assignmentInput();
+    assignmentEmail.mockRejectedValueOnce(new Error('Queue unavailable'));
+    const r = await write(body);
+    expect(r.status).toBe(201);
+    expect(r.body.notificationWarning).toContain('Assignment saved');
+    expect((await write(body)).body.replayed).toBe(true);
+    expect(await owner.reviewerAssignment.count({ where: { paperId: body.paperId } })).toBe(1);
+    expect(assignmentEmail).toHaveBeenCalledOnce();
+  });
+  it('requires a newly scoped key after granting write access to an existing read integration', async () => {
+    const scopes = ['papers:read', 'reviewers:read', 'assignments:read'] as const;
+    const g = await store.create(context, { name: 'Upgrade test', scopes: [...scopes] });
+    const old = await store.issue(context, g.id, {
+      label: 'Read-only',
+      scopes: [...scopes],
+      expiresInDays: 30,
+      requestId: id(),
+    });
+    await store.change(context, g.id, {
+      version: g.version,
+      scopes: [...scopes, 'assignments:write'],
+    });
+    const body = await assignmentInput();
+    expect((await write(body, old.token)).status).toBe(403);
+    const fresh = await store.issue(context, g.id, {
+      label: 'Write',
+      scopes: [...scopes, 'assignments:write'],
+      expiresInDays: 30,
+      requestId: id(),
+    });
+    const principal = await store.authenticate(parseCredential('Bearer ' + fresh.token)!);
+    const ref = (await store.references(principal, [emptyReviewer]))[0]!;
+    expect((await write({ ...body, reviewerId: ref.id }, fresh.token)).status).toBe(201);
+    await store.revokeKey(context, g.id, parseCredential('Bearer ' + fresh.token)!.id);
+    expect((await write({ ...body, reviewerId: ref.id }, fresh.token)).status).toBe(401);
+  });
+  it('protects the idempotency ledger with real tenant RLS and insert-only privileges', async () => {
+    expect(
+      await withTenantContext(
+        { userId: chair, organizationId: otherOrg, conferenceId: foreignConf },
+        (tx) => tx.apiIntegrationMutation.count(),
+      ),
+    ).toBe(0);
+    await expect(
+      withTenantContext(context, (tx) =>
+        tx.apiIntegrationMutation.deleteMany({ where: { integrationId: grant.id } }),
+      ),
+    ).rejects.toThrow();
+  });
+  it('rechecks key revocation, MFA and write grants inside an already-authenticated mutation', async () => {
+    const p = await store.authenticate(parseCredential('Bearer ' + token)!);
+    const writer = app.get(BotWriteService);
+    const body = await assignmentInput();
+    await owner.apiIntegrationKey.update({
+      where: { id: p.keyId },
+      data: { revokedAt: new Date() },
+    });
+    try {
+      await expect(writer.assign(p, body, id(), performance.now())).rejects.toMatchObject({
+        status: 401,
+      });
+    } finally {
+      await owner.apiIntegrationKey.update({ where: { id: p.keyId }, data: { revokedAt: null } });
+    }
+    await owner.user.update({ where: { id: chair }, data: { twoFactorEnabled: false } });
+    try {
+      await expect(writer.assign(p, body, id(), performance.now())).rejects.toMatchObject({
+        status: 401,
+      });
+    } finally {
+      await owner.user.update({ where: { id: chair }, data: { twoFactorEnabled: true } });
+    }
+    await owner.apiIntegration.update({
+      where: { id: grant.id },
+      data: { scopes: INTEGRATION_SCOPES.filter((s) => s !== 'assignments:write') },
+    });
+    try {
+      await expect(writer.assign(p, body, id(), performance.now())).rejects.toMatchObject({
+        status: 403,
+      });
+    } finally {
+      await owner.apiIntegration.update({
+        where: { id: grant.id },
+        data: { scopes: [...INTEGRATION_SCOPES] },
+      });
+    }
+    expect(await owner.reviewerAssignment.count({ where: { paperId: body.paperId } })).toBe(0);
+  });
 });

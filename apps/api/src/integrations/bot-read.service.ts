@@ -5,7 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, withTenantContext } from '@openconferences/db';
-import type { BotQuery, IntegrationScope, BotPaperDto } from '@openconferences/schemas';
+import type {
+  BotQuery,
+  IntegrationScope,
+  BotPaperDto,
+  BotReviewerInvitation,
+} from '@openconferences/schemas';
 import { minimumReviewsFromConfig } from '../review/review-stage';
 import { IntegrationStore } from './integration.store';
 import { decodeCursor, encodeCursor, type IntegrationPrincipal } from './integration.security';
@@ -390,6 +395,7 @@ export class BotReadService {
         id: ref.id,
         label: `Reviewer ${ref.id.slice(0, 8)}`,
         hasReviewerRole: r.hasReviewerRole,
+        status: r.hasReviewerRole ? ('ACCEPTED' as const) : ('INACTIVE' as const),
         ...(p.scopes.includes('reviewers:identity:read') ? { name: r.name ?? '' } : {}),
         ...(p.scopes.includes('reviewers:contacts:read') ? { email: r.email ?? '' } : {}),
         workload,
@@ -403,6 +409,90 @@ export class BotReadService {
           ? encodeCursor(p, 'reviewers', q, selected[selected.length - 1]!.userId)
           : null,
       meta: this.meta(q, now, mapped.length),
+    };
+  }
+  async reviewerInvitations(
+    p: IntegrationPrincipal,
+    q: BotQuery,
+  ): Promise<{
+    data: BotReviewerInvitation[];
+    nextCursor: string | null;
+    meta: ReturnType<BotReadService['meta']>;
+  }> {
+    this.require(p, 'reviewers:read');
+    this.validate(q, ['invitationStatus', 'email']);
+    if (q.email) this.require(p, 'reviewers:contacts:read');
+    const now = new Date(),
+      cursor = decodeCursor(p, 'reviewer-invitations', q);
+    const rows = await this.read(p, async (tx) => {
+      const status: Prisma.ReviewerInvitationWhereInput =
+        q.invitationStatus === 'EXPIRED'
+          ? { OR: [{ status: 'EXPIRED' }, { status: 'PENDING', expiresAt: { lte: now } }] }
+          : q.invitationStatus === 'PENDING'
+            ? { status: 'PENDING', expiresAt: { gt: now } }
+            : q.invitationStatus
+              ? { status: q.invitationStatus }
+              : {};
+      const invitations = await tx.reviewerInvitation.findMany({
+        where: {
+          conferenceId: p.conferenceId,
+          ...status,
+          ...(cursor ? { id: { gt: cursor } } : {}),
+          ...(q.email ? { email: { contains: q.email, mode: 'insensitive' } } : {}),
+        },
+        select: {
+          id: true,
+          status: true,
+          email: true,
+          invitedUserId: true,
+          createdAt: true,
+          expiresAt: true,
+          invitedUser: { select: { name: true, deletedAt: true } },
+        },
+        orderBy: { id: 'asc' },
+        take: q.limit + 1,
+      });
+      const members = await tx.membership.findMany({
+        where: {
+          conferenceId: p.conferenceId,
+          scope: 'CONFERENCE',
+          userId: { in: invitations.flatMap((i) => (i.invitedUserId ? [i.invitedUserId] : [])) },
+          roles: { some: { role: 'REVIEWER' } },
+          user: { deletedAt: null },
+        },
+        select: { userId: true },
+      });
+      const eligible = new Set(members.map((m) => m.userId));
+      return invitations.map((i) => ({
+        ...i,
+        canAssign: i.status === 'ACCEPTED' && !!i.invitedUserId && eligible.has(i.invitedUserId),
+      }));
+    });
+    const page = rows.slice(0, q.limit);
+    const refs = await this.store.references(
+      p,
+      page.flatMap((i) => (i.canAssign ? [i.invitedUserId!] : [])),
+    );
+    return {
+      data: page.map((i) => ({
+        id: i.id,
+        status: i.status === 'PENDING' && i.expiresAt <= now ? ('EXPIRED' as const) : i.status,
+        reviewerId: i.canAssign ? refs.find((r) => r.reviewerUserId === i.invitedUserId)!.id : null,
+        canAssign: i.canAssign,
+        ...(p.scopes.includes('reviewers:contacts:read') ? { email: i.email } : {}),
+        ...(p.scopes.includes('reviewers:identity:read') &&
+        i.invitedUser &&
+        !i.invitedUser.deletedAt
+          ? { name: i.invitedUser.name }
+          : {}),
+        createdAt: i.createdAt.toISOString(),
+        expiresAt: i.expiresAt.toISOString(),
+      })),
+      nextCursor:
+        rows.length > q.limit
+          ? encodeCursor(p, 'reviewer-invitations', q, page[page.length - 1]!.id)
+          : null,
+      meta: this.meta(q, now, page.length),
     };
   }
   async summary(p: IntegrationPrincipal, q: BotQuery) {

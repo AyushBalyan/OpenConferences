@@ -1,6 +1,11 @@
 import { integrationLogUrl } from './integration.http';
 import { describe, it, expect } from 'vitest';
-import { botQuerySchema, integrationScopesSchema } from '@openconferences/schemas';
+import {
+  botQuerySchema,
+  integrationScopesSchema,
+  INTEGRATION_SCOPES,
+  botCreateAssignmentSchema,
+} from '@openconferences/schemas';
 import {
   makeCredential,
   parseCredential,
@@ -23,6 +28,35 @@ const p: IntegrationPrincipal = {
 process.env.BOT_API_ENABLED = 'true';
 process.env.BOT_API_CURSOR_SECRET = '12'.repeat(32);
 describe('bot credentials and query contracts', () => {
+  it('requires explicit write dependencies and accepts the complete nine-scope grant', () => {
+    expect(integrationScopesSchema.safeParse(['assignments:write']).success).toBe(false);
+    expect(
+      integrationScopesSchema.safeParse([
+        'assignments:write',
+        'assignments:read',
+        'papers:read',
+        'reviewers:read',
+      ]).success,
+    ).toBe(true);
+    expect(integrationScopesSchema.safeParse([...INTEGRATION_SCOPES]).success).toBe(true);
+  });
+  it('requires a deadline and request UUID and rejects extra write operations', () => {
+    const input = {
+      requestId: p.keyId,
+      paperId: p.conferenceId,
+      reviewerId: p.userId,
+      dueAt: '2030-01-02T17:30:00+05:30',
+    };
+    expect(botCreateAssignmentSchema.safeParse(input).success).toBe(true);
+    expect(botCreateAssignmentSchema.safeParse({ ...input, dueAt: undefined }).success).toBe(false);
+    expect(
+      botCreateAssignmentSchema.safeParse({ ...input, dueAt: '2030-01-02T17:30:00' }).success,
+    ).toBe(false);
+    expect(botCreateAssignmentSchema.safeParse({ ...input, requestId: 'retry' }).success).toBe(
+      false,
+    );
+    expect(botCreateAssignmentSchema.safeParse({ ...input, notify: false }).success).toBe(false);
+  });
   it('strips query values and resource identifiers from integration telemetry', () => {
     expect(
       integrationLogUrl(

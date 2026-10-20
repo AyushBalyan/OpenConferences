@@ -1,5 +1,16 @@
 # Bot API v1 verification — 10 October 2026
 
+## Assignment-write extension — 20 October 2026
+
+The opt-in `assignments:write` permission and reviewer invitation status reads were verified using a newly initialized task-owned local PostgreSQL 17 cluster, a fresh marked `bot_api_test_*` database, and temporary Redis. All **51 migrations** applied. Bot requests used `openconferences_api` with real RLS and no superuser/BYPASSRLS privileges. No production databases, credentials, provider calls, or outbound mail were used.
+
+- **48 bot tests passed:** 41 actual HTTP/PostgreSQL/Redis tests and 7 credential/query/contract tests. New coverage includes pending/accepted/expired invitation reads, contact omission, opaque reviewer references, explicit write grants, existing read-key compatibility, required future deadlines, normalization of offset timestamps, idempotent replay, concurrent retries, duplicate assignments, conflicts, active membership, current cycles, atomic rollback on audit failure, notification warnings, live key/MFA/scope rechecks, and tenant isolation of the insert-only idempotency ledger.
+- **5 browser tests passed:** existing management lifecycle, responsive controls, role denial, refresh recovery, and explicit assignment-write selection on both integration grants and new keys, including read dependencies.
+- **43 existing review HTTP regression tests passed; 8 existing tests remained skipped.** These exercised the full application module and normal human assignment/review flows against the local database. Notification delivery was stubbed/test-mode only; no real mail was sent.
+- Shared schemas/contracts, API build and typecheck, web production build and typecheck, scoped lint, and the generated OpenAPI drift check passed. The new API contract is version 1.1.0 under the existing `/integrations/v1` URL. Temporary PostgreSQL and Redis were stopped after verification.
+
+The permission UI detector returned no findings. The fresh finish reviewer returned **ship** at the permission-UI scope with no material fixes. Desktop/mobile evidence is `desktop-write-grant.png` and `mobile-write-key.png` under `.impeccable/review/bot-integrations/`. Setup and retry/notification behavior are documented in the current [runbook](bot-api-runbook.md). Historical first-release results follow; their read-only boundary is superseded only for the explicitly granted assignment endpoint.
+
 Implemented and verified locally; no production migrations, deployment, credential issuance, bot-provider calls, or outbound mail were performed during verification. The feature defaults to disabled. The task-owned PostgreSQL and Redis services were stopped after verification; their temporary fixture files were retained locally.
 
 ## Checks completed

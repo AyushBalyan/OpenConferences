@@ -255,3 +255,34 @@ test('feature unavailable state has a working refresh', async ({ page }) => {
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.getByText('No bots connected')).toBeVisible();
 });
+test('assignment writes require explicit grant and key permissions with read dependencies', async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(path);
+  await page.getByRole('button', { name: 'New integration', exact: true }).click();
+  await page.getByLabel('Integration name').fill('Assignment assistant');
+  const grant = page.getByRole('form', { name: 'New integration' });
+  await expect(grant.getByLabel('Assign papers with a deadline')).not.toBeChecked();
+  await grant.getByLabel('Assign papers with a deadline').check();
+  for (const label of ['Paper metadata', 'Reviewer workload (aliases)', 'Assignments & deadlines'])
+    await expect(grant.getByLabel(label)).toBeChecked();
+  await capture(page, 'desktop-write-grant');
+  await page.getByRole('button', { name: 'Create integration', exact: true }).click();
+  await page.getByRole('button', { name: 'Issue key', exact: true }).click();
+  const key = page.getByRole('form', { name: 'Issue API key' });
+  await expect(key.getByLabel('Assign papers with a deadline')).not.toBeChecked();
+  await key.getByLabel('Assign papers with a deadline').check();
+  await key.getByLabel('Key label').fill('Assignment service');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await capture(page, 'mobile-write-key');
+  await key.getByLabel('Assignments & deadlines').uncheck();
+  await expect(key.getByLabel('Assign papers with a deadline')).not.toBeChecked();
+  await key.getByLabel('Assign papers with a deadline').check();
+  await page.getByRole('button', { name: 'Create key', exact: true }).click();
+  await expect(page.getByLabel('Copy your key now')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+});

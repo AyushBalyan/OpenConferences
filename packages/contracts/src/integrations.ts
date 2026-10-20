@@ -14,6 +14,9 @@ import {
   botAssignmentSchema,
   botSummarySchema,
   botCapabilitiesSchema,
+  botReviewerInvitationSchema,
+  botCreateAssignmentSchema,
+  botCreateAssignmentResponseSchema,
   botListSchema,
   botDetailSchema,
   problemEnvelopeSchema,
@@ -165,6 +168,13 @@ export const botReadContract = c.router({
     query: botQuerySchema,
     responses: { 200: botListSchema(botReviewerSchema), ...common },
   },
+  reviewerInvitations: {
+    method: 'GET',
+    path: bot + '/reviewer-invitations',
+    pathParams: conference,
+    query: botQuerySchema,
+    responses: { 200: botListSchema(botReviewerInvitationSchema), ...common },
+  },
   reviewer: {
     method: 'GET',
     path: bot + '/reviewers/:reviewerId',
@@ -194,3 +204,13 @@ export const botReadContract = c.router({
     responses: { 200: botDetailSchema(botSummarySchema), ...common },
   },
 });
+export const botWriteContract = c.router({
+  createAssignment: {
+    method: 'POST',
+    path: bot + '/assignments',
+    pathParams: conference,
+    body: botCreateAssignmentSchema,
+    responses: { 201: botCreateAssignmentResponseSchema, ...common },
+  },
+});
+export const botApiContract = c.router({ ...botReadContract, ...botWriteContract });

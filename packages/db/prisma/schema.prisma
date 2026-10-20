@@ -1115,6 +1115,7 @@ model ApiIntegration {
   creator            User                              @relation("IntegrationCreator", fields: [createdByUserId], references: [id])
   keys               ApiIntegrationKey[]
   reviewerReferences ApiIntegrationReviewerReference[]
+  mutations          ApiIntegrationMutation[]
 
   @@unique([id, conferenceId, organizationId])
   @@index([conferenceId, createdAt, id])
@@ -1178,4 +1179,20 @@ model ApiIntegrationReviewerReference {
   @@unique([integrationId, reviewerUserId])
   @@index([conferenceId])
   @@map("api_integration_reviewer_references")
+}
+
+model ApiIntegrationMutation {
+  id             String         @id @db.Uuid
+  integrationId  String         @db.Uuid
+  organizationId String         @db.Uuid
+  conferenceId   String         @db.Uuid
+  requestId      String         @db.Uuid
+  payloadHash    String         @db.Char(64)
+  response       Json
+  createdAt      DateTime       @default(now())
+  integration    ApiIntegration @relation(fields: [integrationId, conferenceId, organizationId], references: [id, conferenceId, organizationId], map: "api_integration_mutations_integration_fkey")
+
+  @@unique([integrationId, requestId])
+  @@index([conferenceId])
+  @@map("api_integration_mutations")
 }

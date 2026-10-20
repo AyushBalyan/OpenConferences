@@ -7,6 +7,7 @@ export const INTEGRATION_SCOPES = [
   'reviewers:identity:read',
   'reviewers:contacts:read',
   'assignments:read',
+  'assignments:write',
   'analytics:read',
 ] as const;
 export type IntegrationScope = (typeof INTEGRATION_SCOPES)[number];
@@ -16,11 +17,12 @@ export const SCOPE_DEPENDENCIES: Partial<Record<IntegrationScope, IntegrationSco
   'reviewers:identity:read': ['reviewers:read'],
   'reviewers:contacts:read': ['reviewers:identity:read'],
   'assignments:read': ['papers:read', 'reviewers:read'],
+  'assignments:write': ['assignments:read', 'papers:read', 'reviewers:read'],
 };
 export const integrationScopesSchema = z
   .array(z.enum(INTEGRATION_SCOPES))
   .min(1)
-  .max(8)
+  .max(INTEGRATION_SCOPES.length)
   .refine((s) => new Set(s).size === s.length, 'Duplicate scopes')
   .refine(
     (s) => s.every((v) => (SCOPE_DEPENDENCIES[v] ?? []).every((d) => s.includes(d))),
@@ -107,6 +109,7 @@ export const botQuerySchema = z
       .enum(['NOT_STARTED', 'DRAFT', 'SUBMITTED', 'CLOSED', 'RETIRED', 'INCONSISTENT'])
       .optional(),
     overdue: bool.optional(),
+    invitationStatus: z.enum(['PENDING', 'ACCEPTED', 'DECLINED', 'EXPIRED']).optional(),
   })
   .strict();
 export type BotQuery = z.infer<typeof botQuerySchema>;
@@ -155,6 +158,7 @@ export const botReviewerSchema = z.object({
   id: uuid,
   label: z.string(),
   hasReviewerRole: z.boolean(),
+  status: z.enum(['ACCEPTED', 'INACTIVE']),
   name: z.string().optional(),
   email: z.string().optional(),
   workload: botWorkloadSchema,
@@ -174,6 +178,33 @@ export const botAssignmentSchema = z.object({
   deadlineSource: z.enum(['INDIVIDUAL', 'CYCLE', 'CONFERENCE', 'LEGACY']),
   overdue: z.boolean(),
   retired: z.boolean(),
+});
+export const botReviewerInvitationSchema = z.object({
+  id: uuid,
+  status: z.enum(['PENDING', 'ACCEPTED', 'DECLINED', 'EXPIRED']),
+  reviewerId: uuid.nullable(),
+  canAssign: z.boolean(),
+  email: z.string().optional(),
+  name: z.string().optional(),
+  createdAt: date,
+  expiresAt: date,
+});
+export type BotReviewerInvitation = z.infer<typeof botReviewerInvitationSchema>;
+export const botCreateAssignmentSchema = z
+  .object({
+    requestId: uuid,
+    paperId: uuid,
+    reviewerId: uuid,
+    cycleId: uuid.optional(),
+    dueAt: z.string().datetime({ offset: true }),
+  })
+  .strict();
+export type BotCreateAssignment = z.infer<typeof botCreateAssignmentSchema>;
+export const botCreateAssignmentResponseSchema = z.object({
+  data: botAssignmentSchema,
+  replayed: z.boolean(),
+  message: z.string(),
+  notificationWarning: z.string().optional(),
 });
 export const botCapabilitiesSchema = z.object({
   apiVersion: z.literal('1'),

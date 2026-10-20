@@ -5,9 +5,11 @@ import { IntegrationManagementController, BotReadController } from './integratio
 import { IntegrationStore } from './integration.store';
 import { BotReadService } from './bot-read.service';
 import { IntegrationLimiter } from './integration.limiter';
+import { BotWriteService } from './bot-write.service';
+import { ReviewModule } from '../review/review.module';
 @Module({
-  imports: [AuthModule, TenancyModule],
+  imports: [AuthModule, TenancyModule, ReviewModule],
   controllers: [IntegrationManagementController, BotReadController],
-  providers: [IntegrationStore, BotReadService, IntegrationLimiter],
+  providers: [IntegrationStore, BotReadService, BotWriteService, IntegrationLimiter],
 })
 export class IntegrationsModule {}

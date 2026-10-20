@@ -23,6 +23,7 @@ const scopeNames: Record<IntegrationScope, string> = {
   'reviewers:identity:read': 'Reviewer names',
   'reviewers:contacts:read': 'Reviewer email addresses',
   'assignments:read': 'Assignments & deadlines',
+  'assignments:write': 'Assign papers with a deadline',
   'analytics:read': 'Conference summary',
 };
 function dependencies(scopes: IntegrationScope[]): IntegrationScope[] {
@@ -41,7 +42,7 @@ function ScopePicker({
 }) {
   return (
     <fieldset className="space-y-3">
-      <legend className="mb-3 text-sm font-medium text-slate-800">Allowed data</legend>
+      <legend className="mb-3 text-sm font-medium text-slate-800">Allowed access</legend>
       <div className="grid gap-3 sm:grid-cols-2">
         {allowed.map((scope) => (
           <label
@@ -72,7 +73,8 @@ function ScopePicker({
         ))}
       </div>
       <p className="text-xs text-slate-500">
-        Related permissions are selected together. Names and emails require explicit access.
+        Related permissions are selected together. Names and emails require explicit access. “Assign
+        papers with a deadline” permits writes and emails reviewers with that deadline.
       </p>
     </fieldset>
   );
@@ -275,8 +277,8 @@ export default function IntegrationsPage() {
         <div>
           <h2 className="text-xl font-semibold text-slate-900">Integrations</h2>
           <p className="mt-1 max-w-2xl text-sm text-slate-600">
-            Give a bot read-only access to this conference. Choose the data it can see, then issue
-            an expiring key.
+            Choose what a bot can read or assign in this conference, then issue an expiring key.
+            Paper assignment requires a separate permission.
           </p>
         </div>
         <Button

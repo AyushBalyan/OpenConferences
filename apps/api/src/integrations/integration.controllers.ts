@@ -15,8 +15,9 @@ import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
 import {
   integrationManagementContract as management,
   botReadContract as bot,
+  botWriteContract,
 } from '@openconferences/contracts';
-import type { BotQuery } from '@openconferences/schemas';
+import type { BotQuery, BotCreateAssignment } from '@openconferences/schemas';
 import type { RoleKind } from '@openconferences/db';
 import { AuthGuard } from '../common/guards/auth.guard';
 import { MembershipGuard } from '../common/guards/membership.guard';
@@ -27,6 +28,7 @@ import { RoleGrants } from '../common/decorators/role-grants.decorator';
 import type { AuthUser } from '../auth/auth.types';
 import { IntegrationStore } from './integration.store';
 import { BotReadService } from './bot-read.service';
+import { BotWriteService } from './bot-write.service';
 import { IntegrationLimiter } from './integration.limiter';
 import { IntegrationNoStore } from './integration.http';
 import { botConfig, parseCredential } from './integration.security';
@@ -149,6 +151,7 @@ export class BotReadController {
     private readonly store: IntegrationStore,
     private readonly reads: BotReadService,
     private readonly limiter: IntegrationLimiter,
+    private readonly writes: BotWriteService,
   ) {}
   private async run(
     req: Request,
@@ -157,6 +160,7 @@ export class BotReadController {
     resource: string,
     q: BotQuery | undefined,
     id?: string,
+    mutation?: BotCreateAssignment,
   ) {
     res.setHeader('Cache-Control', 'no-store');
     botConfig();
@@ -182,8 +186,9 @@ export class BotReadController {
     try {
       if (p.conferenceId !== conferenceId) throw new NotFoundException('Resource not found');
       release = await this.limiter.acquire(p);
-      const data =
-        resource === 'capabilities'
+      const data = mutation
+        ? await this.writes.assign(p, mutation, requestId, start)
+        : resource === 'capabilities'
           ? this.reads.capabilities(p)
           : resource === 'papers'
             ? await this.reads.papers(p, q!, id)
@@ -191,17 +196,20 @@ export class BotReadController {
               ? await this.reads.authors(p, q!, id)
               : resource === 'reviewers'
                 ? await this.reads.reviewers(p, q!, id)
-                : resource === 'assignments'
-                  ? await this.reads.assignments(p, q!, id)
-                  : await this.reads.summary(p, q!);
-      await this.store.record(
-        p,
-        requestId,
-        `/integrations/v1/conferences/:conferenceId/${resource}${id ? '/:id' : ''}`,
-        200,
-        'data' in data ? (Array.isArray(data.data) ? data.data.length : 1) : 1,
-        performance.now() - start,
-      );
+                : resource === 'reviewer-invitations'
+                  ? await this.reads.reviewerInvitations(p, q!)
+                  : resource === 'assignments'
+                    ? await this.reads.assignments(p, q!, id)
+                    : await this.reads.summary(p, q!);
+      if (!mutation)
+        await this.store.record(
+          p,
+          requestId,
+          `/integrations/v1/conferences/:conferenceId/${resource}${id ? '/:id' : ''}`,
+          200,
+          'data' in data ? (Array.isArray(data.data) ? data.data.length : 1) : 1,
+          performance.now() - start,
+        );
       return data;
     } catch (error) {
       const status = error instanceof HttpException ? error.getStatus() : 503;
@@ -214,6 +222,7 @@ export class BotReadController {
           status,
           0,
           performance.now() - start,
+          mutation ? 'POST' : 'GET',
         );
       } catch {
         throw new ServiceUnavailableException('Bot access logging is temporarily unavailable');
@@ -278,6 +287,28 @@ export class BotReadController {
     return tsRestHandler(bot.reviewers, async ({ params, query }) => ({
       status: 200 as const,
       body: (await this.run(req, res, params.conferenceId, 'reviewers', query)) as never,
+    }));
+  }
+  @TsRestHandler(bot.reviewerInvitations, { validateResponses: true })
+  reviewerInvitations(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    return tsRestHandler(bot.reviewerInvitations, async ({ params, query }) => ({
+      status: 200 as const,
+      body: (await this.run(req, res, params.conferenceId, 'reviewer-invitations', query)) as never,
+    }));
+  }
+  @TsRestHandler(botWriteContract.createAssignment, { validateResponses: true })
+  createAssignment(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    return tsRestHandler(botWriteContract.createAssignment, async ({ params, body }) => ({
+      status: 201 as const,
+      body: (await this.run(
+        req,
+        res,
+        params.conferenceId,
+        'assignments',
+        undefined,
+        undefined,
+        body,
+      )) as never,
     }));
   }
   @TsRestHandler(bot.reviewer, { validateResponses: true })
