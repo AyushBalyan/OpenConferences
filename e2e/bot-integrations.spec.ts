@@ -286,3 +286,55 @@ test('assignment writes require explicit grant and key permissions with read dep
     true,
   );
 });
+
+test('organizer explicitly grants invitation access and selects it again for a new key', async ({
+  page,
+}) => {
+  await fixture(page, 'ORGANIZER');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(path);
+  await page.getByRole('button', { name: 'New integration', exact: true }).click();
+  const permission = page.getByLabel('Generate and remove reviewer invitations');
+  await expect(permission).not.toBeChecked();
+  await expect(page.getByLabel('Read reviewer invitation links')).not.toBeChecked();
+  await page.getByLabel('Integration name').fill('Invitation assistant');
+  await permission.check();
+  for (const label of [
+    'Read reviewer invitation links',
+    'Reviewer workload (aliases)',
+    'Reviewer names',
+    'Reviewer email addresses',
+  ])
+    await expect(page.getByLabel(label)).toBeChecked();
+  await capture(page, 'desktop-invitation-grant');
+  await page.getByRole('button', { name: 'Create integration', exact: true }).click();
+  await expect(page.getByRole('list', { name: 'Granted permissions' })).toContainText(
+    'Generate and remove reviewer invitations',
+  );
+  await page.getByRole('button', { name: 'Issue key', exact: true }).click();
+  const key = page.getByRole('form', { name: 'Issue API key' });
+  await expect(key.getByLabel('Generate and remove reviewer invitations')).not.toBeChecked();
+  await key.getByLabel('Key label').fill('Manual invitation links');
+  await key.getByLabel('Generate and remove reviewer invitations').check();
+  for (const label of [
+    'Read reviewer invitation links',
+    'Reviewer workload (aliases)',
+    'Reviewer names',
+    'Reviewer email addresses',
+  ])
+    await expect(key.getByLabel(label)).toBeChecked();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await capture(page, 'mobile-invitation-key');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.getByRole('button', { name: 'Create key', exact: true }).click();
+  await expect(page.getByLabel('Copy your key now')).toBeVisible();
+});
+test('chair cannot select reviewer invitation link permissions', async ({ page }) => {
+  await fixture(page, 'CHAIR');
+  await page.goto(path);
+  await page.getByRole('button', { name: 'New integration', exact: true }).click();
+  await expect(page.getByLabel('Generate and remove reviewer invitations')).toHaveCount(0);
+  await expect(page.getByLabel('Read reviewer invitation links')).toHaveCount(0);
+});

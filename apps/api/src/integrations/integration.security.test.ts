@@ -28,7 +28,11 @@ const p: IntegrationPrincipal = {
 process.env.BOT_API_ENABLED = 'true';
 process.env.BOT_API_CURSOR_SECRET = '12'.repeat(32);
 describe('bot credentials and query contracts', () => {
-  it('requires explicit write dependencies and accepts the complete nine-scope grant', () => {
+  it('requires explicit write dependencies and accepts the complete scope grant', () => {
+    expect(integrationScopesSchema.safeParse(['invitations:write']).success).toBe(false);
+    expect(integrationScopesSchema.safeParse(['invitations:read', 'reviewers:read']).success).toBe(
+      false,
+    );
     expect(integrationScopesSchema.safeParse(['assignments:write']).success).toBe(false);
     expect(
       integrationScopesSchema.safeParse([

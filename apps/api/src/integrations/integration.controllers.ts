@@ -17,7 +17,11 @@ import {
   botReadContract as bot,
   botWriteContract,
 } from '@openconferences/contracts';
-import type { BotQuery, BotCreateAssignment } from '@openconferences/schemas';
+import type {
+  BotQuery,
+  BotCreateAssignment,
+  BotGenerateInvitations,
+} from '@openconferences/schemas';
 import type { RoleKind } from '@openconferences/db';
 import { AuthGuard } from '../common/guards/auth.guard';
 import { MembershipGuard } from '../common/guards/membership.guard';
@@ -29,6 +33,7 @@ import type { AuthUser } from '../auth/auth.types';
 import { IntegrationStore } from './integration.store';
 import { BotReadService } from './bot-read.service';
 import { BotWriteService } from './bot-write.service';
+import { BotInvitationsService } from './bot-invitations.service';
 import { IntegrationLimiter } from './integration.limiter';
 import { IntegrationNoStore } from './integration.http';
 import { botConfig, parseCredential } from './integration.security';
@@ -152,6 +157,7 @@ export class BotReadController {
     private readonly reads: BotReadService,
     private readonly limiter: IntegrationLimiter,
     private readonly writes: BotWriteService,
+    private readonly invitations: BotInvitationsService,
   ) {}
   private async run(
     req: Request,
@@ -160,7 +166,8 @@ export class BotReadController {
     resource: string,
     q: BotQuery | undefined,
     id?: string,
-    mutation?: BotCreateAssignment,
+    mutation?:
+      BotCreateAssignment | BotGenerateInvitations | { requestId: string; invitationId: string },
   ) {
     res.setHeader('Cache-Control', 'no-store');
     botConfig();
@@ -183,11 +190,26 @@ export class BotReadController {
     const requestId = randomUUID(),
       start = performance.now();
     let release: (() => Promise<void>) | undefined;
+    const method = mutation ? ('invitationId' in mutation ? 'DELETE' : 'POST') : 'GET';
+    const routeTemplate =
+      resource === 'invitation-link'
+        ? '/integrations/v1/conferences/:conferenceId/reviewer-invitations/:invitationId/link'
+        : `/integrations/v1/conferences/:conferenceId/${resource}${id ? (resource === 'reviewer-invitations' ? '/:invitationId' : '/:id') : ''}`;
     try {
       if (p.conferenceId !== conferenceId) throw new NotFoundException('Resource not found');
       release = await this.limiter.acquire(p);
       const data = mutation
-        ? await this.writes.assign(p, mutation, requestId, start)
+        ? 'paperId' in mutation
+          ? await this.writes.assign(p, mutation, requestId, start)
+          : 'emails' in mutation
+            ? await this.invitations.generate(p, mutation, requestId, start)
+            : await this.invitations.remove(
+                p,
+                mutation.invitationId,
+                mutation.requestId,
+                requestId,
+                start,
+              )
         : resource === 'capabilities'
           ? this.reads.capabilities(p)
           : resource === 'papers'
@@ -198,14 +220,16 @@ export class BotReadController {
                 ? await this.reads.reviewers(p, q!, id)
                 : resource === 'reviewer-invitations'
                   ? await this.reads.reviewerInvitations(p, q!)
-                  : resource === 'assignments'
-                    ? await this.reads.assignments(p, q!, id)
-                    : await this.reads.summary(p, q!);
+                  : resource === 'invitation-link'
+                    ? await this.invitations.link(p, id!)
+                    : resource === 'assignments'
+                      ? await this.reads.assignments(p, q!, id)
+                      : await this.reads.summary(p, q!);
       if (!mutation)
         await this.store.record(
           p,
           requestId,
-          `/integrations/v1/conferences/:conferenceId/${resource}${id ? '/:id' : ''}`,
+          routeTemplate,
           200,
           'data' in data ? (Array.isArray(data.data) ? data.data.length : 1) : 1,
           performance.now() - start,
@@ -218,11 +242,11 @@ export class BotReadController {
         await this.store.record(
           p,
           requestId,
-          `/integrations/v1/conferences/:conferenceId/${resource}`,
+          routeTemplate,
           status,
           0,
           performance.now() - start,
-          mutation ? 'POST' : 'GET',
+          method,
         );
       } catch {
         throw new ServiceUnavailableException('Bot access logging is temporarily unavailable');
@@ -308,6 +332,50 @@ export class BotReadController {
         undefined,
         undefined,
         body,
+      )) as never,
+    }));
+  }
+  @TsRestHandler(bot.invitationLink, { validateResponses: true })
+  invitationLink(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    return tsRestHandler(bot.invitationLink, async ({ params }) => ({
+      status: 200 as const,
+      body: (await this.run(
+        req,
+        res,
+        params.conferenceId,
+        'invitation-link',
+        undefined,
+        params.invitationId,
+      )) as never,
+    }));
+  }
+  @TsRestHandler(botWriteContract.generateInvitations, { validateResponses: true })
+  generateInvitations(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    return tsRestHandler(botWriteContract.generateInvitations, async ({ params, body }) => ({
+      status: 201 as const,
+      body: (await this.run(
+        req,
+        res,
+        params.conferenceId,
+        'reviewer-invitations',
+        undefined,
+        undefined,
+        body,
+      )) as never,
+    }));
+  }
+  @TsRestHandler(botWriteContract.removeInvitation, { validateResponses: true })
+  removeInvitation(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    return tsRestHandler(botWriteContract.removeInvitation, async ({ params, body }) => ({
+      status: 200 as const,
+      body: (await this.run(
+        req,
+        res,
+        params.conferenceId,
+        'reviewer-invitations',
+        undefined,
+        params.invitationId,
+        { ...body, invitationId: params.invitationId },
       )) as never,
     }));
   }

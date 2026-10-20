@@ -59,6 +59,88 @@ function keyDto(row: unknown) {
 @Injectable()
 export class IntegrationStore {
   constructor(private readonly conferences: ConferenceService) {}
+  async assertInvitationManager(
+    tx: Tx,
+    ctx: { userId: string; conferenceId: string; organizationId: string },
+    scopes: readonly string[],
+  ) {
+    if (!scopes.some((s) => s.startsWith('invitations:'))) return;
+    const member = await tx.membership.findFirst({
+      where: {
+        userId: ctx.userId,
+        OR: [
+          { scope: 'CONFERENCE', conferenceId: ctx.conferenceId },
+          { scope: 'ORGANIZATION', organizationId: ctx.organizationId },
+        ],
+        roles: { some: { role: { in: ['ORGANIZER', 'ORG_ADMIN'] } } },
+      },
+      select: { id: true },
+    });
+    if (!member)
+      throw new ForbiddenException(
+        'Organizer or organization-admin authorization is required for invitation links',
+      );
+  }
+  async authorizeOperation(
+    tx: Tx,
+    p: IntegrationPrincipal,
+    scopes: readonly IntegrationScope[],
+    lock = true,
+  ): Promise<{
+    name: string;
+    reviewDueAt: Date | null;
+    rebuttalDueAt: Date | null;
+  }> {
+    if (lock) {
+      await tx.$queryRaw`SELECT id FROM api_integrations WHERE id=${p.integrationId}::uuid AND "conferenceId"=${p.conferenceId}::uuid FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM api_integration_keys WHERE id=${p.keyId}::uuid AND "integrationId"=${p.integrationId}::uuid FOR UPDATE`;
+    }
+    const key = await tx.apiIntegrationKey.findFirst({
+      where: {
+        id: p.keyId,
+        integrationId: p.integrationId,
+        conferenceId: p.conferenceId,
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      include: {
+        integration: {
+          include: { authorizer: true, conference: { include: { organization: true } } },
+        },
+      },
+    });
+    if (
+      !key ||
+      key.integration.status !== 'ACTIVE' ||
+      key.integration.authorizedByUserId !== p.userId ||
+      !key.integration.authorizer.twoFactorEnabled ||
+      key.integration.authorizer.deletedAt ||
+      key.integration.conference.deletedAt ||
+      key.integration.conference.organization.deletedAt
+    )
+      throw new UnauthorizedException('Invalid API credential');
+    if (
+      scopes.some(
+        (s) =>
+          !p.scopes.includes(s) || !key.scopes.includes(s) || !key.integration.scopes.includes(s),
+      )
+    )
+      throw new ForbiddenException('Missing required operation scope');
+    const member = await tx.membership.findFirst({
+      where: {
+        userId: p.userId,
+        OR: [
+          { scope: 'CONFERENCE', conferenceId: p.conferenceId },
+          { scope: 'ORGANIZATION', organizationId: p.organizationId },
+        ],
+        roles: { some: { role: { in: ['CHAIR', 'ORGANIZER', 'ORG_ADMIN'] } } },
+      },
+      select: { id: true },
+    });
+    if (!member) throw new UnauthorizedException('Invalid API credential');
+    await this.assertInvitationManager(tx, p, scopes);
+    return key.integration.conference;
+  }
   async context(userId: string, conferenceId: string, roles: RoleKind[]) {
     botConfig();
     if (!canCoordinateReview(roles))
@@ -126,6 +208,7 @@ export class IntegrationStore {
     input: { name: string; purpose?: string; scopes: IntegrationScope[] },
   ) {
     return withTenantContext(ctx, async (tx) => {
+      await this.assertInvitationManager(tx, ctx, input.scopes);
       const row = await tx.apiIntegration.create({
         data: {
           id: randomUUID(),
@@ -167,6 +250,16 @@ export class IntegrationStore {
       }
       if (row.version !== input.version)
         throw new ConflictException('Integration changed. Refresh and retry.');
+      if (input.scopes || action === 'reauthorized') {
+        const scopes = input.scopes ?? row.scopes;
+        await this.assertInvitationManager(tx, ctx, scopes);
+        if (action !== 'reauthorized')
+          await this.assertInvitationManager(
+            tx,
+            { ...ctx, userId: row.authorizedByUserId },
+            scopes,
+          );
+      }
       const { version: _v, ...patch } = input;
       const data: Prisma.ApiIntegrationUncheckedUpdateInput = {
         ...patch,
@@ -197,6 +290,12 @@ export class IntegrationStore {
       await tx.$queryRaw`SELECT id FROM api_integrations WHERE id=${id}::uuid AND "conferenceId"=${ctx.conferenceId}::uuid FOR UPDATE`;
       const grant = await this.get(tx, ctx.conferenceId, id);
       if (grant.status !== 'ACTIVE') throw new ConflictException('Integration must be active');
+      await this.assertInvitationManager(tx, ctx, input.scopes);
+      await this.assertInvitationManager(
+        tx,
+        { ...ctx, userId: grant.authorizedByUserId },
+        input.scopes,
+      );
       if (input.scopes.some((s) => !grant.scopes.includes(s)))
         throw new ForbiddenException('Requested scopes exceed the integration grant');
       if (

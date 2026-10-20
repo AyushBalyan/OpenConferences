@@ -4,7 +4,6 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma, withTenantContext } from '@openconferences/db';
@@ -27,49 +26,12 @@ export class BotWriteService {
   ) {}
 
   private async authorize(tx: Prisma.TransactionClient, p: IntegrationPrincipal) {
-    // Serialize with suspension, reauthorization and key revocation before admitting a mutation.
-    await tx.$queryRaw`SELECT id FROM api_integrations WHERE id=${p.integrationId}::uuid AND "conferenceId"=${p.conferenceId}::uuid FOR UPDATE`;
-    await tx.$queryRaw`SELECT id FROM api_integration_keys WHERE id=${p.keyId}::uuid AND "integrationId"=${p.integrationId}::uuid FOR UPDATE`;
-    const key = await tx.apiIntegrationKey.findFirst({
-      where: {
-        id: p.keyId,
-        integrationId: p.integrationId,
-        conferenceId: p.conferenceId,
-        revokedAt: null,
-        expiresAt: { gt: new Date() },
-      },
-      include: {
-        integration: {
-          include: { authorizer: true, conference: { include: { organization: true } } },
-        },
-      },
-    });
-    if (
-      !key ||
-      key.integration.status !== 'ACTIVE' ||
-      key.integration.authorizedByUserId !== p.userId ||
-      !key.integration.authorizer.twoFactorEnabled ||
-      key.integration.authorizer.deletedAt ||
-      key.integration.conference.deletedAt ||
-      key.integration.conference.organization.deletedAt
-    )
-      throw new UnauthorizedException('Invalid API credential');
-    const scopes = ['assignments:write', 'assignments:read', 'papers:read', 'reviewers:read'];
-    if (scopes.some((s) => !key.scopes.includes(s) || !key.integration.scopes.includes(s)))
-      throw new ForbiddenException('Missing assignments:write scope');
-    const membership = await tx.membership.findFirst({
-      where: {
-        userId: p.userId,
-        OR: [
-          { scope: 'CONFERENCE', conferenceId: p.conferenceId },
-          { scope: 'ORGANIZATION', organizationId: p.organizationId },
-        ],
-        roles: { some: { role: { in: ['CHAIR', 'ORGANIZER', 'ORG_ADMIN'] } } },
-      },
-      select: { id: true },
-    });
-    if (!membership) throw new UnauthorizedException('Invalid API credential');
-    return key.integration.conference;
+    return this.store.authorizeOperation(tx, p, [
+      'assignments:write',
+      'assignments:read',
+      'papers:read',
+      'reviewers:read',
+    ]);
   }
 
   async assign(

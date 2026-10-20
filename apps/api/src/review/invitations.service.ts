@@ -21,8 +21,13 @@ import { AuthService } from '../auth/auth.service';
 import { ConferenceService } from '../tenancy/conference.service';
 import { canManageConferenceReview } from '../tenancy/role-hierarchy';
 import { mapReviewerInvitation } from './review.mapper';
+import {
+  lockInvitationEmails,
+  reviewerInvitationUrl,
+  REVIEWER_INVITATION_TTL_DAYS,
+} from './invitation-links';
 
-const INVITATION_TTL_DAYS = 7;
+const INVITATION_TTL_DAYS = REVIEWER_INVITATION_TTL_DAYS;
 
 type TenantDb = Parameters<Parameters<typeof withTenantContext>[1]>[0];
 
@@ -104,8 +109,20 @@ export class InvitationsService {
 
     const invitation = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
-      async (tx) =>
-        tx.reviewerInvitation.create({
+      async (tx) => {
+        await lockInvitationEmails(tx, conferenceId, [normalizedEmail]);
+        if (
+          await tx.reviewerInvitation.findFirst({
+            where: {
+              conferenceId,
+              email: normalizedEmail,
+              status: 'PENDING',
+              expiresAt: { gt: new Date() },
+            },
+          })
+        )
+          throw new ConflictException('A pending invitation already exists for this email');
+        return tx.reviewerInvitation.create({
           data: {
             id: generateId(),
             organizationId: conference.organizationId,
@@ -117,7 +134,8 @@ export class InvitationsService {
             expiresAt,
             roleNote: input.roleNote ?? null,
           },
-        }),
+        });
+      },
     );
 
     await this.audit.log({
@@ -137,7 +155,11 @@ export class InvitationsService {
         await withTenantContext(
           { userId, conferenceId, organizationId: conference.organizationId },
           async (tx) => {
-            await tx.reviewerInvitation.delete({ where: { id: invitation.id } });
+            const deleted = await tx.reviewerInvitation.deleteMany({
+              where: { id: invitation.id, conferenceId, status: 'PENDING' },
+            });
+            if (deleted.count !== 1)
+              throw new ConflictException('Only pending invitations can be removed');
           },
         );
         throw new InternalServerErrorException('Unable to send reviewer invitation email');
@@ -174,9 +196,7 @@ export class InvitationsService {
   private buildInvitationUrl(token: string): string {
     // A shareable invitation is not an authentication credential. The recipient
     // must authenticate with the invited email before the existing accept flow.
-    const url = new URL('/sign-in', getConfig().webUrl);
-    url.searchParams.set('reviewerInvite', token);
-    return url.toString();
+    return reviewerInvitationUrl(token);
   }
 
   async resend(userId: string, conferenceId: string, invitationId: string, roles: RoleKind[]) {
@@ -264,7 +284,11 @@ export class InvitationsService {
     await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
-        await tx.reviewerInvitation.delete({ where: { id: invitation.id } });
+        const deleted = await tx.reviewerInvitation.deleteMany({
+          where: { id: invitation.id, conferenceId, status: 'PENDING' },
+        });
+        if (deleted.count !== 1)
+          throw new ConflictException('Only pending invitations can be removed');
       },
     );
 
@@ -320,7 +344,20 @@ export class InvitationsService {
         organizationId: invitation.organizationId,
       },
       async (tx) => {
-        await this.materializeReviewerMembership(userId, invitation, tx);
+        // Serialize acceptance with pending-invitation removal before granting membership.
+        await tx.$queryRaw`SELECT id FROM reviewer_invitations WHERE id=${invitation.id}::uuid FOR UPDATE`;
+        const current = await tx.reviewerInvitation.findUnique({ where: { id: invitation.id } });
+        if (!current) throw new NotFoundException('Invitation not found');
+        if (
+          current.status === 'ACCEPTED' &&
+          (!current.invitedUserId || current.invitedUserId === userId)
+        ) {
+          await this.materializeReviewerMembership(userId, current, tx);
+          return;
+        }
+        if (current.status !== 'PENDING' || current.expiresAt <= new Date())
+          throw new ConflictException('Invitation is no longer pending or has expired');
+        await this.materializeReviewerMembership(userId, current, tx);
 
         await tx.reviewerInvitation.update({
           where: { id: invitation.id },

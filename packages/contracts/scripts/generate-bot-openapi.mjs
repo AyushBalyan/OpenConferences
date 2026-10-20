@@ -26,7 +26,19 @@ const details = {
   ],
   reviewerInvitations: [
     'reviewers:read',
-    'invitationStatus (PENDING, ACCEPTED, DECLINED, EXPIRED), email (requires reviewers:contacts:read). Pending invitations have no assignable reviewerId. Tokens and invitation links are never returned.',
+    'invitationStatus (PENDING, ACCEPTED, DECLINED, EXPIRED), email (requires reviewers:contacts:read). Pending invitations have no assignable reviewerId. This list never includes invitation links. Use the separately scoped invitation-link endpoint.',
+  ],
+  invitationLink: [
+    'invitations:read + reviewers:read + reviewers:identity:read + reviewers:contacts:read',
+    'No filters. Returns the shareable link for an unexpired pending invitation. Requires an organizer or organization-admin authorizer. Consumed/expired invitations return 409; removed/foreign IDs return 404. Sign-in as the invited email is still required.',
+  ],
+  generateInvitations: [
+    'invitations:write + invitations:read + reviewers:read + reviewers:identity:read + reviewers:contacts:read',
+    'JSON body: requestId (UUID stable for retries), emails (1–25 valid email addresses, normalized and deduplicated). Reuses live pending invitations; otherwise creates normal seven-day pending invitations and returns their invitationUrl. No email is sent. Requires an organizer or organization-admin authorizer. Same requestId and normalized email set replay the original invitation IDs; links are returned only while still pending and unexpired. Removed/consumed links are null on replay and are never recreated. Reusing requestId with different operation details returns 409.',
+  ],
+  removeInvitation: [
+    'invitations:write + invitations:read + reviewers:read + reviewers:identity:read + reviewers:contacts:read',
+    'JSON body: requestId (UUID stable for retries). Removes only a pending invitation (including expired pending rows) and invalidates its link. Accepted/declined/expired status records return 409 and retain membership/history. Same requestId and invitation ID replay the successful removal. Foreign/missing IDs return 404 for a new request. No email is sent. Requires an organizer or organization-admin authorizer.',
   ],
   createAssignment: [
     'assignments:write + assignments:read + papers:read + reviewers:read',
@@ -50,9 +62,9 @@ const doc = generateOpenApi(
   {
     info: {
       title: 'OpenConferences Bot API',
-      version: '1.1.0',
+      version: '1.2.0',
       description:
-        'Conference-scoped reads plus explicitly granted paper assignments with individual deadlines. Existing keys remain read-only. All response timestamps are UTC. Names and contacts are omitted without explicit identity/contact scopes. Review content, scores, conflict details, invitation tokens/links, payments, files and other mutations are excluded. Each read page is a consistent snapshot; different pages may observe concurrent updates. A missing historical submittedAt is null, not an estimate. Secrets are shown only once by the human management API.',
+        'Conference-scoped reads, explicitly granted paper assignments with deadlines, and link-only reviewer invitations. Existing keys retain their original permissions. All response timestamps are UTC. Names and contacts are omitted without explicit identity/contact scopes. Review content, scores, conflict details, payments, files and other mutations are excluded. Invitation tokens appear only inside shareable invitation URLs, which require explicit invitation scopes and organizer authorization. Each read page is a consistent snapshot; different pages may observe concurrent updates. A missing historical submittedAt is null, not an estimate. Bearer credentials are shown only once by the human management API.',
     },
     servers: [{ url: '/api/v1' }],
     components: {
@@ -74,7 +86,7 @@ const doc = generateOpenApi(
         ([, r]) => r.path === route.path && r.method === route.method,
       )?.[0];
       const [scopes, filters] = details[key];
-      op.description = `Required scopes: ${scopes}. ${route.method === 'POST' ? 'Request' : 'Supported filters'}: ${filters} Unsupported fields/non-default filters return 400. Read lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. Read history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 409 assignment conflict; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.`;
+      op.description = `Required scopes: ${scopes}. ${route.method !== 'GET' ? 'Request' : 'Supported filters'}: ${filters} Unsupported fields/non-default filters return 400. Read lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. Read history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 409 operation or invitation-state conflict; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.`;
       op.responses['429'].headers = {
         'Retry-After': {
           description: 'Seconds before retry',

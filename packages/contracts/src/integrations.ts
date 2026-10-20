@@ -17,6 +17,11 @@ import {
   botReviewerInvitationSchema,
   botCreateAssignmentSchema,
   botCreateAssignmentResponseSchema,
+  botGenerateInvitationsSchema,
+  botGenerateInvitationsResponseSchema,
+  botInvitationLinkSchema,
+  botRemoveInvitationSchema,
+  botRemoveInvitationResponseSchema,
   botListSchema,
   botDetailSchema,
   problemEnvelopeSchema,
@@ -175,6 +180,13 @@ export const botReadContract = c.router({
     query: botQuerySchema,
     responses: { 200: botListSchema(botReviewerInvitationSchema), ...common },
   },
+  invitationLink: {
+    method: 'GET',
+    path: bot + '/reviewer-invitations/:invitationId/link',
+    pathParams: conference.extend({ invitationId: z.string().uuid() }),
+    query: z.object({}).strict(),
+    responses: { 200: botInvitationLinkSchema, ...common },
+  },
   reviewer: {
     method: 'GET',
     path: bot + '/reviewers/:reviewerId',
@@ -205,6 +217,20 @@ export const botReadContract = c.router({
   },
 });
 export const botWriteContract = c.router({
+  generateInvitations: {
+    method: 'POST',
+    path: bot + '/reviewer-invitations',
+    pathParams: conference,
+    body: botGenerateInvitationsSchema,
+    responses: { 201: botGenerateInvitationsResponseSchema, ...common },
+  },
+  removeInvitation: {
+    method: 'DELETE',
+    path: bot + '/reviewer-invitations/:invitationId',
+    pathParams: conference.extend({ invitationId: z.string().uuid() }),
+    body: botRemoveInvitationSchema,
+    responses: { 200: botRemoveInvitationResponseSchema, ...common },
+  },
   createAssignment: {
     method: 'POST',
     path: bot + '/assignments',

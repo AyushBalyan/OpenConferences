@@ -24,6 +24,8 @@ const scopeNames: Record<IntegrationScope, string> = {
   'reviewers:contacts:read': 'Reviewer email addresses',
   'assignments:read': 'Assignments & deadlines',
   'assignments:write': 'Assign papers with a deadline',
+  'invitations:read': 'Read reviewer invitation links',
+  'invitations:write': 'Generate and remove reviewer invitations',
   'analytics:read': 'Conference summary',
 };
 function dependencies(scopes: IntegrationScope[]): IntegrationScope[] {
@@ -74,7 +76,9 @@ function ScopePicker({
       </div>
       <p className="text-xs text-slate-500">
         Related permissions are selected together. Names and emails require explicit access. “Assign
-        papers with a deadline” permits writes and emails reviewers with that deadline.
+        papers with a deadline” permits writes and emails reviewers with that deadline. Invitation
+        access generates links without sending emails and requires organizer or organization-admin
+        authorization.
       </p>
     </fieldset>
   );
@@ -110,6 +114,10 @@ export default function IntegrationsPage() {
   const { id: conferenceId } = useParams<{ id: string }>();
   const { conference } = useConferenceWorkspace();
   const roles = conference?.myRoles ?? [];
+  const allowedScopes = INTEGRATION_SCOPES.filter(
+    (s) =>
+      !s.startsWith('invitations:') || roles.some((r) => ['ORGANIZER', 'ORG_ADMIN'].includes(r)),
+  );
   const [items, setItems] = useState<ApiIntegrationDto[]>([]),
     [cursor, setCursor] = useState<string | null>(null),
     [selected, setSelected] = useState<ApiIntegrationDto | null>(null);
@@ -277,8 +285,8 @@ export default function IntegrationsPage() {
         <div>
           <h2 className="text-xl font-semibold text-slate-900">Integrations</h2>
           <p className="mt-1 max-w-2xl text-sm text-slate-600">
-            Choose what a bot can read or assign in this conference, then issue an expiring key.
-            Paper assignment requires a separate permission.
+            Choose which conference data and actions a bot can access, then issue an expiring key.
+            Assignments and invitation links require separate permissions.
           </p>
         </div>
         <Button
@@ -361,7 +369,7 @@ export default function IntegrationsPage() {
               />
             </label>
           </div>
-          <ScopePicker value={scopes} onChange={setScopes} />
+          <ScopePicker allowed={allowedScopes} value={scopes} onChange={setScopes} />
           <div className="flex gap-2">
             <Button type="submit" disabled={busy || !scopes.length}>
               {busy ? 'Saving…' : editing ? 'Save access' : 'Create integration'}
@@ -586,7 +594,11 @@ export default function IntegrationsPage() {
                   />
                 </label>
               </div>
-              <ScopePicker allowed={selected.scopes} value={keyScopes} onChange={setKeyScopes} />
+              <ScopePicker
+                allowed={selected.scopes.filter((s) => allowedScopes.includes(s))}
+                value={keyScopes}
+                onChange={setKeyScopes}
+              />
               <div className="flex gap-2">
                 <Button type="submit" disabled={busy || !keyScopes.length}>
                   {busy ? 'Issuing…' : 'Create key'}

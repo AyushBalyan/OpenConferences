@@ -22,6 +22,8 @@ import { REDIS_CLIENT } from '../redis/redis.module';
 import { IntegrationStore } from './integration.store';
 import { BotReadService } from './bot-read.service';
 import { BotWriteService } from './bot-write.service';
+import { BotInvitationsService } from './bot-invitations.service';
+import { InvitationsService } from '../review/invitations.service';
 import { CoiCheckService } from '../review/coi-check.service';
 import { RoundsService } from '../review/rounds.service';
 import { AuditService } from '../audit/audit.service';
@@ -38,6 +40,7 @@ const org = id(),
   otherOrg = id(),
   foreignConf = id(),
   chair = id(),
+  organizer = id(),
   reviewer = id(),
   emptyReviewer = id(),
   author = id(),
@@ -57,6 +60,17 @@ let limiter: IntegrationLimiter;
 let grant: { id: string; version: number };
 let token: string;
 let restricted: string;
+let inviteToken: string;
+let inviteGrant: { id: string; version: number };
+const baseScopes = INTEGRATION_SCOPES.filter((s) => !s.startsWith('invitations:'));
+const invitationScopes = [
+  'reviewers:read',
+  'reviewers:identity:read',
+  'reviewers:contacts:read',
+  'invitations:read',
+  'invitations:write',
+] as const;
+const inviteContext = { userId: organizer, organizationId: org, conferenceId: conf };
 const base = `/api/v1/conferences/${conf}/integrations`,
   bot = `/api/v1/integrations/v1/conferences/${conf}`;
 const context = { userId: chair, organizationId: org, conferenceId: conf };
@@ -66,6 +80,17 @@ const api = (url: string, key = token) =>
     .get(url)
     .set('Authorization', 'Bearer ' + key);
 const assignmentEmail = vi.fn().mockResolvedValue(true);
+const sendInvitationMail = vi.fn().mockRejectedValue(new Error('No invitation email is permitted'));
+const invite = (body: unknown, key = inviteToken, prefix = bot) =>
+  request(app.getHttpServer())
+    .post(prefix + '/reviewer-invitations')
+    .set('Authorization', 'Bearer ' + key)
+    .send(body);
+const removeInvite = (invitationId: string, requestId: string, key = inviteToken) =>
+  request(app.getHttpServer())
+    .delete(bot + '/reviewer-invitations/' + invitationId)
+    .set('Authorization', 'Bearer ' + key)
+    .send({ requestId });
 const write = (body: unknown, key = token, prefix = bot) =>
   request(app.getHttpServer())
     .post(prefix + '/assignments')
@@ -135,6 +160,12 @@ describe('Bot API HTTP + actual PostgreSQL RLS + Redis', () => {
     });
     await owner.user.createMany({
       data: [
+        {
+          id: organizer,
+          name: 'Test organizer',
+          email: organizer + '@example.com',
+          twoFactorEnabled: true,
+        },
         { id: chair, name: 'Test chair', email: chair + '@example.com', twoFactorEnabled: true },
         { id: reviewer, name: 'Private Reviewer Name', email: reviewer + '@example.com' },
         { id: emptyReviewer, name: 'Zero Reviewer', email: emptyReviewer + '@example.com' },
@@ -171,6 +202,7 @@ describe('Bot API HTTP + actual PostgreSQL RLS + Redis', () => {
     });
     for (const [user, role] of [
       [chair, 'CHAIR'],
+      [organizer, 'ORGANIZER'],
       [reviewer, 'REVIEWER'],
       [emptyReviewer, 'REVIEWER'],
     ] as const)
@@ -318,6 +350,8 @@ describe('Bot API HTTP + actual PostgreSQL RLS + Redis', () => {
         IntegrationStore,
         BotReadService,
         BotWriteService,
+        BotInvitationsService,
+        InvitationsService,
         CoiCheckService,
         RoundsService,
         { provide: AuditService, useValue: { log: vi.fn() } },
@@ -337,6 +371,7 @@ describe('Bot API HTTP + actual PostgreSQL RLS + Redis', () => {
         {
           provide: AuthService,
           useValue: {
+            signInMagicLink: sendInvitationMail,
             getSession: async (headers: { cookie?: string }) =>
               headers.cookie === 'test-chair' ? { user: { id: chair } } : null,
           },
@@ -353,13 +388,13 @@ describe('Bot API HTTP + actual PostgreSQL RLS + Redis', () => {
     const created = await request(app.getHttpServer())
       .post(base)
       .set(human())
-      .send({ name: 'Test bot', scopes: [...INTEGRATION_SCOPES] });
+      .send({ name: 'Test bot', scopes: [...baseScopes] });
     expect(created.status).toBe(201);
     grant = created.body;
     const issued = await request(app.getHttpServer())
       .post(base + '/' + grant.id + '/keys')
       .set(human())
-      .send({ label: 'Full key', scopes: [...INTEGRATION_SCOPES], requestId: id() });
+      .send({ label: 'Full key', scopes: [...baseScopes], requestId: id() });
     expect(issued.status).toBe(201);
     token = issued.body.token;
     const limited = await store.issue(context, grant.id, {
@@ -369,11 +404,25 @@ describe('Bot API HTTP + actual PostgreSQL RLS + Redis', () => {
       requestId: id(),
     });
     restricted = limited.token;
+    inviteGrant = await store.create(inviteContext, {
+      name: 'Invitation bot',
+      scopes: [...invitationScopes],
+    });
+    inviteToken = (
+      await store.issue(inviteContext, inviteGrant.id, {
+        label: 'Invite key',
+        scopes: [...invitationScopes],
+        expiresInDays: 30,
+        requestId: id(),
+      })
+    ).token;
   });
   beforeEach(async () => {
     assignmentEmail.mockReset().mockResolvedValue(true);
+    sendInvitationMail.mockClear();
     for (const ip of ['::ffff:127.0.0.1', '127.0.0.1'])
       await redis.del('bot:auth:' + createHash('sha256').update(ip).digest('hex'));
+    await redis.del(`bot:{${conf}}:rate:${parseCredential('Bearer ' + inviteToken)!.id}`);
     await redis.del(
       `bot:{${conf}}:rate`,
       `bot:{${conf}}:rate:${parseCredential('Bearer ' + token)!.id}`,
@@ -1214,7 +1263,7 @@ describe('Bot API HTTP + actual PostgreSQL RLS + Redis', () => {
     }
     await owner.apiIntegration.update({
       where: { id: grant.id },
-      data: { scopes: INTEGRATION_SCOPES.filter((s) => s !== 'assignments:write') },
+      data: { scopes: baseScopes.filter((s) => s !== 'assignments:write') },
     });
     try {
       await expect(writer.assign(p, body, id(), performance.now())).rejects.toMatchObject({
@@ -1223,9 +1272,392 @@ describe('Bot API HTTP + actual PostgreSQL RLS + Redis', () => {
     } finally {
       await owner.apiIntegration.update({
         where: { id: grant.id },
-        data: { scopes: [...INTEGRATION_SCOPES] },
+        data: { scopes: [...baseScopes] },
       });
     }
     expect(await owner.reviewerAssignment.count({ where: { paperId: body.paperId } })).toBe(0);
+  });
+  it('generates normalized, deduplicated pending invitation links without sending mail', async () => {
+    const email = author + '@example.com';
+    const body = { requestId: id(), emails: ['  ' + email.toUpperCase() + '  ', email] };
+    const r = await invite(body);
+    expect(r.status).toBe(201);
+    expect(r.body.data).toHaveLength(1);
+    expect(r.body.replayed).toBe(false);
+    const invitation = r.body.data[0];
+    expect(invitation).toMatchObject({ email, status: 'PENDING' });
+    const link = new URL(invitation.invitationUrl);
+    expect(link.pathname).toBe('/sign-in');
+    expect(link.searchParams.get('reviewerInvite')).toMatch(/^[a-f0-9]{64}$/);
+    const saved = await owner.reviewerInvitation.findUniqueOrThrow({
+      where: { id: invitation.id },
+    });
+    expect(saved.invitedUserId).toBe(author);
+    expect(saved.token).toBe(link.searchParams.get('reviewerInvite'));
+    expect(saved.expiresAt.getTime() - saved.createdAt.getTime()).toBeGreaterThan(6.99 * 86400000);
+    expect(
+      await owner.membership.count({
+        where: { userId: author, conferenceId: conf, roles: { some: { role: 'REVIEWER' } } },
+      }),
+    ).toBe(0);
+    expect((await api(bot + `/reviewer-invitations/${saved.id}/link`, inviteToken)).body).toEqual(
+      invitation,
+    );
+    const retry = await invite({ ...body, emails: [email] });
+    expect(retry.status).toBe(201);
+    expect(retry.body).toMatchObject({ replayed: true, data: r.body.data });
+    expect((await invite({ requestId: id(), emails: [email] })).body.data).toEqual(r.body.data);
+    expect((await invite({ ...body, emails: ['other@example.com'] })).status).toBe(409);
+    expect(assignmentEmail).not.toHaveBeenCalled();
+    expect(sendInvitationMail).not.toHaveBeenCalled();
+    const ledger = await owner.apiIntegrationMutation.findUniqueOrThrow({
+      where: {
+        integrationId_requestId: { integrationId: inviteGrant.id, requestId: body.requestId },
+      },
+    });
+    expect(ledger.response).toEqual({ operation: 'invitations.generate', ids: [saved.id] });
+    const audits = await owner.auditLog.findMany({ where: { entityId: saved.id } });
+    const logs = await owner.apiIntegrationAccessLog.findMany({
+      where: { integrationId: inviteGrant.id },
+    });
+    for (const text of [JSON.stringify(ledger), JSON.stringify(audits), JSON.stringify(logs)]) {
+      expect(text).not.toContain(saved.token);
+      expect(text).not.toContain(email);
+      expect(text).not.toContain('reviewerInvite=');
+    }
+  });
+  it.each([
+    { emails: [] },
+    { emails: ['invalid'] },
+    { emails: Array.from({ length: 26 }, (_, i) => `batch-${i}@example.com`) },
+    { emails: ['valid@example.com'], delivery: 'EMAIL' },
+    { emails: ['valid@example.com'], requestId: 'bad' },
+  ])('validates invitation batches before making changes: %j', async (input) => {
+    const count = await owner.reviewerInvitation.count({ where: { conferenceId: conf } });
+    expect((await invite({ requestId: id(), ...input })).status).toBe(400);
+    expect(await owner.reviewerInvitation.count({ where: { conferenceId: conf } })).toBe(count);
+    expect(sendInvitationMail).not.toHaveBeenCalled();
+  });
+  it('supports the maximum batch and overlapping concurrent integrations without duplicate pending invitations', async () => {
+    const g = await store.create(inviteContext, {
+      name: 'Second invitation bot',
+      scopes: [...invitationScopes],
+    });
+    const k = await store.issue(inviteContext, g.id, {
+      label: 'Second invite key',
+      scopes: [...invitationScopes],
+      expiresInDays: 1,
+      requestId: id(),
+    });
+    const emails = Array.from({ length: 25 }, (_, i) => `${id()}-${i}@example.com`);
+    const [first, second] = await Promise.all([
+      invite({ requestId: id(), emails }),
+      invite({ requestId: id(), emails: emails.slice().reverse() }, k.token),
+    ]);
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(first.body.data).toHaveLength(25);
+    expect(second.body.data).toEqual(first.body.data);
+    expect(
+      await owner.reviewerInvitation.count({
+        where: { conferenceId: conf, email: { in: emails }, status: 'PENDING' },
+      }),
+    ).toBe(25);
+  });
+  it('removes pending invitations, invalidates links and never recreates them on replay', async () => {
+    const body = { requestId: id(), emails: [`${id()}@example.com`] };
+    const created = await invite(body);
+    const row = created.body.data[0];
+    const requestId = id();
+    expect((await removeInvite(row.id, requestId)).body).toMatchObject({
+      removed: true,
+      replayed: false,
+    });
+    expect((await api(bot + `/reviewer-invitations/${row.id}/link`, inviteToken)).status).toBe(404);
+    expect((await removeInvite(row.id, requestId)).body).toMatchObject({
+      removed: true,
+      replayed: true,
+    });
+    expect((await removeInvite(row.id, id())).status).toBe(404);
+    const replay = await invite(body);
+    expect(replay.body).toMatchObject({
+      replayed: true,
+      data: [{ id: row.id, status: 'REMOVED', invitationUrl: null }],
+    });
+    expect(await owner.reviewerInvitation.count({ where: { id: row.id } })).toBe(0);
+    expect((await invite({ requestId, emails: body.emails })).status).toBe(409);
+    const replacement = (await invite({ ...body, requestId: id() })).body.data[0];
+    expect(replacement.id).not.toBe(row.id);
+    expect((await removeInvite(replacement.id, requestId)).status).toBe(409);
+  });
+  it.each(['ACCEPTED', 'DECLINED', 'EXPIRED'] as const)(
+    'protects %s invitations and omits consumed links from replays',
+    async (status) => {
+      const body = { requestId: id(), emails: [`${id()}@example.com`] };
+      const row = (await invite(body)).body.data[0];
+      await owner.reviewerInvitation.update({ where: { id: row.id }, data: { status } });
+      expect((await api(bot + `/reviewer-invitations/${row.id}/link`, inviteToken)).status).toBe(
+        409,
+      );
+      expect((await removeInvite(row.id, id())).status).toBe(409);
+      const replay = await invite(body);
+      expect(replay.body.data[0]).toMatchObject({ id: row.id, status, invitationUrl: null });
+      expect(await owner.reviewerInvitation.count({ where: { id: row.id } })).toBe(1);
+    },
+  );
+  it('treats elapsed pending links as expired and allows their removal', async () => {
+    const body = { requestId: id(), emails: [`${id()}@example.com`] };
+    const row = (await invite(body)).body.data[0];
+    await owner.reviewerInvitation.update({
+      where: { id: row.id },
+      data: { expiresAt: new Date('2020-01-01') },
+    });
+    expect((await api(bot + `/reviewer-invitations/${row.id}/link`, inviteToken)).status).toBe(409);
+    expect((await invite(body)).body.data[0]).toMatchObject({
+      status: 'EXPIRED',
+      invitationUrl: null,
+    });
+    expect((await removeInvite(row.id, id())).status).toBe(200);
+  });
+  it('requires explicit invitation scopes and conceals foreign invitations', async () => {
+    const row = (await invite({ requestId: id(), emails: [`${id()}@example.com`] })).body.data[0];
+    expect((await invite({ requestId: id(), emails: ['blocked@example.com'] }, token)).status).toBe(
+      403,
+    );
+    expect((await api(bot + `/reviewer-invitations/${row.id}/link`)).status).toBe(403);
+    expect((await removeInvite(row.id, id(), token)).status).toBe(403);
+    const list = await api(bot + '/reviewer-invitations?limit=100', inviteToken);
+    expect(list.status).toBe(200);
+    expect(JSON.stringify(list.body)).not.toContain('reviewerInvite=');
+    const foreign = await owner.reviewerInvitation.create({
+      data: {
+        id: id(),
+        organizationId: otherOrg,
+        conferenceId: foreignConf,
+        email: 'foreign@example.com',
+        token: id(),
+        expiresAt: new Date('2030-01-01'),
+      },
+    });
+    expect((await api(bot + `/reviewer-invitations/${foreign.id}/link`, inviteToken)).status).toBe(
+      404,
+    );
+    expect((await removeInvite(foreign.id, id())).status).toBe(404);
+    expect(
+      (
+        await invite(
+          { requestId: id(), emails: ['blocked@example.com'] },
+          inviteToken,
+          `/api/v1/integrations/v1/conferences/${otherConf}`,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (await api(bot + `/reviewer-invitations/${row.id}/link?email=x`, inviteToken)).status,
+    ).toBe(400);
+  });
+  it('uses the normal email-bound acceptance and keeps accepted invitations intact', async () => {
+    const user = await owner.user.create({
+      data: { id: id(), name: 'Invited test reviewer', email: `${id()}@example.com` },
+    });
+    const body = { requestId: id(), emails: [user.email] };
+    const row = (await invite(body)).body.data[0];
+    const token = new URL(row.invitationUrl).searchParams.get('reviewerInvite')!;
+    const humanInvitations = app.get(InvitationsService);
+    await expect(humanInvitations.accept(author, token)).rejects.toMatchObject({ status: 403 });
+    await humanInvitations.accept(user.id, token);
+    expect(
+      await owner.membership.count({
+        where: { userId: user.id, conferenceId: conf, roles: { some: { role: 'REVIEWER' } } },
+      }),
+    ).toBe(1);
+    expect((await removeInvite(row.id, id())).status).toBe(409);
+    expect((await invite(body)).body.data[0]).toMatchObject({
+      status: 'ACCEPTED',
+      invitationUrl: null,
+    });
+    expect(sendInvitationMail).not.toHaveBeenCalled();
+  });
+  it('rolls back whole batches and removal if atomic access auditing is unavailable', async () => {
+    const body = { requestId: id(), emails: [`${id()}@example.com`, `${id()}@example.com`] };
+    const spy = vi
+      .spyOn(store, 'recordInTransaction')
+      .mockRejectedValueOnce(new Error('Audit unavailable'));
+    try {
+      expect((await invite(body)).status).toBe(503);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await owner.reviewerInvitation.count({ where: { email: { in: body.emails } } })).toBe(0);
+    expect(
+      await owner.apiIntegrationMutation.count({
+        where: { integrationId: inviteGrant.id, requestId: body.requestId },
+      }),
+    ).toBe(0);
+    const created = await invite(body);
+    const requestId = id();
+    const spy2 = vi
+      .spyOn(store, 'recordInTransaction')
+      .mockRejectedValueOnce(new Error('Audit unavailable'));
+    try {
+      expect((await removeInvite(created.body.data[0].id, requestId)).status).toBe(503);
+    } finally {
+      spy2.mockRestore();
+    }
+    expect(await owner.reviewerInvitation.count({ where: { id: created.body.data[0].id } })).toBe(
+      1,
+    );
+    expect(
+      await owner.apiIntegrationMutation.count({
+        where: { integrationId: inviteGrant.id, requestId },
+      }),
+    ).toBe(0);
+  });
+  it('restricts invitation grants, keys and reauthorization to organizers and org admins', async () => {
+    await expect(
+      store.create(context, { name: 'Chair blocked', scopes: [...invitationScopes] }),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      store.issue(context, inviteGrant.id, {
+        label: 'Chair blocked',
+        scopes: [...invitationScopes],
+        expiresInDays: 1,
+        requestId: id(),
+      }),
+    ).rejects.toMatchObject({ status: 403 });
+    const g = await store.detail(inviteContext, inviteGrant.id);
+    await expect(
+      store.change(context, g.id, { version: g.version }, 'reauthorized'),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      store.change(inviteContext, grant.id, {
+        version: (await store.detail(context, grant.id)).version,
+        scopes: [...INTEGRATION_SCOPES],
+      }),
+    ).rejects.toMatchObject({ status: 403 });
+    const upgraded = await store.create(inviteContext, {
+      name: 'Explicit upgrade',
+      scopes: ['reviewers:read', 'reviewers:identity:read', 'reviewers:contacts:read'],
+    });
+    const oldKey = await store.issue(inviteContext, upgraded.id, {
+      label: 'Old read key',
+      scopes: ['reviewers:read', 'reviewers:identity:read', 'reviewers:contacts:read'],
+      expiresInDays: 1,
+      requestId: id(),
+    });
+    await store.change(inviteContext, upgraded.id, {
+      version: upgraded.version,
+      scopes: [...invitationScopes],
+    });
+    expect(
+      (await invite({ requestId: id(), emails: ['blocked@example.com'] }, oldKey.token)).status,
+    ).toBe(403);
+  });
+  it('rechecks invitation authority, revocation and scopes for already-authenticated operations', async () => {
+    const p = await store.authenticate(parseCredential('Bearer ' + inviteToken)!);
+    const service = app.get(BotInvitationsService);
+    const body = { requestId: id(), emails: [`${id()}@example.com`] };
+    const membership = await owner.membership.findFirstOrThrow({
+      where: { userId: organizer, conferenceId: conf },
+      include: { roles: true },
+    });
+    await owner.roleGrant.update({
+      where: { id: membership.roles[0]!.id },
+      data: { role: 'CHAIR' },
+    });
+    try {
+      await expect(service.generate(p, body, id(), performance.now())).rejects.toMatchObject({
+        status: 403,
+      });
+    } finally {
+      await owner.roleGrant.update({
+        where: { id: membership.roles[0]!.id },
+        data: { role: 'ORGANIZER' },
+      });
+    }
+    await owner.apiIntegrationKey.update({
+      where: { id: p.keyId },
+      data: { revokedAt: new Date() },
+    });
+    try {
+      await expect(service.generate(p, body, id(), performance.now())).rejects.toMatchObject({
+        status: 401,
+      });
+    } finally {
+      await owner.apiIntegrationKey.update({ where: { id: p.keyId }, data: { revokedAt: null } });
+    }
+    await owner.apiIntegration.update({
+      where: { id: inviteGrant.id },
+      data: { scopes: invitationScopes.filter((s) => s !== 'invitations:write') },
+    });
+    try {
+      await expect(service.generate(p, body, id(), performance.now())).rejects.toMatchObject({
+        status: 403,
+      });
+    } finally {
+      await owner.apiIntegration.update({
+        where: { id: inviteGrant.id },
+        data: { scopes: [...invitationScopes] },
+      });
+    }
+    expect(await owner.reviewerInvitation.count({ where: { email: body.emails[0] } })).toBe(0);
+  });
+  it('allows link-only keys to read but not generate or remove invitations', async () => {
+    const k = await store.issue(inviteContext, inviteGrant.id, {
+      label: 'Link reads only',
+      scopes: invitationScopes.filter((s) => s !== 'invitations:write'),
+      expiresInDays: 1,
+      requestId: id(),
+    });
+    const row = (await invite({ requestId: id(), emails: [`${id()}@example.com`] })).body.data[0];
+    expect((await api(bot + `/reviewer-invitations/${row.id}/link`, k.token)).status).toBe(200);
+    expect(
+      (await invite({ requestId: id(), emails: [`${id()}@example.com`] }, k.token)).status,
+    ).toBe(403);
+    expect((await removeInvite(row.id, id(), k.token)).status).toBe(403);
+    await store.revokeKey(inviteContext, inviteGrant.id, k.key.id);
+  });
+  it('serializes acceptance and removal without leaving membership from a removed invitation', async () => {
+    const user = await owner.user.create({
+      data: { id: id(), name: 'Concurrent invitee', email: `${id()}@example.com` },
+    });
+    const row = (await invite({ requestId: id(), emails: [user.email] })).body.data[0];
+    const invitationToken = new URL(row.invitationUrl).searchParams.get('reviewerInvite')!;
+    const [accepted, removed] = await Promise.allSettled([
+      app.get(InvitationsService).accept(user.id, invitationToken),
+      removeInvite(row.id, id()).then((r) => r.status),
+    ]);
+    const saved = await owner.reviewerInvitation.findUnique({ where: { id: row.id } });
+    const memberships = await owner.membership.count({
+      where: { userId: user.id, conferenceId: conf, roles: { some: { role: 'REVIEWER' } } },
+    });
+    if (saved) {
+      expect(saved.status).toBe('ACCEPTED');
+      expect(memberships).toBe(1);
+      expect(accepted.status).toBe('fulfilled');
+      expect(removed).toMatchObject({ status: 'fulfilled', value: 409 });
+    } else {
+      expect(memberships).toBe(0);
+      expect(accepted.status).toBe('rejected');
+      expect(removed).toMatchObject({ status: 'fulfilled', value: 200 });
+    }
+  });
+  it('keeps simultaneous invitation acceptance retries idempotent for the invited account', async () => {
+    const user = await owner.user.create({
+      data: { id: id(), name: 'Acceptance retry', email: `${id()}@example.com` },
+    });
+    const row = (await invite({ requestId: id(), emails: [user.email] })).body.data[0];
+    const token = new URL(row.invitationUrl).searchParams.get('reviewerInvite')!;
+    const service = app.get(InvitationsService);
+    const results = await Promise.all([
+      service.accept(user.id, token),
+      service.accept(user.id, token),
+    ]);
+    expect(results.every((r) => r.invitation.status === 'ACCEPTED')).toBe(true);
+    expect(
+      await owner.membership.count({
+        where: { userId: user.id, conferenceId: conf, roles: { some: { role: 'REVIEWER' } } },
+      }),
+    ).toBe(1);
   });
 });

@@ -8,6 +8,8 @@ export const INTEGRATION_SCOPES = [
   'reviewers:contacts:read',
   'assignments:read',
   'assignments:write',
+  'invitations:read',
+  'invitations:write',
   'analytics:read',
 ] as const;
 export type IntegrationScope = (typeof INTEGRATION_SCOPES)[number];
@@ -18,6 +20,13 @@ export const SCOPE_DEPENDENCIES: Partial<Record<IntegrationScope, IntegrationSco
   'reviewers:contacts:read': ['reviewers:identity:read'],
   'assignments:read': ['papers:read', 'reviewers:read'],
   'assignments:write': ['assignments:read', 'papers:read', 'reviewers:read'],
+  'invitations:read': ['reviewers:read', 'reviewers:identity:read', 'reviewers:contacts:read'],
+  'invitations:write': [
+    'invitations:read',
+    'reviewers:read',
+    'reviewers:identity:read',
+    'reviewers:contacts:read',
+  ],
 };
 export const integrationScopesSchema = z
   .array(z.enum(INTEGRATION_SCOPES))
@@ -190,6 +199,43 @@ export const botReviewerInvitationSchema = z.object({
   expiresAt: date,
 });
 export type BotReviewerInvitation = z.infer<typeof botReviewerInvitationSchema>;
+export const botGenerateInvitationsSchema = z
+  .object({
+    requestId: uuid,
+    emails: z
+      .array(
+        z
+          .string()
+          .trim()
+          .email()
+          .max(254)
+          .transform((v) => v.toLowerCase()),
+      )
+      .min(1)
+      .max(25)
+      .transform((v) => [...new Set(v)].sort()),
+  })
+  .strict();
+export type BotGenerateInvitations = z.infer<typeof botGenerateInvitationsSchema>;
+export const botInvitationLinkSchema = z.object({
+  id: uuid,
+  email: z.string().email(),
+  status: z.enum(['PENDING', 'ACCEPTED', 'DECLINED', 'EXPIRED', 'REMOVED']),
+  invitationUrl: z.string().url().nullable(),
+  expiresAt: date.nullable(),
+});
+export const botGenerateInvitationsResponseSchema = z.object({
+  data: z.array(botInvitationLinkSchema),
+  replayed: z.boolean(),
+  message: z.string(),
+});
+export const botRemoveInvitationSchema = z.object({ requestId: uuid }).strict();
+export const botRemoveInvitationResponseSchema = z.object({
+  id: uuid,
+  removed: z.literal(true),
+  replayed: z.boolean(),
+  message: z.string(),
+});
 export const botCreateAssignmentSchema = z
   .object({
     requestId: uuid,
