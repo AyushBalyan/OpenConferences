@@ -720,6 +720,119 @@
     text-decoration: underline;
     text-underline-offset: 3px;
   }
+
+  .fc-legal ::selection {
+    background: #dbeafe;
+    color: var(--fc-ink);
+  }
+
+  .fc-legal .fc-nav {
+    background: #ffffff;
+  }
+
+  .fc-legal-doc {
+    width: min(100% - 2rem, 42rem);
+    margin-inline: auto;
+    padding-block: 3.25rem 5.5rem;
+  }
+
+  .fc-legal-doc h1 {
+    max-width: 12ch;
+    font-family: var(--font-barlow-condensed), sans-serif;
+    font-size: clamp(3.4rem, 9vw, 5.25rem);
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    line-height: 0.88;
+  }
+
+  .fc-legal-meta {
+    margin-top: 1.25rem;
+    color: var(--fc-muted);
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+
+  .fc-legal-lede {
+    margin-top: 1.75rem;
+    font-size: 1.125rem;
+    line-height: 1.65;
+  }
+
+  .fc-legal-toc {
+    margin-top: 2.75rem;
+    border-top: 1px solid var(--fc-ink);
+  }
+
+  .fc-legal-toc a {
+    display: grid;
+    grid-template-columns: 2.25rem 1fr;
+    gap: 0.85rem;
+    padding-block: 0.72rem;
+    border-bottom: 1px solid #d4d4d8;
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .fc-legal-toc a:hover {
+    color: var(--fc-blue);
+  }
+
+  .fc-legal-toc span {
+    font-family: var(--font-ibm-plex-sans), sans-serif;
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    color: var(--fc-muted);
+  }
+
+  .fc-legal-section {
+    margin-top: 3.25rem;
+    scroll-margin-top: 5.5rem;
+  }
+
+  .fc-legal-section h2 {
+    margin-bottom: 0.9rem;
+    font-family: var(--font-barlow-condensed), sans-serif;
+    font-size: clamp(1.8rem, 4vw, 2.15rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+
+  .fc-legal-section h3 {
+    margin-top: 1.35rem;
+    margin-bottom: 0.4rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    line-height: 1.35;
+  }
+
+  .fc-legal-doc p,
+  .fc-legal-doc li {
+    color: #27272a;
+    font-size: 1.05rem;
+    line-height: 1.7;
+  }
+
+  .fc-legal-doc p + p,
+  .fc-legal-doc ul + p,
+  .fc-legal-doc p + ul {
+    margin-top: 0.9rem;
+  }
+
+  .fc-legal-doc ul {
+    padding-left: 1.15rem;
+    list-style: disc;
+  }
+
+  .fc-legal-doc li + li {
+    margin-top: 0.35rem;
+  }
+
+  .fc-legal-doc :where(p, li) a {
+    color: var(--fc-blue);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
 }
 
 @keyframes fc-handoff {

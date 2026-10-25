@@ -159,6 +159,10 @@ function SignUpContent() {
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         {message ? <p className="text-sm text-green-700">{message}</p> : null}
         <TurnstileField widgetRef={turnstileRef} onTokenChange={setTurnstileToken} />
+        <p className="text-xs leading-5 text-muted-foreground">
+          By creating an account, you agree to the <AuthLink href="/terms">Terms</AuthLink> and the{' '}
+          <AuthLink href="/privacy">Privacy policy</AuthLink>.
+        </p>
         <Button type="submit" className="w-full" disabled={isSubmitting}>
           {isSubmitting ? 'Creating account…' : 'Sign up'}
         </Button>

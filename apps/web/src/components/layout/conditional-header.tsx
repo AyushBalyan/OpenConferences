@@ -14,6 +14,8 @@ const HIDDEN_PREFIXES = [
   '/mfa',
   '/reviewer-invite',
   '/join',
+  '/privacy',
+  '/terms',
 ];
 
 export function ConditionalAppHeader() {

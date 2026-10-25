@@ -133,9 +133,16 @@ function SignInContent() {
             : 'Sign in to manage submissions, reviews, and conferences.'
       }
       footer={
-        <>
-          Need an account? <AuthLink href={signUpHref}>Sign up</AuthLink>
-        </>
+        <div className="space-y-2">
+          <p>
+            Need an account? <AuthLink href={signUpHref}>Sign up</AuthLink>
+          </p>
+          <p>
+            <AuthLink href="/terms">Terms</AuthLink>
+            {' · '}
+            <AuthLink href="/privacy">Privacy</AuthLink>
+          </p>
+        </div>
       }
     >
       {authorJoin ? (

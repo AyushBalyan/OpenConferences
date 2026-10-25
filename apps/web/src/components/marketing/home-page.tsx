@@ -360,6 +360,8 @@ export function HomePage() {
             <strong>Connect</strong>
             <Link href="/sign-in">Sign in</Link>
             <Link href="/sign-up">Create account</Link>
+            <Link href="/privacy">Privacy</Link>
+            <Link href="/terms">Terms</Link>
             <a href="mailto:contact@fresi.org">Contact support</a>
           </div>
         </div>
