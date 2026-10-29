@@ -10,6 +10,7 @@ type CoiWorkspaceValue = {
   cois: (ConflictOfInterestDto & {
     userName?: string;
     paperTitle?: string | null;
+    paperSubmittedAt?: string | null;
     submissionNumber?: string | null;
   })[];
   papers: { id: string; title: string; submissionNumber?: string | null }[];

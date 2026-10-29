@@ -5,94 +5,29 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { fetchPaper, fetchPaperReviews, fetchRebuttal } from '@/lib/api-client';
 import { useConferenceWorkspace } from '@/components/dashboard/conference-workspace';
-import {
-  RECOMMENDATION_OPTIONS,
-  recommendationLabel,
-  type Recommendation,
-  type ReviewDto,
-} from '@/lib/review-types';
-
-const SPECTRUM: Recommendation[] = [...RECOMMENDATION_OPTIONS].reverse().map((o) => o.value);
-
-const RECOMMENDATION_TONE: Record<Recommendation, string> = {
-  STRONG_REJECT: 'bg-rose-600 text-white',
-  REJECT: 'bg-rose-500 text-white',
-  WEAK_REJECT: 'bg-rose-100 text-rose-800',
-  BORDERLINE: 'bg-amber-100 text-amber-800',
-  WEAK_ACCEPT: 'bg-emerald-100 text-emerald-800',
-  ACCEPT: 'bg-emerald-500 text-white',
-  STRONG_ACCEPT: 'bg-emerald-600 text-white',
-};
+import { RECOMMENDATION_OPTIONS, recommendationLabel, type ReviewDto } from '@/lib/review-types';
 
 function reviewerLabel(index: number) {
   return `R${index + 1}`;
 }
 
 function ConsensusSpectrum({ reviews }: { reviews: ReviewDto[] }) {
-  const placed = reviews
-    .map((review, index) => ({
-      index,
-      position: review.recommendation ? SPECTRUM.indexOf(review.recommendation) : -1,
-    }))
-    .filter((item) => item.position >= 0);
-  const mean =
-    placed.length > 0 ? placed.reduce((sum, item) => sum + item.position, 0) / placed.length : null;
-  const spread =
-    placed.length > 1
-      ? Math.max(...placed.map((p) => p.position)) - Math.min(...placed.map((p) => p.position))
-      : 0;
-  const leaning =
-    mean === null
-      ? null
-      : mean > 3.4
-        ? 'Leans accept'
-        : mean < 2.6
-          ? 'Leans reject'
-          : 'Split / borderline';
-
+  const submitted = reviews.filter((review) => review.submittedAt);
+  const recommendations = RECOMMENDATION_OPTIONS.map((option) => ({
+    ...option,
+    count: submitted.filter((review) => review.recommendation === option.value).length,
+  })).filter((option) => option.count > 0);
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5">
-      <div className="flex items-baseline justify-between gap-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-          Reviewer consensus
-        </p>
-        {leaning ? (
-          <p className="text-sm font-medium text-slate-900">
-            {leaning}
-            {spread >= 3 ? (
-              <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-                High disagreement
-              </span>
-            ) : null}
-          </p>
-        ) : (
-          <p className="text-sm text-slate-500">No recommendations yet</p>
-        )}
-      </div>
-      <div className="relative mt-6 pb-6">
-        <div className="h-2 rounded-full bg-gradient-to-r from-rose-500 via-amber-300 to-emerald-500" />
-        {placed.map((item, i) => {
-          const stack = placed.slice(0, i).filter((p) => p.position === item.position).length;
-          return (
-            <span
-              key={item.index}
-              className="absolute top-1 flex size-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-slate-900 text-[10px] font-semibold text-white shadow-md transition-all"
-              style={{
-                left: `${(item.position / (SPECTRUM.length - 1)) * 100}%`,
-                marginTop: `${-stack * 22}px`,
-              }}
-              title={`${reviewerLabel(item.index)}: ${recommendationLabel(SPECTRUM[item.position])}`}
-            >
-              {reviewerLabel(item.index)}
-            </span>
-          );
-        })}
-        <div className="absolute inset-x-0 top-5 flex justify-between text-[11px] text-slate-500">
-          <span>Strong reject</span>
-          <span>Borderline</span>
-          <span>Strong accept</span>
-        </div>
-      </div>
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <h3 className="text-sm font-semibold text-slate-900">Reviewer recommendations</h3>
+      <p className="mt-2 text-sm text-slate-900">
+        {recommendations.length
+          ? recommendations.map((option) => `${option.count} ${option.label}`).join(' · ')
+          : 'No submitted recommendations yet'}
+      </p>
+      <p className="mt-2 text-xs text-slate-600">
+        Submitted reviews only. The committee makes the final decision.
+      </p>
     </div>
   );
 }
@@ -103,9 +38,9 @@ function ScoreMatrix({ reviews }: { reviews: ReviewDto[] }) {
   const max = Math.max(5, ...reviews.flatMap((review) => Object.values(review.scores)));
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
       <table className="w-full text-sm">
-        <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
+        <thead className="text-xs text-slate-600">
           <tr>
             <th className="px-4 py-2.5 text-left font-semibold">Criterion</th>
             {reviews.map((review, index) => (
@@ -137,7 +72,7 @@ function ScoreMatrix({ reviews }: { reviews: ReviewDto[] }) {
                     <div className="flex items-center gap-2">
                       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
                         <div
-                          className="h-full rounded-full bg-indigo-500"
+                          className="h-full rounded-full bg-slate-700"
                           style={{ width: `${(mean / max) * 100}%` }}
                         />
                       </div>
@@ -169,8 +104,8 @@ function ReviewCard({
     ? review.reviewerName?.trim() || review.reviewerEmail?.trim()
     : null;
   return (
-    <article className="rounded-xl border border-slate-200 bg-white">
-      <header className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-5 py-3">
+    <details className="rounded-xl border border-slate-200 bg-white">
+      <summary className="flex cursor-pointer flex-wrap items-center gap-3 px-4 py-3">
         <span className="flex size-8 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
           {reviewerLabel(index)}
         </span>
@@ -178,16 +113,14 @@ function ReviewCard({
           {identity || `Reviewer ${index + 1}`}
         </p>
         {review.recommendation ? (
-          <span
-            className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${RECOMMENDATION_TONE[review.recommendation]}`}
-          >
+          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-800">
             {recommendationLabel(review.recommendation)}
           </span>
         ) : null}
         <div className="ml-auto flex items-center gap-3 text-xs text-slate-500">
           {review.confidence ? (
             <span className="flex items-center gap-1" title={`Confidence ${review.confidence}/5`}>
-              Confidence
+              Confidence {review.confidence}/5
               <span className="flex gap-0.5">
                 {Array.from({ length: 5 }, (_, i) => (
                   <span
@@ -204,11 +137,12 @@ function ReviewCard({
             {review.submittedAt ? 'Submitted' : 'Draft'}
           </span>
         </div>
-      </header>
+        <span className="text-xs text-slate-600 underline">Review details</span>
+      </summary>
       <div className="space-y-4 px-5 py-4">
         <div>
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-            To authors
+          <h4 className="text-xs font-semibold text-slate-600">
+            Visible to authors when reviews are released
           </h4>
           <p className="mt-1.5 whitespace-pre-wrap break-words text-[15px] leading-relaxed text-slate-800">
             {review.commentsToAuthors || (
@@ -217,20 +151,20 @@ function ReviewCard({
           </p>
         </div>
         {review.commentsToChairs ? (
-          <div className="rounded-lg border-l-4 border-violet-400 bg-violet-50 px-4 py-3">
-            <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-violet-700">
+          <div className="rounded-lg border-l-4 border-slate-400 bg-slate-100 px-4 py-3">
+            <h4 className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
               <svg viewBox="0 0 16 16" className="size-3.5" fill="currentColor" aria-hidden>
                 <path d="M8 1a3 3 0 0 0-3 3v2H4a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-1V4a3 3 0 0 0-3-3Zm-1.5 5V4a1.5 1.5 0 0 1 3 0v2h-3Z" />
               </svg>
               Committee only
             </h4>
-            <p className="mt-1.5 whitespace-pre-wrap break-words text-sm leading-relaxed text-violet-950">
+            <p className="mt-1.5 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-900">
               {review.commentsToChairs}
             </p>
           </div>
         ) : null}
       </div>
-    </article>
+    </details>
   );
 }
 
@@ -333,7 +267,12 @@ export function ReviewDossier({
       ) : (
         <>
           <ConsensusSpectrum reviews={reviews} />
-          <ScoreMatrix reviews={reviews} />
+          <details className="rounded-xl border border-slate-200 bg-white p-4">
+            <summary className="cursor-pointer text-sm font-medium">Criterion scores</summary>
+            <div className="mt-3">
+              <ScoreMatrix reviews={reviews.filter((review) => review.submittedAt)} />
+            </div>
+          </details>
           {reviews.map((review, index) => (
             <ReviewCard key={review.id} review={review} index={index} showIdentity={showIdentity} />
           ))}

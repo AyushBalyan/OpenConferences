@@ -1,5 +1,7 @@
 'use client';
 
+import { SubmissionDate } from '@/components/dashboard/submission-date';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -23,6 +25,7 @@ export default function RegistrationsVerificationsPage() {
     Array<{
       id: string;
       paperTitle?: string;
+      paperSubmittedAt?: string | null;
       status: string;
       note: string | null;
     }>
@@ -81,6 +84,7 @@ export default function RegistrationsVerificationsPage() {
           <DataTableHeader>
             <tr>
               <DataTableHead>Paper</DataTableHead>
+              <DataTableHead>Submission date</DataTableHead>
               <DataTableHead>Status</DataTableHead>
               <DataTableHead className="text-right">Actions</DataTableHead>
             </tr>
@@ -90,6 +94,9 @@ export default function RegistrationsVerificationsPage() {
               <DataTableRow key={row.id}>
                 <DataTableCell>
                   <p className="font-medium text-slate-900">{row.paperTitle ?? row.id}</p>
+                </DataTableCell>
+                <DataTableCell>
+                  <SubmissionDate value={row.paperSubmittedAt} />
                 </DataTableCell>
                 <DataTableCell>
                   <WorkflowBadge

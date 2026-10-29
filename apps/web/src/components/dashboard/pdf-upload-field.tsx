@@ -1,6 +1,6 @@
 'use client';
 
-import { FileText, Upload, X } from 'lucide-react';
+import { Check, FileText, Upload, X } from 'lucide-react';
 import { useId, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -23,12 +23,14 @@ export function PdfUploadField({
   disabled = false,
   maxBytes = DEFAULT_PDF_MAX_BYTES,
   className,
+  compact = false,
 }: {
   file: File | null;
   onFileChange: (file: File | null) => void;
   disabled?: boolean;
   maxBytes?: number;
   className?: string;
+  compact?: boolean;
 }) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -86,8 +88,13 @@ export function PdfUploadField({
       />
 
       {file ? (
-        <div className="flex items-start gap-3 rounded-lg border border-indigo-200 bg-indigo-50/50 p-4">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-white shadow-sm ring-1 ring-indigo-100">
+        <div
+          className={cn(
+            'flex items-start gap-3 rounded-lg border p-4',
+            compact ? 'border-slate-200 bg-white' : 'border-indigo-200 bg-indigo-50/50',
+          )}
+        >
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-white ring-1 ring-indigo-100">
             <FileText className="h-5 w-5 text-indigo-600" aria-hidden />
           </div>
           <div className="min-w-0 flex-1">
@@ -138,7 +145,8 @@ export function PdfUploadField({
           }}
           onDrop={onDrop}
           className={cn(
-            'flex min-w-0 max-w-full cursor-pointer flex-col items-center justify-center overflow-hidden rounded-lg border-2 border-dashed px-4 py-10 text-center transition-colors sm:px-6',
+            'flex min-w-0 max-w-full cursor-pointer flex-col items-center justify-center overflow-hidden rounded-lg border border-dashed px-4 text-center transition-colors sm:px-6',
+            compact ? 'py-6' : 'py-10',
             disabled && 'cursor-not-allowed opacity-60',
             dragActive
               ? 'border-indigo-400 bg-indigo-50/80'
@@ -147,10 +155,13 @@ export function PdfUploadField({
         >
           <div
             className={cn(
-              'mb-3 flex h-11 w-11 items-center justify-center rounded-full transition-colors',
+              'mb-3 flex items-center justify-center transition-colors',
+              compact ? 'h-6 w-6' : 'h-11 w-11 rounded-full',
               dragActive
                 ? 'bg-indigo-100 text-indigo-700'
-                : 'bg-white text-slate-500 ring-1 ring-slate-200',
+                : compact
+                  ? 'text-slate-500'
+                  : 'bg-white text-slate-500 ring-1 ring-slate-200',
             )}
           >
             <Upload className="h-5 w-5" aria-hidden />
@@ -183,8 +194,8 @@ export type UploadProgressStep = 'uploading' | 'scanning' | 'ready';
 
 const UPLOAD_STEP_LABELS: Record<UploadProgressStep, string> = {
   uploading: 'Uploading PDF',
-  scanning: 'Scanning for security',
-  ready: 'Scan complete — ready to submit',
+  scanning: 'Checking your PDF',
+  ready: 'Ready to submit',
 };
 
 export function UploadProgressSteps({ current }: { current: UploadProgressStep }) {
@@ -211,7 +222,7 @@ export function UploadProgressSteps({ current }: { current: UploadProgressStep }
               )}
               aria-hidden
             >
-              {done ? '✓' : index + 1}
+              {done ? <Check className="h-3.5 w-3.5" /> : index + 1}
             </span>
             <span
               className={cn(

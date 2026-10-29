@@ -1,5 +1,7 @@
 'use client';
 
+import { SubmissionDate } from '@/components/dashboard/submission-date';
+
 import { Fragment, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import {
@@ -134,6 +136,7 @@ export function BiddingOversightTable({ papers }: BiddingOversightTableProps) {
             <span className="sr-only">Expand</span>
           </DataTableHead>
           <DataTableHead>Paper</DataTableHead>
+          <DataTableHead>Submission date</DataTableHead>
           <DataTableHead>Authors</DataTableHead>
           <DataTableHead className="w-20 text-right">Bids</DataTableHead>
           <DataTableHead>Summary</DataTableHead>
@@ -182,6 +185,9 @@ export function BiddingOversightTable({ papers }: BiddingOversightTableProps) {
                     <p className="mt-0.5 line-clamp-1 text-xs text-slate-500">{paper.abstract}</p>
                   </button>
                 </DataTableCell>
+                <DataTableCell>
+                  <SubmissionDate value={paper.submittedAt} />
+                </DataTableCell>
                 <DataTableCell className="max-w-[12rem] truncate text-sm text-slate-600">
                   {authors}
                 </DataTableCell>
@@ -200,7 +206,7 @@ export function BiddingOversightTable({ papers }: BiddingOversightTableProps) {
                       className="bg-slate-50/80"
                     >
                       <DataTableCell>{null}</DataTableCell>
-                      <DataTableCell colSpan={2}>
+                      <DataTableCell colSpan={3}>
                         <div className="pl-2">
                           <p className="text-sm font-medium text-slate-800">{bid.reviewerName}</p>
                           <p className="text-xs text-slate-500">{bid.reviewerEmail}</p>

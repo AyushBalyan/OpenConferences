@@ -76,7 +76,7 @@ export class AssignmentsService {
         tx.reviewerAssignment.findMany({
           where: { roundId, conferenceId, status: { notIn: ['DECLINED', 'REPLACED'] } },
           include: {
-            paper: { select: { title: true, submissionNumber: true } },
+            paper: { select: { title: true, submissionNumber: true, submittedAt: true } },
             reviewer: { select: { name: true, email: true } },
             review: { select: { submittedAt: true } },
           },
@@ -111,6 +111,7 @@ export class AssignmentsService {
             ? ('DRAFT' as const)
             : ('NOT_STARTED' as const),
         paperTitle: a.paper.title,
+        paperSubmittedAt: a.paper.submittedAt?.toISOString() ?? null,
         submissionNumber: a.paper.submissionNumber,
         reviewerName: a.reviewer.name,
         reviewerEmail: a.reviewer.email,

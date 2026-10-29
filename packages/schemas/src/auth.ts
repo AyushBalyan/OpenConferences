@@ -101,6 +101,7 @@ export type AccountSetupInput = z.infer<typeof accountSetupSchema>;
 export type UserProfile = z.infer<typeof userProfileSchema>;
 
 export const meDashboardPaperSchema = z.object({
+  submittedAt: z.string().datetime().nullable().optional(),
   id: z.string().uuid(),
   conferenceId: z.string().uuid(),
   conferenceName: z.string(),
@@ -112,6 +113,7 @@ export const meDashboardPaperSchema = z.object({
 });
 
 export const meDashboardAssignmentSchema = z.object({
+  paperSubmittedAt: z.string().datetime().nullable().optional(),
   id: z.string().uuid(),
   conferenceId: z.string().uuid(),
   conferenceName: z.string(),

@@ -9,6 +9,8 @@ import { bulkDecide, fetchPaper, makeDecision } from '@/lib/api-client';
 import { DECISION_OPTIONS, decisionOutcomeLabel, type DecisionOutcome } from '@/lib/review-types';
 import { useDecisionsWorkspace, type PaperRow } from './decisions-workspace';
 import { ReviewDossier } from './review-dossier';
+import { DecisionConfirmation } from './decision-confirmation';
+import Link from 'next/link';
 
 const OUTCOME_STYLE: Record<
   DecisionOutcome,
@@ -79,7 +81,6 @@ export function DecisionsPendingPanel() {
   const {
     conferenceId,
     papers,
-    decisions,
     undecidedPapers,
     filteredUndecidedPapers: visiblePapers,
     search,
@@ -95,19 +96,51 @@ export function DecisionsPendingPanel() {
     setMessage,
     refresh,
     loading,
+    decisionByPaper,
+    draftStatus,
+    rounds,
   } = useDecisionsWorkspace();
   const [activeId, setActiveId] = useState<string | null>(searchParams.get('paper'));
-  const [confirming, setConfirming] = useState<'single' | 'bulk' | null>(null);
+  const [confirming, setConfirming] = useState<'single' | 'bulk' | 'discard' | null>(null);
+  const [filter, setFilter] = useState('all');
+  const [advance, setAdvance] = useState(true);
+  const [completed, setCompleted] = useState<string | null>(null);
+  const [queueOpen, setQueueOpen] = useState(false);
+  function ready(paper: PaperRow) {
+    return (
+      Boolean(paper.cycleId) &&
+      paper.submittedReviews !== null &&
+      paper.requiredReviews !== null &&
+      paper.submittedReviews >= paper.requiredReviews
+    );
+  }
+  function completion(paper: PaperRow) {
+    return paper.submittedReviews === null || paper.requiredReviews === null
+      ? 'Review completion unavailable'
+      : `${paper.submittedReviews} of ${paper.requiredReviews} required reviews submitted`;
+  }
+  function matches(paper: PaperRow, value: string) {
+    return value === 'ready'
+      ? ready(paper)
+      : value === 'waiting'
+        ? !ready(paper)
+        : value === 'drafted'
+          ? Boolean(pending[paper.id]?.outcome || pending[paper.id]?.rationale)
+          : true;
+  }
+  const queue = visiblePapers.filter((paper) => matches(paper, filter));
 
-  const active = visiblePapers.find((paper) => paper.id === activeId) ?? visiblePapers[0] ?? null;
-  const activeIndex = active ? visiblePapers.indexOf(active) : -1;
+  const active = queue.find((paper) => paper.id === activeId) ?? queue[0] ?? null;
+  const activeIndex = active ? queue.indexOf(active) : -1;
   const draft = active ? pending[active.id] : undefined;
 
-  const decidedCount = decisions.length;
+  const decidedCount = decisionByPaper.size;
   const totalInRound = decidedCount + undecidedPapers.length;
-  const drafted = undecidedPapers.filter((paper) => pending[paper.id]?.outcome).length;
+  const drafted = undecidedPapers.filter(
+    (paper) => pending[paper.id]?.outcome || pending[paper.id]?.rationale,
+  ).length;
 
-  useEffect(() => setConfirming(null), [active?.id, draft?.outcome, search]);
+  useEffect(() => setConfirming(null), [active?.id, draft?.outcome, search, filter]);
 
   function updatePending(
     paperId: string,
@@ -118,6 +151,7 @@ export function DecisionsPendingPanel() {
       [paperId]: {
         outcome: prev[paperId]?.outcome ?? '',
         rationale: prev[paperId]?.rationale ?? '',
+        cycleId: papers.find((paper) => paper.id === paperId)?.cycleId,
         ...patch,
       },
     }));
@@ -133,15 +167,26 @@ export function DecisionsPendingPanel() {
   }
 
   function move(delta: number) {
-    if (visiblePapers.length === 0) return;
-    const next = Math.min(Math.max(activeIndex + delta, 0), visiblePapers.length - 1);
-    const paper = visiblePapers[next];
+    if (queue.length === 0) return;
+    const next = Math.min(Math.max(activeIndex + delta, 0), queue.length - 1);
+    const paper = queue[next];
     if (paper) setActiveId(paper.id);
   }
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) return;
+      if (
+        busy ||
+        confirming ||
+        completed ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        isTypingTarget(event.target) ||
+        (event.target instanceof HTMLElement &&
+          ['BUTTON', 'A', 'SUMMARY'].includes(event.target.tagName))
+      )
+        return;
       if (!active) return;
       if (event.key === 'j' || event.key === 'ArrowDown') {
         event.preventDefault();
@@ -166,7 +211,7 @@ export function DecisionsPendingPanel() {
 
   async function recordDecisionWithFreshVersion(
     paperId: string,
-    body: { roundId: string; outcome: DecisionOutcome; rationale: string | null },
+    body: { roundId: string; outcome: DecisionOutcome; rationale: string | null; notify: boolean },
   ) {
     const latest = await fetchPaper(conferenceId, paperId);
     try {
@@ -189,19 +234,29 @@ export function DecisionsPendingPanel() {
     setBusy(true);
     setError(null);
     setMessage(null);
-    const nextPaper = visiblePapers[activeIndex + 1] ?? visiblePapers[activeIndex - 1];
+    const nextPaper = queue[activeIndex + 1] ?? queue[activeIndex - 1];
     try {
       const result = await recordDecisionWithFreshVersion(paper.id, {
         roundId: paper.cycleId,
         outcome: current.outcome,
         rationale: current.rationale || null,
+        notify: false,
       });
-      setMessage(result.message);
-      setActiveId(nextPaper?.id ?? null);
-      await refresh();
+      setPending((previous) =>
+        Object.fromEntries(Object.entries(previous).filter(([paperId]) => paperId !== paper.id)),
+      );
+      setMessage(
+        `Decision recorded for ${paper.submissionNumber ?? paper.title}. No decision email sent.${result.warnings?.length ? ` ${result.warnings.join(' ')}` : ''}`,
+      );
+      if (advance) setActiveId(nextPaper?.id ?? null);
+      else setCompleted(paper.title);
+      await refresh().catch(() =>
+        setError(
+          'Decision recorded, but the queue could not refresh. Reload to see the latest queue.',
+        ),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Decision failed');
-      await refresh().catch(() => undefined);
     } finally {
       setBusy(false);
     }
@@ -232,10 +287,26 @@ export function DecisionsPendingPanel() {
     try {
       const result = await bulkDecide(conferenceId, bulkCycleId, {
         items: bulkItems.map((item) => ({ ...item, outcome: item.outcome as DecisionOutcome })),
+        notify: false,
       });
-      setMessage(result.message);
-      setSelected(new Set());
+      const successful = new Set(result.data.map((decision) => decision.paperId));
+      setPending((previous) =>
+        Object.fromEntries(
+          Object.entries(previous).filter(([paperId]) => !successful.has(paperId)),
+        ),
+      );
+      setMessage(`${successful.size} decisions recorded. No decision emails sent.`);
+      setSelected(new Set(result.failures.map((failure) => failure.paperId)));
       await refresh();
+      if (result.failures.length)
+        setError(
+          result.failures
+            .map(
+              (failure) =>
+                `${papers.find((paper) => paper.id === failure.paperId)?.submissionNumber ?? failure.paperId}: ${failure.reason}`,
+            )
+            .join(' '),
+        );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Bulk decision failed');
     } finally {
@@ -254,7 +325,7 @@ export function DecisionsPendingPanel() {
 
   if (undecidedPapers.length === 0) {
     return (
-      <div className="relative overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-white px-8 py-14 text-center">
+      <div className="rounded-xl border border-slate-200 bg-white px-8 py-10 text-center">
         <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30">
           <svg
             viewBox="0 0 24 24"
@@ -270,9 +341,15 @@ export function DecisionsPendingPanel() {
         <h2 className="mt-5 text-xl font-semibold tracking-tight text-slate-900">Queue cleared</h2>
         <p className="mx-auto mt-2 max-w-md text-sm text-slate-600">
           {decidedCount > 0
-            ? `All ${decidedCount} paper${decidedCount === 1 ? '' : 's'} in this round have a decision. Use “Notify authors” when you’re ready to send outcomes.`
-            : 'No papers are awaiting a decision in this round.'}
+            ? 'No papers are currently awaiting a decision. Open Recorded decisions to review outcomes and send decision emails.'
+            : 'No papers are awaiting a decision in this conference.'}
         </p>
+        <Link
+          href={`/dashboard/conferences/${conferenceId}/reviews/decisions/recorded`}
+          className="mt-4 inline-block text-sm underline"
+        >
+          View recorded decisions
+        </Link>
       </div>
     );
   }
@@ -284,7 +361,7 @@ export function DecisionsPendingPanel() {
       <div className="flex flex-wrap items-center gap-x-8 gap-y-3 rounded-2xl border border-slate-200 bg-white px-5 py-4">
         <div className="min-w-[14rem] flex-1">
           <div className="flex items-baseline justify-between text-sm">
-            <span className="font-medium text-slate-900">Round progress</span>
+            <span className="font-medium text-slate-900">Conference progress</span>
             <span className="tabular-nums text-slate-500">
               {decidedCount} / {totalInRound} decided
             </span>
@@ -300,7 +377,7 @@ export function DecisionsPendingPanel() {
             />
           </div>
         </div>
-        <dl className="flex gap-6 text-sm">
+        <dl className="hidden gap-6 text-sm sm:flex">
           {[
             ['Awaiting', undecidedPapers.length],
             ['Drafted', drafted],
@@ -312,82 +389,127 @@ export function DecisionsPendingPanel() {
             </div>
           ))}
         </dl>
-        <p className="hidden items-center gap-1.5 text-xs text-slate-500 xl:flex">
-          <Kbd>J</Kbd>
-          <Kbd>K</Kbd> navigate · <Kbd>1</Kbd>–<Kbd>4</Kbd> outcome · <Kbd>X</Kbd> select
-        </p>
+        <details className="hidden text-xs text-slate-600 sm:block">
+          <summary className="cursor-pointer">Keyboard shortcuts</summary>
+          <p className="mt-2 flex flex-wrap items-center gap-1.5">
+            <Kbd>J</Kbd>
+            <Kbd>K</Kbd> navigate · <Kbd>1</Kbd>–<Kbd>4</Kbd> outcome · <Kbd>X</Kbd> select
+          </p>
+        </details>
       </div>
-
-      <div className="grid items-start gap-6 lg:grid-cols-[20rem_1fr]">
+      <Button
+        variant="outline"
+        className="lg:hidden"
+        aria-expanded={queueOpen}
+        onClick={() => setQueueOpen(!queueOpen)}
+      >
+        {queueOpen ? 'Hide' : 'Show'} paper queue ({queue.length})
+      </Button>
+      <div className="grid items-start gap-4 xl:grid-cols-[14rem_minmax(0,1fr)]">
         <nav
           aria-label="Papers awaiting decision"
-          className="overflow-hidden rounded-2xl border border-slate-200 bg-white lg:sticky lg:top-4"
+          className={`${queueOpen ? 'block' : 'hidden'} overflow-hidden rounded-xl border border-slate-200 bg-white lg:block xl:sticky xl:top-4`}
         >
+          <div className="border-b border-slate-100 p-3">
+            <label htmlFor="queue-filter" className="mb-2 block text-sm font-semibold">
+              Paper queue
+            </label>
+            <select
+              id="queue-filter"
+              className="min-h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm"
+              value={filter}
+              disabled={busy}
+              onChange={(event) => {
+                setFilter(event.target.value);
+                setSelected(new Set());
+                setCompleted(null);
+              }}
+            >
+              {(
+                [
+                  ['all', 'All pending'],
+                  ['ready', 'Ready for decision'],
+                  ['waiting', 'Awaiting reviews'],
+                  ['drafted', 'Drafted'],
+                ] as const
+              ).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label} ({visiblePapers.filter((paper) => matches(paper, value)).length})
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
               <input
                 type="checkbox"
                 className="size-4 accent-slate-900"
-                checked={visiblePapers.length > 0 && visiblePapers.every((p) => selected.has(p.id))}
-                disabled={busy || visiblePapers.length === 0}
+                checked={queue.length > 0 && queue.every((p) => selected.has(p.id))}
+                disabled={busy || queue.length === 0}
                 onChange={(event) =>
-                  setSelected(
-                    event.target.checked ? new Set(visiblePapers.map((p) => p.id)) : new Set(),
-                  )
+                  setSelected(event.target.checked ? new Set(queue.map((p) => p.id)) : new Set())
                 }
                 aria-label="Select all visible pending papers"
               />
               Queue
             </label>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-600">
-              {search.trim() ? `${visiblePapers.length} of ` : ''}
-              {undecidedPapers.length}
+              {queue.length} of {undecidedPapers.length}
             </span>
           </div>
-          <ul className="max-h-[calc(100vh-16rem)] divide-y divide-slate-100 overflow-y-auto">
-            {visiblePapers.length === 0 ? (
+          <ul className="max-h-64 divide-y divide-slate-100 overflow-y-auto xl:max-h-[calc(100vh-24rem)]">
+            {queue.length === 0 ? (
               <li role="status" className="px-4 py-8 text-sm text-slate-600">
-                No pending papers match this search. Try another title or paper code.
+                No pending papers match this search or filter. Try another title, paper code, or
+                filter.
               </li>
             ) : null}
-            {visiblePapers.map((paper, index) => {
+            {queue.map((paper, index) => {
               const outcome = pending[paper.id]?.outcome;
               const isActive = paper.id === active?.id;
               return (
                 <li key={paper.id} className="relative">
                   {isActive ? (
                     <span
-                      className="absolute inset-y-0 left-0 w-1 rounded-r bg-indigo-600"
+                      className="absolute inset-y-0 left-0 w-1 rounded-r bg-slate-900"
                       aria-hidden
                     />
                   ) : null}
                   <div
-                    className={`flex items-start gap-3 px-4 py-3 transition-colors ${isActive ? 'bg-indigo-50/70' : 'hover:bg-slate-50'}`}
+                    className={`flex items-start gap-3 px-4 py-3 transition-colors ${isActive ? 'bg-slate-100' : 'hover:bg-slate-50'}`}
                   >
                     <input
                       type="checkbox"
                       className="mt-1 size-4 shrink-0 accent-slate-900"
                       checked={selected.has(paper.id)}
+                      disabled={busy}
                       onChange={() => togglePaper(paper.id)}
                       aria-label={`Select ${paper.title}`}
                     />
                     <button
                       type="button"
-                      onClick={() => setActiveId(paper.id)}
+                      disabled={busy}
+                      onClick={() => {
+                        setActiveId(paper.id);
+                        setQueueOpen(false);
+                        setCompleted(null);
+                      }}
                       aria-current={isActive ? 'true' : undefined}
                       className="min-w-0 flex-1 text-left"
                     >
-                      <span className="block text-[11px] font-medium tabular-nums text-slate-400">
+                      <span className="block text-xs font-medium tabular-nums text-slate-600">
                         {paper.submissionNumber ?? `#${String(index + 1).padStart(2, '0')}`} · v
                         {paper.version}
                       </span>
                       <span
-                        className={`mt-0.5 block truncate text-sm ${isActive ? 'font-semibold text-slate-900' : 'font-medium text-slate-700'}`}
+                        className={`mt-0.5 block break-words text-sm ${isActive ? 'font-semibold text-slate-900' : 'font-medium text-slate-700'}`}
                       >
                         {paper.title}
-                        {paper.warning ? (
-                          <span className="mt-1 block text-xs text-amber-700">{paper.warning}</span>
-                        ) : null}
+                        <span
+                          className={`mt-1 block text-xs font-normal ${ready(paper) ? 'text-slate-600' : 'text-amber-800'}`}
+                        >
+                          {completion(paper)}
+                        </span>
                       </span>
                       <span className="mt-1.5 flex items-center gap-1.5 text-xs">
                         {outcome ? (
@@ -411,13 +533,31 @@ export function DecisionsPendingPanel() {
           </p>
         </nav>
 
-        {active ? (
-          <div className="grid items-start gap-6 2xl:grid-cols-[1fr_22rem]">
-            <div className="min-w-0 space-y-4">
+        {completed ? (
+          <section className="rounded-xl border border-slate-200 bg-white p-6">
+            <h2 className="font-semibold">Decision recorded</h2>
+            <p className="mt-2 text-sm text-slate-600">{completed}. No decision email sent.</p>
+            <Button className="mt-4" onClick={() => setCompleted(null)}>
+              Continue reviewing
+            </Button>
+            <Link
+              className="ml-3 text-sm underline"
+              href={`/dashboard/conferences/${conferenceId}/reviews/decisions/recorded`}
+            >
+              Review and send
+            </Link>
+          </section>
+        ) : active ? (
+          <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+            <div className="order-last min-w-0 space-y-4 lg:order-first">
               <header className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-indigo-600">
-                    Paper {activeIndex + 1} of {visiblePapers.length}
+                  <p className="text-xs text-slate-600">
+                    {active.submissionNumber} · Review cycle{' '}
+                    {rounds.find((round) => round.id === active.cycleId)?.roundNumber ??
+                      active.roundNumber ??
+                      'unavailable'}{' '}
+                    · Paper {activeIndex + 1} of {queue.length}
                   </p>
                   <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 [text-wrap:balance]">
                     {active.title}
@@ -428,7 +568,7 @@ export function DecisionsPendingPanel() {
                     variant="outline"
                     size="sm"
                     onClick={() => move(-1)}
-                    disabled={activeIndex <= 0}
+                    disabled={busy || activeIndex <= 0}
                     aria-label="Previous paper"
                   >
                     ↑
@@ -437,7 +577,7 @@ export function DecisionsPendingPanel() {
                     variant="outline"
                     size="sm"
                     onClick={() => move(1)}
-                    disabled={activeIndex >= visiblePapers.length - 1}
+                    disabled={busy || activeIndex >= queue.length - 1}
                     aria-label="Next paper"
                   >
                     ↓
@@ -456,12 +596,21 @@ export function DecisionsPendingPanel() {
 
             <aside
               aria-label="Decision"
-              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm 2xl:sticky 2xl:top-4"
+              className="rounded-xl border border-slate-200 bg-white p-5 lg:sticky lg:top-4"
             >
               <h3 className="text-sm font-semibold text-slate-900">Your decision</h3>
-              <p className="mt-0.5 text-xs text-slate-500">
-                Recording a decision queues an email to the corresponding author.
+              <p className="mt-2 break-words text-sm font-medium lg:hidden">
+                {active.submissionNumber} · {active.title}
               </p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Record now. Send the decision email separately from Recorded decisions.
+              </p>
+              {!ready(active) ? (
+                <p className="mt-3 rounded-md bg-amber-50 p-3 text-xs text-amber-900">
+                  {active.warning ?? completion(active)}. Review the available evidence before
+                  proceeding.
+                </p>
+              ) : null}
               <div role="radiogroup" aria-label="Outcome" className="mt-4 grid grid-cols-2 gap-2">
                 {ORDERED_OUTCOMES.map((value) => {
                   const style = OUTCOME_STYLE[value];
@@ -472,6 +621,7 @@ export function DecisionsPendingPanel() {
                       type="button"
                       role="radio"
                       aria-checked={checked}
+                      disabled={busy}
                       onClick={() => updatePending(active.id, { outcome: checked ? '' : value })}
                       className={`group relative rounded-xl border p-3 text-left transition-all ${checked ? style.active : `border-slate-200 bg-white text-slate-700 ${style.idle}`}`}
                     >
@@ -480,11 +630,12 @@ export function DecisionsPendingPanel() {
                           <span className={`size-2 rounded-full ${style.dot}`} />
                           {decisionOutcomeLabel(value)}
                         </span>
-                        <Kbd>{style.key}</Kbd>
                       </span>
-                      <span className="mt-1 block text-[11px] leading-snug text-slate-500">
-                        {style.hint}
-                      </span>
+                      {checked ? (
+                        <span className="mt-1 block text-xs leading-snug text-slate-600">
+                          {style.hint}
+                        </span>
+                      ) : null}
                     </button>
                   );
                 })}
@@ -497,15 +648,27 @@ export function DecisionsPendingPanel() {
               </label>
               <Textarea
                 id={`rationale-${active.id}`}
-                className="mt-1.5 min-h-[7rem] resize-y text-sm"
+                className="mt-1.5 min-h-[5rem] resize-y text-sm"
+                disabled={busy}
+                maxLength={10000}
                 value={draft?.rationale ?? ''}
                 onChange={(event) => updatePending(active.id, { rationale: event.target.value })}
                 placeholder="Summarise the committee’s reasoning. Included in the notification email."
               />
+              <p
+                role="status"
+                className={`mt-2 text-xs ${draftStatus === 'unavailable' ? 'text-amber-800' : 'text-slate-600'}`}
+              >
+                {draftStatus === 'unavailable'
+                  ? 'Draft not saved. Keep this page open or copy your text.'
+                  : draftStatus === 'saving'
+                    ? 'Saving draft…'
+                    : 'Draft saved in this browser tab. Not shared with authors.'}
+              </p>
               <Button
-                className={`mt-4 w-full ${confirming === 'single' ? 'bg-indigo-600 hover:bg-indigo-700' : ''}`}
+                className="mt-4 w-full bg-slate-900 shadow-none hover:bg-slate-800"
                 onClick={() => void handleSingleDecision(active)}
-                disabled={busy || !draft?.outcome}
+                disabled={busy || !draft?.outcome || !active.cycleId}
               >
                 {busy
                   ? 'Recording…'
@@ -515,27 +678,30 @@ export function DecisionsPendingPanel() {
                       ? `Record ${decisionOutcomeLabel(draft.outcome).toLowerCase()}`
                       : 'Choose an outcome'}
               </Button>
-              {confirming === 'single' ? (
-                <button
-                  type="button"
-                  className="mt-2 w-full text-center text-xs text-slate-500 hover:text-slate-800"
-                  onClick={() => setConfirming(null)}
-                >
-                  Cancel
-                </button>
-              ) : (
-                <p className="mt-2 text-center text-[11px] text-slate-400">
-                  Advances to the next paper after recording
-                </p>
-              )}
+              <label className="mt-3 flex items-center gap-2 text-xs text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={advance}
+                  disabled={busy}
+                  onChange={(event) => setAdvance(event.target.checked)}
+                />
+                Next paper after recording
+              </label>
+              <button
+                className="mt-3 text-xs text-slate-600 underline"
+                disabled={busy || !draft}
+                onClick={() => setConfirming('discard')}
+              >
+                Discard draft
+              </button>
             </aside>
           </div>
         ) : null}
       </div>
 
       {selected.size > 0 ? (
-        <div className="fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
-          <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-slate-900 py-2.5 pl-5 pr-2.5 text-white shadow-2xl shadow-slate-900/30">
+        <div className="sticky bottom-0 z-20">
+          <div className="flex flex-wrap items-center gap-3 rounded-xl bg-slate-900 p-4 text-white">
             <span className="text-sm font-medium tabular-nums">{selected.size} selected</span>
             <span className="h-5 w-px bg-white/20" />
             <label htmlFor="bulk-outcome" className="text-xs text-slate-300">
@@ -545,6 +711,7 @@ export function DecisionsPendingPanel() {
               id="bulk-outcome"
               className="h-9 rounded-lg border border-white/15 bg-white/10 px-2 text-sm text-white [&>option]:text-slate-900"
               value={bulkOutcome}
+              disabled={busy}
               onChange={(e) => setBulkOutcome(e.target.value as DecisionOutcome)}
             >
               <option value="">—</option>
@@ -570,6 +737,7 @@ export function DecisionsPendingPanel() {
             <button
               type="button"
               className="rounded-lg px-2 py-1.5 text-xs text-slate-400 hover:text-white"
+              disabled={busy}
               onClick={() => {
                 setSelected(new Set());
                 setConfirming(null);
@@ -579,6 +747,79 @@ export function DecisionsPendingPanel() {
             </button>
           </div>
         </div>
+      ) : null}
+      {confirming === 'single' && active && draft?.outcome ? (
+        <DecisionConfirmation
+          title="Record this decision?"
+          action="Confirm and record"
+          busy={busy}
+          onConfirm={() => void handleSingleDecision(active)}
+          onCancel={() => setConfirming(null)}
+        >
+          <p className="font-semibold text-slate-900">
+            {active.submissionNumber} · {active.title}
+          </p>
+          <p>Outcome: {decisionOutcomeLabel(draft.outcome)}</p>
+          <p>
+            {OUTCOME_STYLE[draft.outcome].hint}. This changes the paper’s workflow. No decision
+            email will be sent. Send it separately from Recorded decisions.
+          </p>
+          {!ready(active) ? (
+            <p className="text-amber-800">{active.warning ?? completion(active)}</p>
+          ) : null}
+          {draft.rationale ? (
+            <p className="whitespace-pre-wrap">Message: {draft.rationale}</p>
+          ) : null}
+        </DecisionConfirmation>
+      ) : null}
+      {confirming === 'bulk' ? (
+        <DecisionConfirmation
+          title="Review selected decisions"
+          action={`Record ${bulkItems.length} decisions`}
+          busy={busy}
+          onConfirm={() => void handleBulkDecide()}
+          onCancel={() => setConfirming(null)}
+        >
+          <p>These outcomes change each paper’s workflow. No decision emails will be sent.</p>
+          <ul className="space-y-3">
+            {bulkItems.map((item) => {
+              const paper = papers.find((row) => row.id === item.paperId);
+              return (
+                <li key={item.paperId}>
+                  <p className="font-medium text-slate-900">
+                    {paper?.submissionNumber} · {paper?.title}
+                  </p>
+                  <p>{item.outcome ? decisionOutcomeLabel(item.outcome) : 'No outcome'}</p>
+                  {paper && !ready(paper) ? (
+                    <p className="text-amber-800">{completion(paper)}</p>
+                  ) : null}
+                  {item.rationale ? <p className="whitespace-pre-wrap">{item.rationale}</p> : null}
+                </li>
+              );
+            })}
+          </ul>
+        </DecisionConfirmation>
+      ) : null}
+      {confirming === 'discard' && active ? (
+        <DecisionConfirmation
+          title="Discard this draft?"
+          action="Discard draft"
+          busy={false}
+          onConfirm={() => {
+            setPending((previous) =>
+              Object.fromEntries(
+                Object.entries(previous).filter(([paperId]) => paperId !== active.id),
+              ),
+            );
+            setConfirming(null);
+          }}
+          onCancel={() => setConfirming(null)}
+        >
+          <p>
+            Your unsent outcome and message for {active.title} will be removed. This cannot be
+            undone.
+          </p>
+        </DecisionConfirmation>
       ) : null}
     </div>
   );

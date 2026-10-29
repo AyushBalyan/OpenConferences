@@ -1,11 +1,13 @@
 'use client';
 
 import Link from 'next/link';
+import { ArrowRight, CalendarDays, CheckCircle2, FileText, Loader2 } from 'lucide-react';
 import { useConferenceWorkspace } from '@/components/dashboard/conference-workspace';
 import { DownloadPaperButton } from '@/components/dashboard/download-paper-button';
 import { AppToast } from '@/components/dashboard/app-toast';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { PdfUploadField } from '@/components/dashboard/pdf-upload-field';
+import { RevisionSubmission } from '@/components/dashboard/revision-submission';
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,7 +25,6 @@ import {
   submitRebuttal,
   uploadCameraReadyPdf,
   uploadPaperPdf,
-  uploadRevisionPdf,
   deletePaper,
   withdrawPaper,
 } from '@/lib/api-client';
@@ -113,28 +114,28 @@ function resolveNextAction(input: {
   if (paper.status === 'DRAFT') {
     if (scanStatus === 'PENDING_SCAN') {
       return {
-        title: 'Security scan in progress',
-        detail: 'Scan status updates automatically. You can submit once the scan reports clean.',
+        title: 'Checking your PDF',
+        detail: 'We’re checking your file. You can submit when it is ready.',
       };
     }
     if (scanStatus === 'INFECTED') {
       return {
         title: 'Replace the manuscript PDF',
-        detail: 'The uploaded file failed security scanning. Choose a different PDF.',
+        detail: 'This PDF could not be processed. Choose a different PDF.',
         cta: 'Replace PDF',
       };
     }
     if (canSubmit) {
       return {
         title: 'Ready to submit',
-        detail: 'Your PDF is clean. Submit to enter the review pipeline.',
+        detail: 'Your PDF is ready. Submit your paper to send it for review.',
         cta: 'Submit paper',
       };
     }
     if (!paper.currentVersionId) {
       return {
         title: 'Upload your manuscript',
-        detail: 'Add a PDF, wait for the security scan, then submit while the CFP is open.',
+        detail: 'Upload a PDF, then submit your paper before the submission deadline.',
         cta: 'Upload PDF',
       };
     }
@@ -158,7 +159,7 @@ function resolveNextAction(input: {
     if (revisionScanStatus === 'INFECTED') {
       return {
         title: 'Replace the revised PDF',
-        detail: 'The uploaded file failed security scanning. Choose a different PDF.',
+        detail: 'This PDF could not be processed. Choose a different PDF.',
         cta: 'Upload revised PDF',
       };
     }
@@ -199,8 +200,16 @@ function SubmissionDetail() {
   const searchParams = useSearchParams();
   const selectedRound = searchParams.get('round') ?? undefined;
   const router = useRouter();
-  const sections = ['overview', 'submission', 'reviews', 'rebuttal', 'final'] as const;
-  const selected = searchParams.get('section') ?? 'overview';
+  const sections = [
+    'overview',
+    'submission',
+    'reviews',
+    'rebuttal',
+    'camera-ready',
+    'registration',
+  ] as const;
+  const requestedSection = searchParams.get('section') ?? 'overview';
+  const selected = requestedSection === 'final' ? 'camera-ready' : requestedSection;
   const section = sections.includes(selected as (typeof sections)[number]) ? selected : 'overview';
   const params = useParams<{ id: string; paperId: string }>();
   const { conference } = useConferenceWorkspace();
@@ -228,8 +237,9 @@ function SubmissionDetail() {
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
   const [draftFile, setDraftFile] = useState<File | null>(null);
   const [cameraReadyFile, setCameraReadyFile] = useState<File | null>(null);
-  const [revisionFile, setRevisionFile] = useState<File | null>(null);
-  const [revisionResponse, setRevisionResponse] = useState('');
+  const [cameraReadyUploading, setCameraReadyUploading] = useState(false);
+  const [cameraReadyUploadMessage, setCameraReadyUploadMessage] = useState<string | null>(null);
+  const [cameraReadyError, setCameraReadyError] = useState<string | null>(null);
   const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
   const [rebuttalDirty, setRebuttalDirty] = useState(false);
   const rebuttalDirtyRef = useRef(false);
@@ -240,7 +250,9 @@ function SubmissionDetail() {
     const legacySection = {
       '#manuscript': 'submission',
       '#rebuttal': 'rebuttal',
-      '#camera-ready': 'final',
+      '#camera-ready': 'camera-ready',
+      '#registration': 'registration',
+      '#revision': 'submission',
     }[window.location.hash];
     if (legacySection && !searchParams.has('section'))
       router.replace(`?section=${legacySection}`, { scroll: false });
@@ -250,7 +262,6 @@ function SubmissionDetail() {
     const warnings: string[] = [];
     const submission = await fetchPaper(conferenceId, paperId);
     setPaper(submission);
-    setRevisionResponse(submission.revisionVersion?.note ?? '');
 
     try {
       const reviewData = await fetchAllPaperReviews(conferenceId, paperId, selectedRound);
@@ -304,7 +315,13 @@ function SubmissionDetail() {
   }, [load]);
 
   useEffect(() => {
-    if (!paper || latestScanStatus(paper) !== 'PENDING_SCAN') return;
+    if (
+      !paper ||
+      (latestScanStatus(paper) !== 'PENDING_SCAN' &&
+        paper.cameraReadyVersion?.fileAsset?.scanStatus !== 'PENDING_SCAN' &&
+        paper.revisionVersion?.fileAsset?.scanStatus !== 'PENDING_SCAN')
+    )
+      return;
     let cancelled = false;
     const timer = window.setInterval(() => {
       if (document.hidden) return;
@@ -313,7 +330,8 @@ function SubmissionDetail() {
           if (!cancelled) setPaper(next);
         })
         .catch(() => {
-          if (!cancelled) setActionError('Could not refresh scan status. Try refreshing the page.');
+          if (!cancelled)
+            setActionError('Could not update the file status. Please refresh the page.');
         });
     }, 3000);
     return () => {
@@ -409,32 +427,31 @@ function SubmissionDetail() {
     }
   }
 
-  async function onUploadRevision() {
-    if (!revisionFile || !paper) return;
-    setBusy(true);
-    setActionError(null);
-    try {
-      await uploadRevisionPdf(conferenceId, paperId, revisionFile, revisionResponse);
-      setRevisionFile(null);
-      await load();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Revision upload failed');
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function onUploadCameraReady() {
-    if (!cameraReadyFile || !paper) return;
+    if (!cameraReadyFile || !paper || cameraReadyUploading) return;
     setBusy(true);
-    setActionError(null);
+    setCameraReadyUploading(true);
+    setCameraReadyError(null);
+    setCameraReadyUploadMessage(null);
     try {
       await uploadCameraReadyPdf(conferenceId, paperId, cameraReadyFile);
+      setCameraReadyUploadMessage(
+        `${cameraReadyFile.name} ${paper.cameraReadyVersion ? 'replacement uploaded' : 'uploaded'} successfully.`,
+      );
       setCameraReadyFile(null);
-      await load();
+      try {
+        setPaper(await fetchPaper(conferenceId, paperId));
+      } catch {
+        setCameraReadyError(
+          'Your PDF was uploaded, but its status could not be refreshed. Refresh the page to check its status.',
+        );
+      }
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Camera-ready upload failed');
+      setCameraReadyError(
+        err instanceof Error ? err.message : 'Camera-ready upload failed. Try again.',
+      );
     } finally {
+      setCameraReadyUploading(false);
       setBusy(false);
     }
   }
@@ -525,6 +542,7 @@ function SubmissionDetail() {
     cameraReadyDueAt !== null && new Date(cameraReadyDueAt) < new Date();
   const canUploadCameraReady =
     isAccepted &&
+    cameraReadyDueAt !== null &&
     !cameraReadyDeadlinePassed &&
     (paper.status === 'DECISION_MADE' || paper.status === 'CAMERA_READY');
   const cameraReadyComplete = paper.status === 'CAMERA_READY' && cameraReadyScanStatus === 'CLEAN';
@@ -595,7 +613,7 @@ function SubmissionDetail() {
                 label={paperStatusLabel(paper.status)}
                 tone={paperStatusTone(paper.status)}
               />
-              {scanStatus ? (
+              {scanStatus && !isRevisionRequested ? (
                 <WorkflowBadge
                   label={`PDF ${scanStatusLabel(scanStatus).toLowerCase()}`}
                   tone={scanTone(scanStatus)}
@@ -620,7 +638,7 @@ function SubmissionDetail() {
               </p>
             )}
           </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 empty:hidden">
             {canDownloadPapers ? (
               <DownloadPaperButton conferenceId={conferenceId} paper={paper} />
             ) : null}
@@ -661,7 +679,10 @@ function SubmissionDetail() {
             read-only.
           </p>
         ) : null}
-        {askOrganizers ? (
+        {askOrganizers &&
+        section !== 'camera-ready' &&
+        section !== 'registration' &&
+        !(section === 'submission' && isRevisionRequested) ? (
           <p className="border-t border-slate-100 px-6 py-4 text-sm text-slate-600">
             Contact the organizers to withdraw this paper.
           </p>
@@ -677,7 +698,10 @@ function SubmissionDetail() {
           </div>
         ) : null}
 
-        {!withdrawn ? (
+        {!withdrawn &&
+        section !== 'camera-ready' &&
+        section !== 'registration' &&
+        !(section === 'submission' && isRevisionRequested) ? (
           <ol
             className="grid grid-cols-4 gap-2 border-t border-slate-100 px-6 py-4"
             aria-label="Paper progress"
@@ -703,7 +727,7 @@ function SubmissionDetail() {
 
         <nav
           aria-label="Paper sections"
-          className="flex gap-1 overflow-x-auto border-t border-slate-100 px-4"
+          className="flex flex-wrap gap-x-1 border-t border-slate-100 px-4"
         >
           {sections.map((item) => (
             <button
@@ -711,15 +735,22 @@ function SubmissionDetail() {
               type="button"
               aria-current={section === item ? 'page' : undefined}
               onClick={() => navigateSection(item)}
-              className={`-mb-px whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition-colors ${section === item ? 'border-indigo-600 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+              className={`-mb-px whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-indigo-600 ${section === item ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
             >
+              {item === 'submission' && canUploadRevision && !revisionSubmitted ? (
+                <span
+                  className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-amber-600"
+                  aria-hidden
+                />
+              ) : null}
               {
                 {
                   overview: 'Overview',
                   submission: 'Submission',
                   reviews: 'Reviews',
                   rebuttal: 'Rebuttal',
-                  final: 'Final materials',
+                  'camera-ready': 'Camera-ready',
+                  registration: 'Registration',
                 }[item]
               }
             </button>
@@ -783,11 +814,11 @@ function SubmissionDetail() {
               Write rebuttal
             </Button>
           ) : nextAction.cta === 'Upload camera-ready' ? (
-            <Button type="button" onClick={() => navigateSection('final')}>
+            <Button type="button" onClick={() => navigateSection('camera-ready')}>
               Upload camera-ready
             </Button>
           ) : nextAction.cta === 'Upload revised PDF' ? (
-            <Button type="button" onClick={() => navigateSection('submission')}>
+            <Button type="button" onClick={() => router.push('?section=submission#revision')}>
               Upload revised PDF
             </Button>
           ) : nextAction.cta === 'Upload PDF' || nextAction.cta === 'Replace PDF' ? (
@@ -809,211 +840,159 @@ function SubmissionDetail() {
       ) : null}
       {section === 'submission' ? (
         <>
-          <section className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
-            <Card className="min-w-0">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Abstract</CardTitle>
-              </CardHeader>
-              <CardContent className="max-w-prose text-sm leading-relaxed text-slate-700">
-                {paper.abstract}
-              </CardContent>
-            </Card>
-
-            <Card className="min-w-0">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Keywords</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {paper.keywords.length > 0 ? (
-                  <ul className="flex flex-wrap gap-2">
-                    {paper.keywords.map((keyword) => (
-                      <li
-                        key={keyword}
-                        className="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-700"
-                      >
-                        {keyword}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-slate-500">No keywords provided.</p>
-                )}
-              </CardContent>
-            </Card>
-          </section>
-
-          <Card className="border-slate-200 shadow-none">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Authors</CardTitle>
-              <CardDescription>
-                {paper.authorships?.length ?? 0} author
-                {(paper.authorships?.length ?? 0) === 1 ? '' : 's'} on this submission
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {paper.authorships && paper.authorships.length > 0 ? (
-                <ul className="divide-y divide-slate-100 border border-slate-200">
-                  {paper.authorships.map((author, index) => (
-                    <li
-                      key={author.id}
-                      className="flex flex-col gap-1 px-3 py-3 text-sm sm:flex-row sm:items-baseline sm:justify-between"
-                    >
-                      <div>
-                        <span className="font-mono text-xs text-slate-400">{index + 1}.</span>{' '}
-                        <span className="font-medium text-slate-900">{author.fullName}</span>
-                        {author.isCorresponding ? (
-                          <WorkflowBadge label="Corresponding" tone="info" className="ml-2" />
-                        ) : null}
-                      </div>
-                      <div className="min-w-0 text-slate-600 sm:text-right">
-                        <p className="break-all">{author.email}</p>
-                        {author.affiliation ? (
-                          <p className="break-words text-xs text-slate-500">{author.affiliation}</p>
-                        ) : null}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-slate-500">No authorships recorded yet.</p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card id="manuscript" className="border-slate-200 shadow-none">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Manuscript</CardTitle>
-              <CardDescription>
-                {manuscriptFilename
-                  ? `${manuscriptFilename}${scanStatus ? ` · ${scanStatusLabel(scanStatus)}` : ''}`
-                  : 'No version uploaded yet'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {paper.status === 'DRAFT' ? (
-                <div className="space-y-3">
-                  <p className="text-sm font-medium text-slate-900">
-                    {paper.currentVersionId ? 'Replace PDF' : 'Upload PDF'}
-                  </p>
-                  <PdfUploadField file={draftFile} onFileChange={setDraftFile} disabled={busy} />
-                  <Button disabled={busy || !draftFile} onClick={() => void onUploadDraft()}>
-                    {busy && draftFile ? 'Uploading…' : 'Upload PDF'}
-                  </Button>
-                </div>
-              ) : (
-                <p className="text-sm text-slate-600">
-                  The manuscript is locked after submission. Contact the organizers if a correction
-                  is required.
-                </p>
-              )}
-
-              {scanStatus === 'PENDING_SCAN' ? (
-                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                  Scan in progress — this status updates automatically.
-                </p>
-              ) : null}
-
-              {scanStatus === 'INFECTED' ? (
-                <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
-                  The uploaded file failed security scanning. Please upload a different PDF.
-                </p>
-              ) : null}
-
-              {canSubmit ? (
-                <Button onClick={() => void onSubmit()} disabled={busy}>
-                  Submit paper
-                </Button>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          {isRevisionRequested ? (
-            <Card id="revision" className="border-slate-200 shadow-none">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Revised manuscript</CardTitle>
-                <CardDescription>
-                  {paper.revisionVersion?.fileAsset?.originalFilename
-                    ? `${paper.revisionVersion.fileAsset.originalFilename}${
-                        revisionScanStatus ? ` · ${scanStatusLabel(revisionScanStatus)}` : ''
-                      }`
-                    : 'Upload the PDF that addresses the reviewer comments.'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {paper.revisionDueAt ? (
-                  <p className="font-mono text-xs text-slate-500">
-                    Deadline {new Date(paper.revisionDueAt).toLocaleString()}
-                    {revisionDeadlinePassed ? ' · passed' : ''}
-                  </p>
-                ) : (
-                  <p className="text-sm text-slate-500">
-                    No revision deadline is set. You can upload the revised PDF now.
-                  </p>
-                )}
-                {revisionSubmitted ? (
-                  <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-                    Your revised PDF and response were submitted. The next review cycle is open.
-                  </p>
-                ) : null}
-                {canUploadRevision ? (
-                  <div className="space-y-3">
-                    <p className="text-sm font-medium text-slate-900">
-                      {paper.revisionVersion ? 'Replace revised PDF' : 'Upload revised PDF'}
-                    </p>
-                    <PdfUploadField
-                      file={revisionFile}
-                      onFileChange={setRevisionFile}
-                      disabled={busy}
-                    />
-                    <div className="space-y-2">
-                      <Label htmlFor="revision-response">Response to reviewers</Label>
-                      <Textarea
-                        id="revision-response"
-                        value={revisionResponse}
-                        maxLength={10000}
-                        disabled={busy}
-                        onChange={(event) => setRevisionResponse(event.target.value)}
-                        placeholder="Explain how the revised manuscript addresses the reviews."
-                        className="min-h-32"
-                      />
-                      <p className="text-xs text-slate-500">
-                        This response is sent with the revised PDF and is only collected for a
-                        revision.
-                      </p>
-                    </div>
-                    <Button
-                      disabled={busy || !revisionFile || revisionResponse.trim().length === 0}
-                      onClick={() => void onUploadRevision()}
-                    >
-                      {busy && revisionFile ? 'Uploading…' : 'Upload revised PDF'}
-                    </Button>
-                  </div>
-                ) : paper.revisionVersion?.note ? (
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium text-slate-900">Response to reviewers</p>
-                    <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-                      {paper.revisionVersion.note}
-                    </p>
-                  </div>
-                ) : null}
-                {revisionScanStatus === 'PENDING_SCAN' ? (
-                  <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                    Scan in progress — refresh shortly.
-                  </p>
-                ) : null}
-                {revisionScanStatus === 'INFECTED' ? (
-                  <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
-                    The uploaded file failed security scanning. Please upload a different PDF.
-                  </p>
-                ) : null}
-                {revisionDeadlinePassed && revisionScanStatus !== 'CLEAN' ? (
-                  <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
-                    The revision deadline has passed. Contact the organizers if you need assistance.
-                  </p>
-                ) : null}
-              </CardContent>
-            </Card>
+          {isRevisionRequested && decision ? (
+            <RevisionSubmission
+              conferenceId={conferenceId}
+              paper={paper}
+              decision={decision}
+              submitted={revisionSubmitted}
+              canUpload={canUploadRevision}
+              onRefresh={async () => {
+                setPaper(await fetchPaper(conferenceId, paperId));
+              }}
+              onReadReviews={() => navigateSection('reviews')}
+            />
           ) : null}
+          <details
+            key={isRevisionRequested ? 'revision-record' : 'submission-record'}
+            open={!isRevisionRequested}
+            className="group border-t border-slate-200 pt-5"
+          >
+            <summary className="cursor-pointer text-base font-medium text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600">
+              Submission record{' '}
+              <span className="ml-2 text-sm font-normal text-slate-500">
+                Abstract, authors and manuscript
+              </span>
+            </summary>
+            <div className="mt-5 space-y-6">
+              <section className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
+                <Card className="min-w-0">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Abstract</CardTitle>
+                  </CardHeader>
+                  <CardContent className="max-w-prose text-sm leading-relaxed text-slate-700">
+                    {paper.abstract}
+                  </CardContent>
+                </Card>
+
+                <Card className="min-w-0">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Keywords</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {paper.keywords.length > 0 ? (
+                      <ul className="flex flex-wrap gap-2">
+                        {paper.keywords.map((keyword) => (
+                          <li
+                            key={keyword}
+                            className="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-700"
+                          >
+                            {keyword}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-slate-500">No keywords provided.</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </section>
+
+              <Card className="border-slate-200 shadow-none">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Authors</CardTitle>
+                  <CardDescription>
+                    {paper.authorships?.length ?? 0} author
+                    {(paper.authorships?.length ?? 0) === 1 ? '' : 's'} on this submission
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {paper.authorships && paper.authorships.length > 0 ? (
+                    <ul className="divide-y divide-slate-100 border border-slate-200">
+                      {paper.authorships.map((author, index) => (
+                        <li
+                          key={author.id}
+                          className="flex flex-col gap-1 px-3 py-3 text-sm sm:flex-row sm:items-baseline sm:justify-between"
+                        >
+                          <div>
+                            <span className="font-mono text-xs text-slate-400">{index + 1}.</span>{' '}
+                            <span className="font-medium text-slate-900">{author.fullName}</span>
+                            {author.isCorresponding ? (
+                              <WorkflowBadge label="Corresponding" tone="info" className="ml-2" />
+                            ) : null}
+                          </div>
+                          <div className="min-w-0 text-slate-600 sm:text-right">
+                            <p className="break-all">{author.email}</p>
+                            {author.affiliation ? (
+                              <p className="break-words text-xs text-slate-500">
+                                {author.affiliation}
+                              </p>
+                            ) : null}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-slate-500">No authorships recorded yet.</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card id="manuscript" className="border-slate-200 shadow-none">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Manuscript</CardTitle>
+                  <CardDescription>
+                    {manuscriptFilename
+                      ? `${manuscriptFilename}${scanStatus ? ` · ${scanStatusLabel(scanStatus)}` : ''}`
+                      : 'No PDF uploaded yet'}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {paper.status === 'DRAFT' ? (
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium text-slate-900">
+                        {paper.currentVersionId ? 'Replace PDF' : 'Upload PDF'}
+                      </p>
+                      <PdfUploadField
+                        file={draftFile}
+                        onFileChange={setDraftFile}
+                        disabled={busy}
+                      />
+                      <Button disabled={busy || !draftFile} onClick={() => void onUploadDraft()}>
+                        {busy && draftFile ? 'Uploading…' : 'Upload PDF'}
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-600">
+                      {isRevisionRequested && !revisionSubmitted
+                        ? 'Your previous manuscript stays on record. Use the revised manuscript form above to submit your changes.'
+                        : revisionSubmitted
+                          ? 'Your revised manuscript has been submitted for review.'
+                          : 'The manuscript is locked after submission. Contact the organizers if a correction is required.'}
+                    </p>
+                  )}
+
+                  {scanStatus === 'PENDING_SCAN' ? (
+                    <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                      We’re checking your PDF. This updates automatically.
+                    </p>
+                  ) : null}
+
+                  {scanStatus === 'INFECTED' ? (
+                    <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                      This PDF could not be processed. Please upload a different PDF.
+                    </p>
+                  ) : null}
+
+                  {canSubmit ? (
+                    <Button onClick={() => void onSubmit()} disabled={busy}>
+                      Submit paper
+                    </Button>
+                  ) : null}
+                </CardContent>
+              </Card>
+            </div>
+          </details>
         </>
       ) : null}
       {section === 'reviews' && reviews.length === 0 && loadWarnings.length === 0 ? (
@@ -1031,7 +1010,9 @@ function SubmissionDetail() {
           <CardContent className="space-y-6">
             {groupReviewsByCycle(reviews).map((cycle) => (
               <section key={cycle.roundId} className="space-y-3">
-                <h3 className="text-sm font-semibold text-slate-900">Cycle {cycle.roundNumber}</h3>
+                <h3 className="text-sm font-semibold text-slate-900">
+                  Review round {cycle.roundNumber}
+                </h3>
                 <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
                   {cycle.reviews.map((review, index) => (
                     <article key={review.id} className="px-3 py-4">
@@ -1089,9 +1070,7 @@ function SubmissionDetail() {
             <Card className="border-slate-200 shadow-none">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Your rebuttal</CardTitle>
-                <CardDescription>
-                  Submitted response on record for this review cycle.
-                </CardDescription>
+                <CardDescription>Your submitted response for this review round.</CardDescription>
               </CardHeader>
               <CardContent>
                 <p className="max-w-prose whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
@@ -1106,7 +1085,7 @@ function SubmissionDetail() {
           ) : null}
         </>
       ) : null}
-      {(section === 'overview' || section === 'final') && decision ? (
+      {section === 'overview' && decision ? (
         <Card className="border-slate-200 shadow-none">
           <CardHeader className="pb-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -1133,87 +1112,230 @@ function SubmissionDetail() {
             ) : null}
             {isRevisionRequested ? (
               <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-950">
-                Upload a revised PDF before the deadline. The next review cycle opens after the file
-                passes scanning.
+                Upload your revised PDF and response to reviewers before the deadline.
               </p>
             ) : null}
           </CardContent>
         </Card>
       ) : null}
 
-      {section === 'final' && !isAccepted && loadWarnings.length === 0 ? (
-        <p>Final materials become available after acceptance.</p>
+      {(section === 'camera-ready' || section === 'registration') &&
+      !isAccepted &&
+      loadWarnings.length === 0 ? (
+        <p>
+          {section === 'camera-ready' ? 'Camera-ready submission' : 'Registration'} becomes
+          available after acceptance.
+        </p>
       ) : null}
-      {section === 'final' && isAccepted ? (
+      {section === 'registration' && isAccepted ? (
         <RegistrationCard conferenceId={conferenceId} paperId={paperId} />
       ) : null}
 
-      {section === 'final' && isAccepted ? (
-        <Card id="camera-ready" className="border-slate-200 shadow-none">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Camera-ready submission</CardTitle>
-            <CardDescription>
-              {cameraReadyComplete
-                ? 'Your camera-ready PDF has been accepted.'
-                : cameraReadyFilename
-                  ? `${cameraReadyFilename}${
-                      cameraReadyScanStatus ? ` · ${scanStatusLabel(cameraReadyScanStatus)}` : ''
-                    }`
-                  : 'Upload your final publishable PDF.'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+      {section === 'camera-ready' && isAccepted ? (
+        <section
+          id="camera-ready"
+          aria-labelledby="camera-ready-title"
+          className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+        >
+          <div className="border-b border-slate-200 px-5 py-5 sm:px-6">
+            <h2
+              id="camera-ready-title"
+              className="text-xl font-semibold tracking-tight text-slate-900"
+            >
+              Camera-ready submission
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Your final manuscript for the conference proceedings.
+            </p>
             {cameraReadyDueAt ? (
-              <p className="font-mono text-xs text-slate-500">
-                Deadline {new Date(cameraReadyDueAt).toLocaleString()}
-                {cameraReadyDeadlinePassed ? ' · passed' : ''}
+              <p className="mt-3 text-sm font-medium tabular-nums text-slate-700 lg:hidden">
+                Due{' '}
+                {new Date(cameraReadyDueAt).toLocaleDateString(undefined, {
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric',
+                })}{' '}
+                ·{' '}
+                {new Date(cameraReadyDueAt).toLocaleTimeString(undefined, {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                  timeZoneName: 'short',
+                })}
               </p>
-            ) : (
-              <p className="text-sm text-slate-500">
-                Camera-ready deadline has not been configured yet.
-              </p>
-            )}
-
-            {canUploadCameraReady ? (
-              <div className="space-y-3">
-                <p className="text-sm font-medium text-slate-900">
-                  {paper.cameraReadyVersion
-                    ? 'Replace camera-ready PDF'
-                    : 'Upload camera-ready PDF'}
-                </p>
-                <PdfUploadField
-                  file={cameraReadyFile}
-                  onFileChange={setCameraReadyFile}
-                  disabled={busy}
-                />
-                <Button
-                  disabled={busy || !cameraReadyFile}
-                  onClick={() => void onUploadCameraReady()}
-                >
-                  {busy && cameraReadyFile ? 'Uploading…' : 'Upload camera-ready PDF'}
-                </Button>
+            ) : null}
+          </div>
+          <div className="grid lg:grid-cols-[minmax(0,1fr)_280px]">
+            <div className="min-w-0 space-y-5 p-5 sm:p-6">
+              {paper.cameraReadyVersion ? (
+                <div className="space-y-4 border-b border-slate-200 pb-5" role="status">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    {cameraReadyComplete ? (
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-700" aria-hidden />
+                    ) : cameraReadyScanStatus === 'PENDING_SCAN' ? (
+                      <Loader2
+                        className="mt-0.5 h-5 w-5 shrink-0 motion-safe:animate-spin text-amber-700"
+                        aria-hidden
+                      />
+                    ) : (
+                      <FileText className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" aria-hidden />
+                    )}
+                    <span className="text-slate-900">
+                      {cameraReadyComplete
+                        ? 'Final PDF received'
+                        : cameraReadyScanStatus === 'INFECTED'
+                          ? 'A new PDF is needed'
+                          : 'Checking your final PDF'}
+                    </span>
+                  </div>
+                  <div className="min-w-0 space-y-1">
+                    <p className="break-words text-lg font-medium tracking-tight text-slate-900">
+                      {cameraReadyFilename ?? 'Camera-ready PDF'}
+                    </p>
+                    <p className="text-sm text-slate-600">
+                      {cameraReadyComplete
+                        ? 'Uploaded successfully.'
+                        : cameraReadyScanStatus === 'PENDING_SCAN'
+                          ? 'Uploaded · Checking your PDF. Status updates automatically.'
+                          : cameraReadyScanStatus === 'INFECTED'
+                            ? 'This PDF could not be processed. Upload a different PDF.'
+                            : 'Uploaded. We’re checking your PDF.'}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="border-b border-slate-200 pb-5">
+                  <p className="text-base font-medium text-slate-900">
+                    Upload your final manuscript
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">No camera-ready PDF uploaded yet.</p>
+                </div>
+              )}
+              <div role="status" aria-live="polite" className="space-y-2">
+                {cameraReadyUploading ? (
+                  <p className="text-sm text-indigo-700">
+                    {paper.cameraReadyVersion
+                      ? 'Uploading replacement PDF'
+                      : 'Uploading camera-ready PDF'}
+                    … Keep this page open.
+                  </p>
+                ) : cameraReadyUploadMessage ? (
+                  <p className="break-words rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                    {cameraReadyUploadMessage}
+                  </p>
+                ) : null}
               </div>
-            ) : null}
+              {cameraReadyError ? (
+                <p
+                  role="alert"
+                  className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800"
+                >
+                  {cameraReadyError}
+                </p>
+              ) : null}
+              {canUploadCameraReady ? (
+                <div className="space-y-3">
+                  <p className="text-sm font-medium text-slate-900">
+                    {paper.cameraReadyVersion
+                      ? 'Replace camera-ready PDF'
+                      : 'Upload camera-ready PDF'}
+                  </p>
+                  <PdfUploadField
+                    compact
+                    file={cameraReadyFile}
+                    onFileChange={(file) => {
+                      setCameraReadyFile(file);
+                      setCameraReadyUploadMessage(null);
+                      setCameraReadyError(null);
+                    }}
+                    disabled={busy}
+                  />
+                  <p className="text-xs leading-relaxed text-slate-600">
+                    {paper.cameraReadyVersion
+                      ? 'Choose a new PDF to replace the file above. The replacement will be checked before it is marked ready.'
+                      : 'After upload, your PDF will be checked automatically. You can follow its status here.'}
+                  </p>
+                  <Button
+                    className="bg-slate-900 shadow-none hover:translate-y-0 hover:bg-slate-800"
+                    aria-busy={cameraReadyUploading}
+                    disabled={busy || !cameraReadyFile}
+                    onClick={() => void onUploadCameraReady()}
+                  >
+                    {cameraReadyUploading ? (
+                      <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" aria-hidden />
+                    ) : null}
+                    {cameraReadyUploading
+                      ? paper.cameraReadyVersion
+                        ? 'Uploading replacement…'
+                        : 'Uploading camera-ready PDF…'
+                      : paper.cameraReadyVersion
+                        ? 'Replace camera-ready PDF'
+                        : 'Upload camera-ready PDF'}
+                  </Button>
+                </div>
+              ) : null}
 
-            {cameraReadyScanStatus === 'PENDING_SCAN' ? (
-              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                Scan in progress — refresh shortly.
-              </p>
-            ) : null}
-
-            {cameraReadyScanStatus === 'INFECTED' ? (
-              <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
-                The uploaded file failed security scanning. Please upload a different PDF.
-              </p>
-            ) : null}
-
-            {cameraReadyDeadlinePassed && !cameraReadyComplete ? (
-              <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
-                The camera-ready deadline has passed. Contact the organizers if you need assistance.
-              </p>
-            ) : null}
-          </CardContent>
-        </Card>
+              {cameraReadyDeadlinePassed && !cameraReadyComplete ? (
+                <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                  The camera-ready deadline has passed. Contact the organizers if you need
+                  assistance.
+                </p>
+              ) : null}
+            </div>
+            <aside className="space-y-6 border-t border-slate-200 bg-slate-50/70 p-5 sm:p-6 lg:border-l lg:border-t-0">
+              <div className="hidden lg:block">
+                <p className="flex items-center gap-2 text-sm font-medium text-slate-900">
+                  <CalendarDays className="h-4 w-4 text-slate-500" aria-hidden /> Camera-ready
+                  deadline
+                </p>
+                {cameraReadyDueAt ? (
+                  <>
+                    <p className="mt-3 text-lg font-medium tabular-nums text-slate-900">
+                      {new Date(cameraReadyDueAt).toLocaleDateString(undefined, {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                      })}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {new Date(cameraReadyDueAt).toLocaleTimeString(undefined, {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        timeZoneName: 'short',
+                      })}
+                      {cameraReadyDeadlinePassed ? ' · passed' : ''}
+                    </p>
+                  </>
+                ) : (
+                  <p className="mt-3 text-sm text-slate-600">
+                    Camera-ready deadline has not been configured yet.
+                  </p>
+                )}
+              </div>
+              <div className="border-t border-slate-200 pt-5">
+                <h3 className="text-sm font-medium text-slate-900">Before you upload</h3>
+                <ul className="mt-3 list-disc space-y-2 pl-4 text-sm leading-relaxed text-slate-600">
+                  <li>Use the final version of your manuscript.</li>
+                  <li>Follow the conference’s formatting instructions.</li>
+                  <li>Upload a PDF no larger than 50 MB.</li>
+                </ul>
+              </div>
+              <div className="border-t border-slate-200 pt-5">
+                <h3 className="text-sm font-medium text-slate-900">Conference registration</h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                  Complete registration separately. You can do this before or after uploading your
+                  PDF.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => navigateSection('registration')}
+                  className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-slate-900 underline underline-offset-4 hover:text-slate-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600"
+                >
+                  Go to registration <ArrowRight className="h-4 w-4" aria-hidden />
+                </button>
+              </div>
+            </aside>
+          </div>
+        </section>
       ) : null}
     </div>
   );

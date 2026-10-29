@@ -1,5 +1,7 @@
 'use client';
 
+import { SubmissionDate } from '@/components/dashboard/submission-date';
+
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -151,6 +153,7 @@ export function ReviewerDashboard({ conferenceId, conferenceName }: ReviewerDash
             <DataTableHeader>
               <tr>
                 <DataTableHead>Paper</DataTableHead>
+                <DataTableHead>Submission date</DataTableHead>
                 <DataTableHead>Round</DataTableHead>
                 <DataTableHead>Due date</DataTableHead>
                 <DataTableHead>Status</DataTableHead>
@@ -173,6 +176,9 @@ export function ReviewerDashboard({ conferenceId, conferenceName }: ReviewerDash
                           {assignment.submissionNumber}
                         </p>
                       ) : null}
+                    </DataTableCell>
+                    <DataTableCell>
+                      <SubmissionDate value={assignment.paperSubmittedAt} />
                     </DataTableCell>
                     <DataTableCell>
                       Cycle {assignment.roundNumber} · {reviewStageLabel(assignment.reviewStage)}

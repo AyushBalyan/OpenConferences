@@ -90,6 +90,7 @@ export class RoundsService {
     data: Array<{
       paperId: string;
       paperTitle: string;
+      paperSubmittedAt?: string | null;
       paperStatus: string;
       paperVersion: number;
       cycleId: string | null;
@@ -169,6 +170,7 @@ export class RoundsService {
         return {
           paperId: paper.id,
           paperTitle: paper.title,
+          paperSubmittedAt: paper.submittedAt?.toISOString() ?? null,
           submissionNumber: paper.submissionNumber,
           paperStatus: String(paper.status),
           paperVersion: paper.version,

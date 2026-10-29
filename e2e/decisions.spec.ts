@@ -5,7 +5,18 @@ const conferenceId = id(1),
   userId = id(2);
 const path = `/dashboard/conferences/${conferenceId}/reviews/decisions`;
 
-async function mockApi(page: Page, options: { role?: string; many?: boolean } = {}) {
+async function mockApi(
+  page: Page,
+  options: {
+    role?: string;
+    many?: boolean;
+    failDecision?: boolean;
+    failLogs?: boolean;
+    partialBulk?: boolean;
+  } = {},
+) {
+  const requests: Array<{ endpoint: string; body: Record<string, unknown> }> = [];
+  const logs: Array<Record<string, unknown>> = [];
   const conference = {
     id: conferenceId,
     organizationId: conferenceId,
@@ -14,7 +25,7 @@ async function mockApi(page: Page, options: { role?: string; many?: boolean } = 
     status: 'REVIEWING',
     blindingMode: 'DOUBLE',
     version: 1,
-    myRoles: [options.role ?? 'CHAIR'],
+    myRoles: [options.role ?? 'ORGANIZER'],
   };
   const papers = [
     {
@@ -55,6 +66,7 @@ async function mockApi(page: Page, options: { role?: string; many?: boolean } = 
     conferenceId,
     organizationId: conferenceId,
     currentVersionId: null,
+    authorships: [{ fullName: 'Mira Author', email: 'mira@example.test', isCorresponding: true }],
   }));
   const rounds = papers.map((p, i) => ({
     id: id(2000 + i),
@@ -78,12 +90,114 @@ async function mockApi(page: Page, options: { role?: string; many?: boolean } = 
       outcome: 'ACCEPT',
       rationale: 'Ready for publication',
       notifiedAt: null,
+      decidedById: userId,
+      createdAt: '2026-10-20T10:00:00Z',
       version: 1,
     }));
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url());
     const endpoint = url.pathname.replace('/api/v1', '');
     let body: unknown = { data: [], nextCursor: null };
+    let status = 200;
+    if (route.request().method() === 'POST') {
+      const input = route.request().postDataJSON() ?? {};
+      requests.push({ endpoint, body: input });
+      if (endpoint.endsWith('/decision')) {
+        if (options.failDecision) {
+          await route.fulfill({ status: 500, contentType: 'application/json', body: '{}' });
+          return;
+        }
+        const paper = papers.find((row) => endpoint.includes(row.id))!;
+        const decision = {
+          ...decisions[0]!,
+          id: id(3500),
+          paperId: paper.id,
+          paperTitle: paper.title,
+          submissionNumber: paper.submissionNumber,
+          roundId: input.roundId,
+          outcome: input.outcome,
+          rationale: input.rationale,
+          notifiedAt: null,
+        };
+        decisions.push(decision);
+        paper.status = 'DECISION_MADE';
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ decision, message: 'Recorded', warnings: [] }),
+        });
+        return;
+      }
+      if (endpoint.endsWith('/decisions/bulk')) {
+        const items = input.items as Array<{ paperId: string; outcome: string; rationale: string }>;
+        const successful = items
+          .filter((_, index) => !options.partialBulk || index === 0)
+          .map((item, index) => {
+            const paper = papers.find((row) => row.id === item.paperId)!;
+            const decision = {
+              ...decisions[0]!,
+              ...item,
+              id: id(3600 + index),
+              paperTitle: paper.title,
+              submissionNumber: paper.submissionNumber,
+              roundId: rounds.find((round) => round.paperId === paper.id)!.id,
+              notifiedAt: null,
+            };
+            decisions.push(decision);
+            paper.status = 'DECISION_MADE';
+            return decision;
+          });
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            data: successful,
+            failures: options.partialBulk
+              ? [{ paperId: items[1]!.paperId, reason: 'Paper changed. Try again.' }]
+              : [],
+            message: 'Recorded',
+          }),
+        });
+        return;
+      }
+      if (endpoint.endsWith('/decisions/notify')) {
+        const decision = decisions.find((row) =>
+          (input.paperIds as string[]).includes(row.paperId),
+        )!;
+        logs.push({
+          id: id(5000),
+          relatedEntity: 'Decision',
+          relatedEntityId: decision.id,
+          templateKey: 'decision.notified',
+          toEmail: 'mira@example.test',
+          status: 'QUEUED',
+          queuedAt: new Date().toISOString(),
+          sentAt: null,
+        });
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ notifiedCount: 1, message: 'Queued' }),
+        });
+        return;
+      }
+      if (endpoint.endsWith('/resend')) {
+        const original = logs.find((log) => endpoint.includes(String(log.id)))!;
+        logs.push({
+          ...original,
+          id: id(5999),
+          status: 'QUEUED',
+          queuedAt: new Date().toISOString(),
+          sentAt: null,
+        });
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ logId: id(5999), message: 'Queued' }),
+        });
+        return;
+      }
+    }
     if (endpoint.endsWith('/get-session'))
       body = {
         session: {
@@ -111,11 +225,26 @@ async function mockApi(page: Page, options: { role?: string; many?: boolean } = 
     else if (endpoint === `/conferences/${conferenceId}`) body = conference;
     else if (endpoint.endsWith('/review-progress'))
       body = {
-        data: rounds.map((r) => ({ paperId: r.paperId, cycleId: r.id, warning: null })),
+        data: rounds.map((r, index) => ({
+          paperId: r.paperId,
+          cycleId: r.id,
+          roundNumber: 1,
+          submittedReviewCount: index === 1 ? 0 : 2,
+          warning: index === 1 ? '0 of 2 required reviews submitted' : null,
+        })),
+        minimumReviews: 2,
       };
     else if (endpoint.endsWith('/rounds')) body = { data: rounds, nextCursor: null };
     else if (endpoint.endsWith('/decisions')) body = { data: decisions, nextCursor: null };
-    else if (endpoint.endsWith('/papers')) {
+    else if (endpoint.endsWith('/members'))
+      body = {
+        data: [{ userId, name: 'Test Chair', email: 'chair@example.test', roles: ['CHAIR'] }],
+        nextCursor: null,
+      };
+    else if (endpoint.endsWith('/notification-logs')) {
+      body = { data: logs, nextCursor: null };
+      if (options.failLogs) status = 500;
+    } else if (endpoint.endsWith('/papers')) {
       const offset = Number(url.searchParams.get('cursor') ?? 0);
       const limit = Number(url.searchParams.get('limit') ?? 100);
       body = {
@@ -160,7 +289,7 @@ async function mockApi(page: Page, options: { role?: string; many?: boolean } = 
     else if (/\/papers\/[^/]+$/.test(endpoint)) body = papers.find((p) => endpoint.endsWith(p.id));
     else if (endpoint.includes('inbox')) body = { data: [], nextCursor: null, unreadCount: 0 };
     await route.fulfill({
-      status: 200,
+      status,
       contentType: 'application/json',
       body: JSON.stringify(body),
       headers: {
@@ -169,7 +298,265 @@ async function mockApi(page: Page, options: { role?: string; many?: boolean } = 
       },
     });
   });
+  return { requests, logs, rounds };
 }
+
+test('queue filters show readiness, draft counts, and paper-specific cycles', async ({ page }) => {
+  await mockApi(page);
+  await page.goto(`${path}/pending`);
+  await expect(page.getByLabel('Review cycle', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Conference progress')).toBeVisible();
+  await page.getByLabel('Paper queue', { exact: true }).selectOption('ready');
+  await expect(page.getByRole('heading', { name: 'Reliable review systems' })).toBeVisible();
+  const queue = page.getByRole('navigation', { name: 'Papers awaiting decision' });
+  await expect(queue.getByRole('button')).toHaveCount(1);
+  await page.getByRole('radio', { name: /^Accept/ }).click();
+  await page.getByLabel('Paper queue', { exact: true }).selectOption('drafted');
+  await expect(queue.getByRole('button')).toHaveCount(1);
+  await page.getByLabel('Paper queue', { exact: true }).selectOption('waiting');
+  await expect(queue.getByRole('button')).toHaveCount(1);
+  await expect(
+    page.getByRole('heading', { name: 'Privacy in conference workflows' }),
+  ).toBeVisible();
+  await expect(queue.getByText('0 of 2 required reviews submitted')).toBeVisible();
+});
+
+test('drafts survive paper switches and reload, and discarding requires confirmation', async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto(`${path}/pending`);
+  await page.getByRole('radio', { name: /^Accept/ }).click();
+  await page.getByLabel('Message to authors').fill('Please retain this committee note.');
+  await expect(page.getByRole('status').filter({ hasText: 'Draft saved' })).toBeVisible();
+  await page.getByRole('button', { name: 'Next paper', exact: true }).click();
+  await page.getByRole('button', { name: 'Previous paper', exact: true }).click();
+  await expect(page.getByLabel('Message to authors')).toHaveValue(
+    'Please retain this committee note.',
+  );
+  await page.reload();
+  await expect(page.getByLabel('Message to authors')).toHaveValue(
+    'Please retain this committee note.',
+  );
+  await expect(page.getByRole('radio', { name: /^Accept/ })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await page.getByRole('button', { name: 'Discard draft', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByLabel('Message to authors')).toHaveValue(
+    'Please retain this committee note.',
+  );
+  await page.getByRole('button', { name: 'Discard draft', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Discard draft', exact: true })
+    .click();
+  await expect(page.getByLabel('Message to authors')).toHaveValue('');
+  await page.reload();
+  await expect(page.getByLabel('Message to authors')).toHaveValue('');
+});
+
+test('recording confirms scope, sends notify false, and respects next-paper preference', async ({
+  page,
+}) => {
+  const fixture = await mockApi(page);
+  await page.goto(`${path}/pending`);
+  await page.getByRole('radio', { name: /^Accept/ }).click();
+  await page.getByLabel('Next paper after recording').uncheck();
+  await page.getByRole('button', { name: 'Record accept', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Reliable review systems');
+  await expect(page.getByRole('dialog')).toContainText('No decision email will be sent');
+  expect(fixture.requests).toHaveLength(0);
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm and record' }).click();
+  await expect(page.getByRole('heading', { name: 'Decision recorded', exact: true })).toBeVisible();
+  expect(fixture.requests).toHaveLength(1);
+  expect(fixture.requests[0]!.body.notify).toBe(false);
+  expect(fixture.requests[0]!.body.roundId).toBe(id(2000));
+  await page.getByRole('button', { name: 'Continue reviewing' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Privacy in conference workflows' }),
+  ).toBeVisible();
+});
+
+test('failed recording retains the draft for retry', async ({ page }) => {
+  await mockApi(page, { failDecision: true });
+  await page.goto(`${path}/pending`);
+  await page.getByRole('radio', { name: /^Accept/ }).click();
+  await page.getByLabel('Message to authors').fill('Keep this note after failure.');
+  await page.getByRole('button', { name: 'Record accept', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm and record' }).click();
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'Failed to record decision' }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel('Message to authors')).toHaveValue('Keep this note after failure.');
+});
+
+test('bulk partial success keeps failed papers selected and preserves their drafts', async ({
+  page,
+}) => {
+  const fixture = await mockApi(page, { partialBulk: true });
+  await page.goto(`${path}/pending`);
+  await page.getByRole('radio', { name: /^Accept/ }).click();
+  await page.getByRole('button', { name: 'Next paper', exact: true }).click();
+  await page.getByRole('radio', { name: /^Reject/ }).click();
+  await page.getByLabel('Message to authors').fill('Retain failed bulk note.');
+  await page.getByRole('checkbox', { name: 'Select all visible pending papers' }).check();
+  await page.getByRole('button', { name: 'Record 2', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('0 of 2 required reviews submitted');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Record 2 decisions', exact: true })
+    .click();
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'Paper changed. Try again.' }),
+  ).toBeVisible();
+  await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Message to authors')).toHaveValue('Retain failed bulk note.');
+  expect(fixture.requests[0]!.body.notify).toBe(false);
+});
+
+test('review summary is factual and detailed reviews are expandable', async ({ page }) => {
+  await mockApi(page);
+  await page.goto(`${path}/pending`);
+  await expect(page.getByText('1 Accept · 1 Weak accept', { exact: true })).toBeVisible();
+  await expect(page.getByText('Leans accept', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Clear and well supported.', { exact: true })).not.toBeVisible();
+  await page.getByText('Review details', { exact: true }).first().click();
+  await expect(page.getByText('Clear and well supported.', { exact: true })).toBeVisible();
+  await page.getByText('Criterion scores', { exact: true }).click();
+  await expect(page.getByRole('cell', { name: 'originality', exact: true })).toBeVisible();
+});
+
+test('recorded decisions show truthful delivery state and require recipient confirmation', async ({
+  page,
+}) => {
+  const fixture = await mockApi(page);
+  await page.goto(`${path}/recorded`);
+  await expect(page.getByRole('table').getByText('Not sent', { exact: true })).toHaveCount(2);
+  await expect(page.getByText('By Test Chair')).toHaveCount(2);
+  await page.getByText('View full rationale', { exact: true }).first().click();
+  await expect(page.getByText('Ready for publication', { exact: true }).first()).toBeVisible();
+  await page.getByRole('button', { name: 'Review and send' }).first().click();
+  await expect(page.getByRole('dialog')).toContainText('mira@example.test');
+  expect(fixture.requests).toHaveLength(0);
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Review and send' }).first().click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Send decision email', exact: true })
+    .click();
+  await expect(page.getByRole('table').getByText('Queued', { exact: true })).toBeVisible();
+  expect(fixture.requests[0]!.body.paperIds).toEqual([id(12)]);
+  expect(fixture.requests[0]!.endpoint).toContain(id(2002));
+});
+
+test('delivery states derive from email logs, never from notified timestamps', async ({ page }) => {
+  const fixture = await mockApi(page);
+  fixture.logs.push(
+    {
+      id: id(5001),
+      relatedEntity: 'Decision',
+      relatedEntityId: id(3000),
+      status: 'SENT',
+      queuedAt: '2026-10-20T10:00:00Z',
+      sentAt: '2026-10-20T10:01:00Z',
+    },
+    {
+      id: id(5002),
+      relatedEntity: 'Decision',
+      relatedEntityId: id(3001),
+      status: 'FAILED',
+      toEmail: 'mira@example.test',
+      queuedAt: '2026-10-20T10:00:00Z',
+      sentAt: null,
+    },
+  );
+  await page.goto(`${path}/recorded`);
+  await expect(page.getByRole('table').getByText('Sent', { exact: true })).toBeVisible();
+  await expect(page.getByRole('table').getByText('Failed', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review and retry' })).toBeVisible();
+  await page.getByLabel('Filter decision email').selectOption('Failed');
+  await expect(page.getByRole('row')).toHaveCount(2);
+  await expect(
+    page.getByRole('link', { name: 'Recorded privacy workflows', exact: true }),
+  ).toBeVisible();
+});
+
+test('email log failures do not enable unsafe duplicate sending', async ({ page }) => {
+  await mockApi(page, { failLogs: true });
+  await page.goto(`${path}/recorded`);
+  await expect(
+    page.getByRole('table').getByText('Status unavailable', { exact: true }),
+  ).toHaveCount(2);
+  await expect(page.getByRole('button', { name: 'Review and send' })).toHaveCount(0);
+  await expect(page.getByRole('table').getByText('Not sent', { exact: true })).toHaveCount(0);
+});
+
+test('chairs can send unsent decisions without access to the full email log', async ({ page }) => {
+  const fixture = await mockApi(page, { role: 'CHAIR' });
+  await page.goto(`${path}/recorded`);
+  await page.getByRole('button', { name: 'Review and send' }).first().click();
+  await expect(page.getByRole('dialog')).toContainText('mira@example.test');
+  expect(fixture.requests).toHaveLength(0);
+});
+
+test('failed decision emails use the retry endpoint after recipient confirmation', async ({
+  page,
+}) => {
+  const fixture = await mockApi(page);
+  fixture.logs.push({
+    id: id(5002),
+    relatedEntity: 'Decision',
+    relatedEntityId: id(3001),
+    status: 'FAILED',
+    toEmail: 'mira@example.test',
+    queuedAt: '2026-10-20T10:00:00Z',
+    sentAt: null,
+  });
+  await page.goto(`${path}/recorded`);
+  await page.getByRole('button', { name: 'Review and retry' }).click();
+  await expect(page.getByRole('dialog')).toContainText('mira@example.test');
+  await page.getByRole('dialog').getByRole('button', { name: 'Retry email', exact: true }).click();
+  await expect(page.getByRole('table').getByText('Queued', { exact: true })).toBeVisible();
+  expect(fixture.requests[0]!.endpoint).toContain(`/notification-logs/${id(5002)}/resend`);
+});
+
+test('a new review cycle does not inherit an old decision draft', async ({ page }) => {
+  const fixture = await mockApi(page);
+  await page.goto(`${path}/pending`);
+  await page.getByRole('radio', { name: /^Accept/ }).click();
+  await page.getByLabel('Message to authors').fill('Old cycle note.');
+  await expect(page.getByRole('status').filter({ hasText: 'Draft saved' })).toBeVisible();
+  fixture.rounds[0]!.id = id(8888);
+  fixture.rounds[0]!.roundNumber = 2;
+  await page.reload();
+  await expect(page.getByLabel('Message to authors')).toHaveValue('');
+  await expect(page.getByRole('radio', { name: /^Accept/ })).toHaveAttribute(
+    'aria-checked',
+    'false',
+  );
+  await expect(page.getByText(/Review cycle 2/)).toBeVisible();
+});
+
+test('storage failures warn before leaving with an unprotected draft', async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key.startsWith('decision-drafts:')) throw new Error('Storage unavailable');
+      original.call(this, key, value);
+    };
+  });
+  await mockApi(page);
+  await page.goto(`${path}/pending`);
+  await page.getByLabel('Message to authors').fill('Unsaved committee note.');
+  await expect(page.getByRole('status').filter({ hasText: 'Draft not saved' })).toBeVisible();
+  page.once('dialog', (dialog) => void dialog.dismiss());
+  await page.getByRole('link', { name: 'All submissions', exact: true }).click();
+  await expect(page).toHaveURL(`${path}/pending`);
+  await expect(page.getByLabel('Message to authors')).toHaveValue('Unsaved committee note.');
+});
 
 test('pending decisions search matches title and code, with a recoverable empty state', async ({
   page,

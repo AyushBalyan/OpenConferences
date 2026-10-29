@@ -1,5 +1,7 @@
 'use client';
 
+import { SubmissionDate } from '@/components/dashboard/submission-date';
+
 import { useCallback, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import {
@@ -33,6 +35,7 @@ function registrationTone(status: string) {
 type RegistrationRow = {
   id: string;
   paperTitle?: string;
+  paperSubmittedAt?: string | null;
   status: string;
   audience: string;
   amountDueMinor: number;
@@ -81,6 +84,7 @@ export default function RegistrationsAllPage() {
             <DataTableHeader>
               <tr>
                 <DataTableHead>Paper</DataTableHead>
+                <DataTableHead>Submission date</DataTableHead>
                 <DataTableHead>Audience</DataTableHead>
                 <DataTableHead>Status</DataTableHead>
                 <DataTableHead>Amount due</DataTableHead>
@@ -92,6 +96,9 @@ export default function RegistrationsAllPage() {
                 <DataTableRow key={row.id}>
                   <DataTableCell>
                     <p className="font-medium text-slate-900">{row.paperTitle ?? row.id}</p>
+                  </DataTableCell>
+                  <DataTableCell>
+                    <SubmissionDate value={row.paperSubmittedAt} />
                   </DataTableCell>
                   <DataTableCell>{row.audience}</DataTableCell>
                   <DataTableCell>

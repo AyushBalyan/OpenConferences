@@ -1,15 +1,10 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import {
-  completeStudentDocUpload,
-  createRegistration,
-  fetchRegistration,
-  initiatePayment,
-  initiateStudentDocUpload,
-} from '@/lib/api-client';
+import { CalendarDays, CheckCircle2 } from 'lucide-react';
+import { StudentDocumentUpload } from './student-document-upload';
+import { createRegistration, fetchRegistration, initiatePayment } from '@/lib/api-client';
 import type { RegistrationDetailDto } from '@openconferences/schemas';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -42,7 +37,7 @@ export function RegistrationCard({ conferenceId, paperId }: RegistrationCardProp
       if (data.audience) setAudience(data.audience);
       setError(null);
     } catch {
-      setRegistration(null);
+      setError('Registration could not be loaded. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -65,39 +60,14 @@ export function RegistrationCard({ conferenceId, paperId }: RegistrationCardProp
     }
   }
 
-  async function onUploadDoc(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const presigned = await initiateStudentDocUpload(conferenceId, paperId, {
-        originalFilename: file.name,
-        contentType: file.type,
-        sizeBytes: file.size,
-      });
-      await fetch(presigned.uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': file.type },
-        body: file,
-      });
-      await completeStudentDocUpload(conferenceId, paperId, { objectKey: presigned.objectKey });
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Document upload failed');
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function onPay() {
     setBusy(true);
     setError(null);
     try {
       const payment = await initiatePayment(conferenceId, paperId);
       if (payment.provider === 'mock' || payment.keyId === 'mock_key_id') {
-        setError('Payment initiated — complete via test webhook in integration environment.');
         await load();
+        setError('Online payment is unavailable right now. Please contact the organizers.');
         return;
       }
 
@@ -137,7 +107,22 @@ export function RegistrationCard({ conferenceId, paperId }: RegistrationCardProp
   }
 
   if (!registration) {
-    return null;
+    return (
+      <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-5">
+        <p role="alert" className="text-sm text-slate-700">
+          {error ?? 'Registration is not available yet.'}
+        </p>
+        <Button
+          variant="outline"
+          onClick={() => {
+            setLoading(true);
+            void load();
+          }}
+        >
+          Retry loading registration
+        </Button>
+      </div>
+    );
   }
 
   const earlyBirdEndsAt = registration.earlyBirdEndsAt ?? registration.feeSchedule?.earlyBirdEndsAt;
@@ -150,106 +135,170 @@ export function RegistrationCard({ conferenceId, paperId }: RegistrationCardProp
   const showAudienceForm = registration.status === 'PENDING' && !registration.lockedTiming;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Conference registration</CardTitle>
-        <CardDescription>
-          Status: {registration.status.replace(/_/g, ' ').toLowerCase()}
-          {registration.lockedTiming ? ` · ${registration.lockedTiming} rate locked` : ''}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <p className="text-sm text-muted-foreground">
-          Deadline: {new Date(registration.deadlineAt).toLocaleString()}
-          {deadlinePassed ? ' (passed)' : ''}
+    <section
+      aria-labelledby="registration-title"
+      className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+    >
+      <div className="border-b border-slate-200 px-5 py-5 sm:px-6">
+        <h2 id="registration-title" className="text-xl font-semibold tracking-tight text-slate-900">
+          Conference registration
+        </h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Choose your author category and complete payment for this paper.
         </p>
+        <p className="mt-3 text-sm font-medium tabular-nums text-slate-700 lg:hidden">
+          Due{' '}
+          {new Date(registration.deadlineAt).toLocaleDateString(undefined, {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+          })}{' '}
+          ·{' '}
+          {new Date(registration.deadlineAt).toLocaleTimeString(undefined, {
+            hour: 'numeric',
+            minute: '2-digit',
+            timeZoneName: 'short',
+          })}
+        </p>
+      </div>
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="min-w-0 space-y-5 p-5 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-5">
+            <h3 className="text-base font-medium text-slate-900">
+              {registration.status === 'PAID' ? 'Registration complete' : 'Author registration'}
+            </h3>
+            <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium capitalize text-slate-700">
+              {registration.status.replace(/_/g, ' ').toLowerCase()}
+            </span>
+          </div>
 
-        {earlyBirdEndsAt ? (
-          <p className="text-sm text-muted-foreground">
-            Early bird ends: {new Date(earlyBirdEndsAt).toLocaleString()}
-          </p>
-        ) : null}
-
-        {showAudienceForm ? (
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <Label htmlFor="audience">Registration category</Label>
-              <select
-                id="audience"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={audience}
+          {showAudienceForm ? (
+            <div className="max-w-md space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="audience">Registration category</Label>
+                <select
+                  id="audience"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={audience}
+                  disabled={busy}
+                  onChange={(e) => setAudience(e.target.value as 'REGULAR' | 'STUDENT')}
+                >
+                  <option value="REGULAR">Regular author</option>
+                  <option value="STUDENT">Student author</option>
+                </select>
+              </div>
+              <p className="text-sm leading-relaxed text-slate-600">
+                Student authors will need to provide a verification document.
+              </p>
+              <Button
+                variant="outline"
+                className="shadow-none"
+                onClick={onChooseAudience}
                 disabled={busy}
-                onChange={(e) => setAudience(e.target.value as 'REGULAR' | 'STUDENT')}
               >
-                <option value="REGULAR">Regular author</option>
-                <option value="STUDENT">Student author</option>
-              </select>
+                Save category
+              </Button>
             </div>
-            <Button onClick={onChooseAudience} disabled={busy}>
-              Continue
-            </Button>
-          </div>
-        ) : null}
+          ) : null}
 
-        {registration.audience === 'STUDENT' &&
-        registration.status !== 'PAID' &&
-        !registration.latestVerification ? (
-          <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="student-doc">
-              Upload student verification document (PDF/JPEG/PNG)
-            </label>
-            <input
-              id="student-doc"
-              type="file"
-              accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"
-              onChange={onUploadDoc}
+          {registration.audience === 'STUDENT' &&
+          (registration.status !== 'PAID' || registration.latestVerification) ? (
+            <StudentDocumentUpload
+              conferenceId={conferenceId}
+              paperId={paperId}
+              verification={registration.latestVerification}
               disabled={busy}
+              onUploaded={load}
+              onBusyChange={setBusy}
             />
+          ) : null}
+
+          {registration.amountDueMinor > 0 ? (
+            <div className="flex flex-wrap items-baseline justify-between gap-2 border-t border-slate-200 pt-5">
+              <p className="text-sm text-slate-600">Amount due</p>
+              <p className="text-2xl font-medium tabular-nums tracking-tight text-slate-900">
+                {formatMoney(registration.amountDueMinor, registration.currency)}
+              </p>
+            </div>
+          ) : null}
+
+          {canPay ? (
+            <Button
+              className="bg-slate-900 shadow-none hover:translate-y-0 hover:bg-slate-800"
+              onClick={onPay}
+              disabled={busy}
+            >
+              {registration.status === 'ADDITIONAL_PAYMENT_REQUIRED' ? 'Pay difference' : 'Pay now'}
+            </Button>
+          ) : null}
+
+          {registration.status === 'PAID' || registration.status === 'AWAITING_VERIFICATION' ? (
+            <p className="flex items-center gap-2 text-sm text-emerald-800" role="status">
+              <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
+              {registration.status === 'AWAITING_VERIFICATION'
+                ? 'Payment received — awaiting student verification.'
+                : 'Registration complete.'}
+            </p>
+          ) : null}
+
+          {registration.invoice?.downloadUrl ? (
+            <a
+              className="text-sm text-primary underline"
+              href={registration.invoice.downloadUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Download invoice {registration.invoice.number}
+            </a>
+          ) : null}
+
+          {error ? (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
+        </div>
+        <aside className="space-y-6 border-t border-slate-200 bg-slate-50/70 p-5 sm:p-6 lg:border-l lg:border-t-0">
+          <div className="hidden lg:block">
+            <p className="flex items-center gap-2 text-sm font-medium text-slate-900">
+              <CalendarDays className="h-4 w-4 text-slate-500" aria-hidden /> Registration deadline
+            </p>
+            <p className="mt-3 text-lg font-medium tabular-nums text-slate-900">
+              {new Date(registration.deadlineAt).toLocaleDateString(undefined, {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+              })}
+            </p>
+            <p className="mt-1 text-sm text-slate-600">
+              {new Date(registration.deadlineAt).toLocaleTimeString(undefined, {
+                hour: 'numeric',
+                minute: '2-digit',
+                timeZoneName: 'short',
+              })}
+              {deadlinePassed ? ' · passed' : ''}
+            </p>
           </div>
-        ) : null}
-
-        {registration.latestVerification ? (
-          <p className="text-sm">
-            Verification: {registration.latestVerification.status.replace(/_/g, ' ').toLowerCase()}
-            {registration.latestVerification.note
-              ? ` — ${registration.latestVerification.note}`
-              : ''}
-          </p>
-        ) : null}
-
-        {registration.amountDueMinor > 0 ? (
-          <p className="text-sm font-medium">
-            Amount due: {formatMoney(registration.amountDueMinor, registration.currency)}
-          </p>
-        ) : null}
-
-        {canPay ? (
-          <Button onClick={onPay} disabled={busy}>
-            {registration.status === 'ADDITIONAL_PAYMENT_REQUIRED' ? 'Pay difference' : 'Pay now'}
-          </Button>
-        ) : null}
-
-        {registration.status === 'PAID' || registration.status === 'AWAITING_VERIFICATION' ? (
-          <p className="text-sm text-green-700">
-            {registration.status === 'AWAITING_VERIFICATION'
-              ? 'Payment received — awaiting student verification.'
-              : 'Registration complete.'}
-          </p>
-        ) : null}
-
-        {registration.invoice?.downloadUrl ? (
-          <a
-            className="text-sm text-primary underline"
-            href={registration.invoice.downloadUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Download invoice {registration.invoice.number}
-          </a>
-        ) : null}
-
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
-      </CardContent>
-    </Card>
+          {earlyBirdEndsAt ? (
+            <div className="border-t border-slate-200 pt-5">
+              <h3 className="text-sm font-medium text-slate-900">Early-bird registration</h3>
+              <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                Ends {new Date(earlyBirdEndsAt).toLocaleString()}.
+                {registration.lockedTiming
+                  ? ` Your ${registration.lockedTiming.toLowerCase()} rate is locked.`
+                  : ''}
+              </p>
+            </div>
+          ) : null}
+          <div className="border-t border-slate-200 pt-5">
+            <h3 className="text-sm font-medium text-slate-900">One paper, two final steps</h3>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">
+              Registration and your camera-ready manuscript are tracked separately. Check the
+              Camera-ready tab for your final PDF.
+            </p>
+          </div>
+        </aside>
+      </div>
+    </section>
   );
 }

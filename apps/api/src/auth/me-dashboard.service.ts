@@ -31,7 +31,7 @@ export class MeDashboardService {
             round: { decisions: { none: { outcome: { in: ['ACCEPT', 'REJECT'] } } } },
           },
           include: {
-            paper: { select: { title: true } },
+            paper: { select: { title: true, submittedAt: true } },
             round: { select: { roundNumber: true, reviewDueAt: true } },
             conference: { select: { id: true, name: true, slug: true, reviewDueAt: true } },
           },
@@ -114,6 +114,7 @@ export class MeDashboardService {
         conferenceSlug: paper.conference.slug,
         title: paper.title,
         submissionNumber: paper.submissionNumber,
+        submittedAt: paper.submittedAt?.toISOString() ?? null,
         status: paper.status,
         updatedAt: paper.updatedAt.toISOString(),
       })),
@@ -124,6 +125,7 @@ export class MeDashboardService {
         conferenceSlug: assignment.conference.slug,
         paperId: assignment.paperId,
         paperTitle: assignment.paper.title,
+        paperSubmittedAt: assignment.paper.submittedAt?.toISOString() ?? null,
         status: assignment.status,
         dueAt: effectiveReviewDeadline(
           assignment,

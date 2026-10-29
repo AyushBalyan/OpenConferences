@@ -65,6 +65,7 @@ export const reviewRoundListQuerySchema = cursorPaginationQuerySchema.extend({
 export const paperReviewProgressSchema = z.object({
   paperId: z.string().uuid(),
   paperTitle: z.string(),
+  paperSubmittedAt: z.string().datetime().nullable().optional(),
   submissionNumber: z.string().nullable().optional(),
   paperStatus: z.string(),
   paperVersion: z.number().int(),
@@ -177,6 +178,7 @@ export const bidListSchema = z.object({
   data: z.array(
     bidSchema.extend({
       paperTitle: z.string().optional(),
+      paperSubmittedAt: z.string().datetime().nullable().optional(),
       submissionNumber: z.string().nullable().optional(),
       reviewerName: z.string().optional(),
       reviewerEmail: z.string().email().optional(),
@@ -186,6 +188,7 @@ export const bidListSchema = z.object({
 });
 
 export const blindedPaperPoolItemSchema = z.object({
+  submittedAt: z.string().datetime().nullable().optional(),
   id: z.string().uuid(),
   submissionNumber: z.string().nullable().optional(),
   title: z.string(),
@@ -261,6 +264,7 @@ export const coiListSchema = z.object({
     conflictOfInterestSchema.extend({
       userName: z.string().optional(),
       paperTitle: z.string().nullable().optional(),
+      paperSubmittedAt: z.string().datetime().nullable().optional(),
       submissionNumber: z.string().nullable().optional(),
     }),
   ),
@@ -307,6 +311,7 @@ export const assignmentListSchema = z.object({
   data: z.array(
     reviewerAssignmentSchema.extend({
       paperTitle: z.string().optional(),
+      paperSubmittedAt: z.string().datetime().nullable().optional(),
       submissionNumber: z.string().nullable().optional(),
       reviewerName: z.string().optional(),
       reviewerEmail: z.string().email().optional(),
@@ -400,6 +405,7 @@ export const reviewSchema = z.object({
   reviewerEmail: z.string().email().optional(),
   /** Present on assignment review payloads so reviewers can download the assigned PDF. */
   paperTitle: z.string().optional(),
+  paperSubmittedAt: z.string().datetime().nullable().optional(),
   submissionNumber: z.string().nullable().optional(),
   currentVersionId: z.string().uuid().nullable().optional(),
   canEdit: z.boolean().optional(),
@@ -457,6 +463,7 @@ export type ReviewListDto = z.infer<typeof reviewListSchema>;
 
 export const myAssignmentItemSchema = reviewerAssignmentSchema.extend({
   paperTitle: z.string(),
+  paperSubmittedAt: z.string().datetime().nullable().optional(),
   submissionNumber: z.string().nullable().optional(),
   currentVersionId: z.string().uuid().nullable().optional(),
   roundNumber: z.number().int(),
@@ -548,6 +555,7 @@ export const decisionListSchema = z.object({
   data: z.array(
     decisionSchema.extend({
       paperTitle: z.string().optional(),
+      paperSubmittedAt: z.string().datetime().nullable().optional(),
       submissionNumber: z.string().nullable().optional(),
       roundNumber: z.number().int().optional(),
     }),

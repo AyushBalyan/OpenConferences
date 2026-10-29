@@ -1,5 +1,7 @@
 'use client';
 
+import { SubmissionDate } from '@/components/dashboard/submission-date';
+
 import Link from 'next/link';
 import {
   DataTable,
@@ -151,6 +153,7 @@ export default function MeDashboardPage() {
             <DataTableHeader>
               <tr>
                 <DataTableHead>Title</DataTableHead>
+                <DataTableHead>Submission date</DataTableHead>
                 <DataTableHead>Conference</DataTableHead>
                 <DataTableHead>Status</DataTableHead>
                 <DataTableHead className="text-right">Action</DataTableHead>
@@ -166,6 +169,9 @@ export default function MeDashboardPage() {
                         {paper.submissionNumber}
                       </p>
                     ) : null}
+                  </DataTableCell>
+                  <DataTableCell>
+                    <SubmissionDate value={paper.submittedAt} />
                   </DataTableCell>
                   <DataTableCell>{paper.conferenceName}</DataTableCell>
                   <DataTableCell>
@@ -205,6 +211,7 @@ export default function MeDashboardPage() {
             <DataTableHeader>
               <tr>
                 <DataTableHead>Paper</DataTableHead>
+                <DataTableHead>Submission date</DataTableHead>
                 <DataTableHead>Conference</DataTableHead>
                 <DataTableHead>Due</DataTableHead>
                 <DataTableHead className="text-right">Action</DataTableHead>
@@ -215,6 +222,9 @@ export default function MeDashboardPage() {
                 <DataTableRow key={assignment.id}>
                   <DataTableCell>
                     <p className="font-medium text-slate-900">{assignment.paperTitle}</p>
+                  </DataTableCell>
+                  <DataTableCell>
+                    <SubmissionDate value={assignment.paperSubmittedAt} />
                   </DataTableCell>
                   <DataTableCell>{assignment.conferenceName}</DataTableCell>
                   <DataTableCell className="font-mono text-xs">

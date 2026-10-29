@@ -471,6 +471,7 @@ model Paper {
   keywords         String[]
   status           PaperStatus @default(DRAFT)
   submissionNumber String?
+  submittedAt      DateTime?
   version          Int         @default(0)
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt

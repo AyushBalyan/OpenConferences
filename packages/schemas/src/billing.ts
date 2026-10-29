@@ -61,6 +61,7 @@ export const registrationListSchema = z.object({
   data: z.array(
     registrationSchema.extend({
       paperTitle: z.string().optional(),
+      paperSubmittedAt: z.string().datetime().nullable().optional(),
     }),
   ),
   nextCursor: z.string().uuid().nullable(),
@@ -121,6 +122,7 @@ export const studentVerificationListSchema = z.object({
   data: z.array(
     studentVerificationSchema.extend({
       paperTitle: z.string().optional(),
+      paperSubmittedAt: z.string().datetime().nullable().optional(),
       registrationAudience: feeAudienceSchema.optional(),
     }),
   ),

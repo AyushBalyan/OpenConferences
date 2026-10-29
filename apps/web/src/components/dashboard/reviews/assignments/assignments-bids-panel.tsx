@@ -1,5 +1,7 @@
 'use client';
 
+import { SubmissionDate } from '@/components/dashboard/submission-date';
+
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -70,6 +72,7 @@ export function AssignmentsBidsPanel() {
         <DataTableHeader>
           <tr>
             <DataTableHead>Paper</DataTableHead>
+            <DataTableHead>Submission date</DataTableHead>
             <DataTableHead>Reviewer</DataTableHead>
             <DataTableHead>Email</DataTableHead>
             <DataTableHead>Bid</DataTableHead>
@@ -87,6 +90,9 @@ export function AssignmentsBidsPanel() {
                   {bid.submissionNumber ? (
                     <p className="mt-1 font-mono text-xs text-slate-500">{bid.submissionNumber}</p>
                   ) : null}
+                </DataTableCell>
+                <DataTableCell>
+                  <SubmissionDate value={bid.paperSubmittedAt} />
                 </DataTableCell>
                 <DataTableCell>{bid.reviewerName}</DataTableCell>
                 <DataTableCell className="text-slate-500">{bid.reviewerEmail}</DataTableCell>

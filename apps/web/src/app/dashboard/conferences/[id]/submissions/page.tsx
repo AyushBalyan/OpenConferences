@@ -1,5 +1,7 @@
 'use client';
 
+import { SubmissionDate } from '@/components/dashboard/submission-date';
+
 import Link from 'next/link';
 import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -183,6 +185,7 @@ export default function SubmissionsListPage() {
             <DataTableHeader>
               <tr>
                 <DataTableHead>Title</DataTableHead>
+                <DataTableHead>Submission date</DataTableHead>
                 <DataTableHead>Status</DataTableHead>
                 <DataTableHead>Updated</DataTableHead>
                 <DataTableHead className="text-right">Actions</DataTableHead>
@@ -208,6 +211,9 @@ export default function SubmissionsListPage() {
                         {paper.abstract}
                       </p>
                     </div>
+                  </DataTableCell>
+                  <DataTableCell>
+                    <SubmissionDate value={paper.submittedAt} />
                   </DataTableCell>
                   <DataTableCell>
                     <WorkflowBadge

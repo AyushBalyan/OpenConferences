@@ -15,6 +15,7 @@ import type { BidValue, ReviewerAssignmentDto, ReviewRoundDto } from '@/lib/revi
 export type BidRow = {
   paperId: string;
   paperTitle: string;
+  paperSubmittedAt?: string | null;
   submissionNumber?: string | null;
   reviewerUserId: string;
   reviewerName: string;
@@ -40,6 +41,7 @@ type AssignmentsWorkspaceValue = {
   selectedRound: ReviewRoundDto | undefined;
   assignments: (ReviewerAssignmentDto & {
     paperTitle?: string;
+    paperSubmittedAt?: string | null;
     submissionNumber?: string | null;
     reviewerName?: string;
     reviewerEmail?: string;
@@ -162,6 +164,7 @@ export function AssignmentsWorkspaceProvider({
       bidList.map((b) => ({
         paperId: b.paperId,
         paperTitle: b.paperTitle ?? b.paperId,
+        paperSubmittedAt: b.paperSubmittedAt,
         submissionNumber: b.submissionNumber,
         reviewerUserId: b.reviewerUserId,
         reviewerName: b.reviewerName ?? 'Unknown reviewer',

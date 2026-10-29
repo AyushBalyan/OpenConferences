@@ -642,6 +642,7 @@ export class PapersService {
               where: { id: paper.id, status: 'DRAFT', submissionNumber: null },
               data: {
                 status: 'SUBMITTED',
+                submittedAt: new Date(),
                 submissionNumber,
                 version: { increment: 1 },
               },

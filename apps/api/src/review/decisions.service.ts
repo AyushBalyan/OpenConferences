@@ -87,7 +87,7 @@ export class DecisionsService {
             ...(options.outcome ? { outcome: options.outcome } : {}),
           },
           include: {
-            paper: { select: { title: true, submissionNumber: true } },
+            paper: { select: { title: true, submissionNumber: true, submittedAt: true } },
             round: { select: { roundNumber: true } },
           },
           orderBy: { createdAt: 'desc' },
@@ -101,6 +101,7 @@ export class DecisionsService {
       data: page.data.map((d) => ({
         ...mapDecision(d),
         paperTitle: d.paper.title,
+        paperSubmittedAt: d.paper.submittedAt?.toISOString() ?? null,
         submissionNumber: d.paper.submissionNumber,
         roundNumber: d.round.roundNumber,
       })),

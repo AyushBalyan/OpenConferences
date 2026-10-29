@@ -118,6 +118,7 @@ export const paperSchema = z.object({
   keywords: z.array(z.string()),
   status: paperStatusSchema,
   submissionNumber: z.string().nullable().optional(),
+  submittedAt: z.string().datetime().nullable().optional(),
   version: z.number().int(),
   authorships: z.array(authorshipSchema).optional(),
   currentVersion: paperVersionSchema.nullable().optional(),

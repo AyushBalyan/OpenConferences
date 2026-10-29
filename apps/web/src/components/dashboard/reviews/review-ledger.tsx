@@ -1,5 +1,7 @@
 'use client';
 
+import { SubmissionDate } from '@/components/dashboard/submission-date';
+
 import Link from 'next/link';
 import { ReviewViewSwitch } from './review-view-switch';
 import { Fragment, useCallback, useEffect, useMemo, useState, useRef } from 'react';
@@ -646,6 +648,7 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
             <DataTableHeader>
               <DataTableRow>
                 <DataTableHead>Paper / track</DataTableHead>
+                <DataTableHead>Submission date</DataTableHead>
                 <DataTableHead>Cycle / stage</DataTableHead>
                 <DataTableHead>Coverage</DataTableHead>
                 <DataTableHead>Deadline / blockers</DataTableHead>
@@ -665,6 +668,9 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
                         <p className="mt-1 text-xs text-slate-600">
                           {row.submissionNumber ?? 'Unnumbered'} · {row.trackName}
                         </p>
+                      </DataTableCell>
+                      <DataTableCell>
+                        <SubmissionDate value={row.paperSubmittedAt} />
                       </DataTableCell>
                       <DataTableCell>
                         <p>
@@ -756,7 +762,7 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
                     </DataTableRow>
                     {isExpanded ? (
                       <DataTableRow>
-                        <DataTableCell colSpan={5}>
+                        <DataTableCell colSpan={6}>
                           <div id={`assignments-${key}`} className="space-y-3 py-3">
                             {!row.isCurrentCycle ? (
                               <p className="text-xs text-slate-600">

@@ -17,9 +17,9 @@ export function paperStatusLabel(status: PaperDto['status']): string {
 
 export function scanStatusLabel(status: 'PENDING_SCAN' | 'CLEAN' | 'INFECTED'): string {
   const labels = {
-    PENDING_SCAN: 'Scan pending',
-    CLEAN: 'Clean',
-    INFECTED: 'Infected',
+    PENDING_SCAN: 'Checking file',
+    CLEAN: 'Ready',
+    INFECTED: 'Needs replacement',
   };
   return labels[status];
 }

@@ -273,7 +273,7 @@ export class RegistrationsService {
             conferenceId,
             ...this.buildRegistrationListFilters(options),
           },
-          include: { paper: { select: { title: true } } },
+          include: { paper: { select: { title: true, submittedAt: true } } },
           orderBy: { createdAt: 'desc' },
           ...prismaCursorArgs(options, limit),
         }),
@@ -285,6 +285,7 @@ export class RegistrationsService {
       data: page.data.map((row) => ({
         ...mapRegistration(row),
         paperTitle: row.paper.title,
+        paperSubmittedAt: row.paper.submittedAt?.toISOString() ?? null,
       })),
       nextCursor: page.nextCursor,
     };

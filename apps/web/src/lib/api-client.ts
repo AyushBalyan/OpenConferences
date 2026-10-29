@@ -576,13 +576,13 @@ export async function waitForCleanPaperScan(
       return;
     }
     if (scanStatus === 'INFECTED') {
-      throw new Error('The uploaded PDF failed security scanning. Please upload a different file.');
+      throw new Error('This PDF could not be processed. Please upload a different file.');
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 
   throw new Error(
-    'Security scan is taking longer than expected. Your PDF was uploaded — wait a moment and try again.',
+    'Your PDF was uploaded, but checking it is taking longer than expected. Please check back shortly.',
   );
 }
 
@@ -664,7 +664,7 @@ export async function uploadPaperPdf(
   });
 
   if (!putResponse.ok) {
-    throw new Error('Direct upload to storage failed');
+    throw new Error('Your PDF could not be uploaded. Please try again.');
   }
 
   await completeVersionUpload(conferenceId, paperId, {
@@ -678,6 +678,7 @@ export async function uploadRevisionPdf(
   paperId: string,
   file: File,
   response: string,
+  onUploaded?: () => void,
 ): Promise<void> {
   const presigned = await initiateVersionUpload(conferenceId, paperId, {
     originalFilename: file.name,
@@ -693,7 +694,7 @@ export async function uploadRevisionPdf(
   });
 
   if (!putResponse.ok) {
-    throw new Error('Direct upload to storage failed');
+    throw new Error('Your PDF could not be uploaded. Please try again.');
   }
 
   await completeVersionUpload(conferenceId, paperId, {
@@ -701,6 +702,7 @@ export async function uploadRevisionPdf(
     kind: 'REVISION',
     note: response.trim(),
   });
+  onUploaded?.();
   await waitForRevisionScan(conferenceId, paperId);
 }
 
@@ -720,13 +722,13 @@ export async function waitForRevisionScan(
       return;
     }
     if (scanStatus === 'INFECTED') {
-      throw new Error('The uploaded PDF failed security scanning. Please upload a different file.');
+      throw new Error('This PDF could not be processed. Please upload a different file.');
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 
   throw new Error(
-    'Security scan is taking longer than expected. Your PDF was uploaded — wait a moment and try again.',
+    'Your PDF was uploaded, but checking it is taking longer than expected. Please check back shortly.',
   );
 }
 
@@ -749,7 +751,7 @@ export async function uploadCameraReadyPdf(
   });
 
   if (!putResponse.ok) {
-    throw new Error('Direct upload to storage failed');
+    throw new Error('Your PDF could not be uploaded. Please try again.');
   }
 
   await completeVersionUpload(conferenceId, paperId, {

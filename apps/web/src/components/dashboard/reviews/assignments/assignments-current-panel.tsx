@@ -1,5 +1,7 @@
 'use client';
 
+import { SubmissionDate } from '@/components/dashboard/submission-date';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -78,6 +80,7 @@ export function AssignmentsCurrentPanel() {
         <DataTableHeader>
           <tr>
             <DataTableHead>Paper</DataTableHead>
+            <DataTableHead>Submission date</DataTableHead>
             <DataTableHead>Reviewer</DataTableHead>
             <DataTableHead>Email</DataTableHead>
             <DataTableHead>Bid</DataTableHead>
@@ -108,6 +111,9 @@ export function AssignmentsCurrentPanel() {
                       {assignment.submissionNumber}
                     </p>
                   ) : null}
+                </DataTableCell>
+                <DataTableCell>
+                  <SubmissionDate value={assignment.paperSubmittedAt} />
                 </DataTableCell>
                 <DataTableCell>
                   {assignment.reviewerName ?? assignment.reviewerUserId}

@@ -2,15 +2,15 @@
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { notifyDecisions } from '@/lib/api-client';
-import { ReviewRoundSelector } from '@/components/dashboard/reviews/review-round-selector';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useDecisionsWorkspace } from './decisions-workspace';
 
 export function DecisionsSearch() {
   const { search, setSearch, busy, loading } = useDecisionsWorkspace();
   return (
-    <div className="flex flex-wrap items-end gap-3">
-      <label htmlFor="decision-search" className="w-full space-y-1 text-sm sm:max-w-md">
+    <div className="flex min-w-0 items-end gap-2 lg:w-96">
+      <label htmlFor="decision-search" className="min-w-0 flex-1 space-y-1 text-sm">
         <span className="font-medium text-slate-700">Find a paper</span>
         <Input
           id="decision-search"
@@ -32,51 +32,26 @@ export function DecisionsSearch() {
 }
 
 export function DecisionsRoundBar() {
-  const {
-    roundId,
-    rounds,
-    decisions,
-    busy,
-    setBusy,
-    setError,
-    setMessage,
-    refresh,
-    onRoundChange,
-    conferenceId,
-  } = useDecisionsWorkspace();
-
-  async function handleNotify() {
-    if (!roundId) return;
-    setBusy(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const result = await notifyDecisions(conferenceId, roundId);
-      setMessage(result.message);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Notification failed');
-    } finally {
-      setBusy(false);
-    }
-  }
-
+  const { conferenceId, undecidedPapers, decisions } = useDecisionsWorkspace();
+  const pathname = usePathname();
   return (
-    <ReviewRoundSelector
-      id="decision-round"
-      rounds={rounds}
-      roundId={roundId}
-      onRoundChange={(value) => void onRoundChange(value)}
-      actions={
-        <Button
-          variant="outline"
-          onClick={() => void handleNotify()}
-          disabled={busy || !roundId || decisions.length === 0}
+    <nav aria-label="Decision views" className="flex gap-5 border-b border-slate-200 text-sm">
+      {(
+        [
+          ['pending', 'Pending decisions', undecidedPapers.length],
+          ['recorded', 'Recorded decisions', decisions.length],
+        ] as const
+      ).map(([section, label, count]) => (
+        <Link
+          key={section}
+          href={`/dashboard/conferences/${conferenceId}/reviews/decisions/${section}`}
+          aria-current={pathname.endsWith(section) ? 'page' : undefined}
+          className={`border-b-2 py-3 ${pathname.endsWith(section) ? 'border-slate-900 font-semibold text-slate-900' : 'border-transparent text-slate-600'}`}
         >
-          Notify authors
-        </Button>
-      }
-    />
+          {label} <span className="ml-1 tabular-nums">{count}</span>
+        </Link>
+      ))}
+    </nav>
   );
 }
 
@@ -84,8 +59,16 @@ export function DecisionsAlerts() {
   const { error, message } = useDecisionsWorkspace();
   return (
     <>
-      {error ? <p className="mb-4 text-sm text-rose-600">{error}</p> : null}
-      {message ? <p className="mb-4 text-sm text-emerald-700">{message}</p> : null}
+      {error ? (
+        <p role="alert" className="mb-4 text-sm text-rose-600">
+          {error}
+        </p>
+      ) : null}
+      {message ? (
+        <p role="status" className="mb-4 text-sm text-emerald-700">
+          {message}
+        </p>
+      ) : null}
     </>
   );
 }

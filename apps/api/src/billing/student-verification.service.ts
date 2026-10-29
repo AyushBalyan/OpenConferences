@@ -146,7 +146,7 @@ export class StudentVerificationService {
           },
           include: {
             registration: {
-              include: { paper: { select: { title: true } } },
+              include: { paper: { select: { title: true, submittedAt: true } } },
             },
           },
           orderBy: { submittedAt: 'asc' },
@@ -160,6 +160,7 @@ export class StudentVerificationService {
       data: page.data.map((row) => ({
         ...mapStudentVerification(row),
         paperTitle: row.registration.paper.title,
+        paperSubmittedAt: row.registration.paper.submittedAt?.toISOString() ?? null,
         registrationAudience: row.registration.audience,
       })),
       nextCursor: page.nextCursor,

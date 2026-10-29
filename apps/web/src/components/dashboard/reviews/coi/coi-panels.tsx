@@ -1,5 +1,7 @@
 'use client';
 
+import { SubmissionDate } from '@/components/dashboard/submission-date';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -138,6 +140,7 @@ export function CoiListPanel({ title, description }: { title: string; descriptio
           <DataTableHeader>
             <tr>
               <DataTableHead>Paper</DataTableHead>
+              <DataTableHead>Submission date</DataTableHead>
               <DataTableHead>Reviewer</DataTableHead>
               <DataTableHead>Type</DataTableHead>
               <DataTableHead>Source</DataTableHead>
@@ -155,6 +158,9 @@ export function CoiListPanel({ title, description }: { title: string; descriptio
                   {coi.submissionNumber ? (
                     <p className="mt-1 font-mono text-xs text-slate-500">{coi.submissionNumber}</p>
                   ) : null}
+                </DataTableCell>
+                <DataTableCell>
+                  <SubmissionDate value={coi.paperSubmittedAt} />
                 </DataTableCell>
                 <DataTableCell>{coi.userName ?? '—'}</DataTableCell>
                 <DataTableCell>

@@ -60,7 +60,7 @@ export class BidsService {
             ...(options.reviewerUserId ? { reviewerUserId: options.reviewerUserId } : {}),
           },
           include: {
-            paper: { select: { title: true, submissionNumber: true } },
+            paper: { select: { title: true, submissionNumber: true, submittedAt: true } },
             reviewer: { select: { name: true, email: true } },
           },
           orderBy: { createdAt: 'desc' },
@@ -76,6 +76,7 @@ export class BidsService {
       data: data.map((bid) => ({
         ...mapBid(bid),
         paperTitle: bid.paper.title,
+        paperSubmittedAt: bid.paper.submittedAt?.toISOString() ?? null,
         submissionNumber: bid.paper.submissionNumber,
         reviewerName: bid.reviewer.name,
         reviewerEmail: bid.reviewer.email,
@@ -146,6 +147,7 @@ export class BidsService {
       data: data.map((paper) => ({
         id: paper.id,
         submissionNumber: paper.submissionNumber,
+        submittedAt: paper.submittedAt?.toISOString() ?? null,
         title: paper.title,
         abstract: paper.abstract,
         keywords: paper.keywords,
@@ -307,7 +309,7 @@ export class CoiService {
           },
           include: {
             user: { select: { name: true } },
-            paper: { select: { title: true, submissionNumber: true } },
+            paper: { select: { title: true, submissionNumber: true, submittedAt: true } },
           },
           orderBy: { createdAt: 'desc' },
           ...prismaCursorArgs(options, limit),
@@ -321,6 +323,7 @@ export class CoiService {
         ...mapConflictOfInterest(coi),
         userName: coi.user.name,
         paperTitle: coi.paper?.title ?? null,
+        paperSubmittedAt: coi.paper?.submittedAt?.toISOString() ?? null,
         submissionNumber: coi.paper?.submissionNumber ?? null,
       })),
       nextCursor: page.nextCursor,

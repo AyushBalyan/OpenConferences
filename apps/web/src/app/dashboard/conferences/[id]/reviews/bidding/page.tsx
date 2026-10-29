@@ -1,5 +1,7 @@
 'use client';
 
+import { SubmissionDate } from '@/components/dashboard/submission-date';
+
 import Link from 'next/link';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { useConferenceWorkspace } from '@/components/dashboard/conference-workspace';
@@ -143,6 +145,7 @@ function ReviewBidding() {
           <DataTableHeader>
             <tr>
               <DataTableHead>Title</DataTableHead>
+              <DataTableHead>Submission date</DataTableHead>
               <DataTableHead>Authors</DataTableHead>
               <DataTableHead>Your bid</DataTableHead>
               <DataTableHead className="text-right">Place bid</DataTableHead>
@@ -159,6 +162,9 @@ function ReviewBidding() {
                     </p>
                   ) : null}
                   <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{paper.abstract}</p>
+                </DataTableCell>
+                <DataTableCell>
+                  <SubmissionDate value={paper.submittedAt} />
                 </DataTableCell>
                 <DataTableCell className="text-sm text-slate-600">
                   {authorsLabelFor(paper)}

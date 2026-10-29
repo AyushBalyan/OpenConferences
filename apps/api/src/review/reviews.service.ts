@@ -116,7 +116,13 @@ export class ReviewsService {
           },
           include: {
             paper: {
-              select: { title: true, status: true, submissionNumber: true, currentVersionId: true },
+              select: {
+                title: true,
+                status: true,
+                submissionNumber: true,
+                currentVersionId: true,
+                submittedAt: true,
+              },
             },
             round: {
               select: {
@@ -144,6 +150,7 @@ export class ReviewsService {
           conference.reviewDueAt,
         ).toISOString(),
         paperTitle: a.paper.title,
+        paperSubmittedAt: a.paper.submittedAt?.toISOString() ?? null,
         submissionNumber: a.paper.submissionNumber,
         currentVersionId: a.paper.currentVersionId,
         roundNumber: a.round.roundNumber,
@@ -731,7 +738,13 @@ export class ReviewsService {
         include: {
           review: true,
           paper: {
-            select: { title: true, status: true, submissionNumber: true, currentVersionId: true },
+            select: {
+              title: true,
+              status: true,
+              submissionNumber: true,
+              currentVersionId: true,
+              submittedAt: true,
+            },
           },
           reviewer: { select: { email: true, name: true } },
         },

@@ -18,10 +18,10 @@ export default function DecisionsLayout({ children }: { children: React.ReactNod
     <DecisionsWorkspaceProvider conferenceId={params.id}>
       <SectionLayoutFrame
         title={meta.title}
-        description={meta.description}
+        description="Review the evidence, record an outcome, then send it to authors when ready."
         alerts={<DecisionsAlerts />}
         toolbar={
-          <div className="mb-6 space-y-4">
+          <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <DecisionsRoundBar />
             <DecisionsSearch />
           </div>

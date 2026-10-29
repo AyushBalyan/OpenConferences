@@ -10,6 +10,7 @@ export const reviewerOverviewQuerySchema = z.object({
 export type ReviewerOverviewQuery = z.infer<typeof reviewerOverviewQuerySchema>;
 export const reviewerWorkAssignmentSchema = coordinationAssignmentSchema.extend({
   paperTitle: z.string(),
+  paperSubmittedAt: z.string().datetime().nullable().optional(),
   submissionNumber: z.string().nullable(),
   trackId: z.string().uuid(),
   trackName: z.string(),
@@ -90,6 +91,7 @@ export const reviewerDigestItemSchema = z.object({
   paperId: z.string().uuid(),
   roundId: z.string().uuid(),
   paperTitle: z.string(),
+  paperSubmittedAt: z.string().datetime().nullable().optional(),
   submissionNumber: z.string().nullable(),
   roundNumber: z.number().int(),
   dueAt: z.string().datetime(),

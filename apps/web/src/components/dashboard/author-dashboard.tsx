@@ -1,5 +1,7 @@
 'use client';
 
+import { SubmissionDate } from '@/components/dashboard/submission-date';
+
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -120,6 +122,7 @@ export function AuthorDashboard({ conferenceId, conference }: AuthorDashboardPro
               <DataTableHeader>
                 <tr>
                   <DataTableHead>Title</DataTableHead>
+                  <DataTableHead>Submission date</DataTableHead>
                   <DataTableHead>Status</DataTableHead>
                   <DataTableHead className="text-right">Action</DataTableHead>
                 </tr>
@@ -134,6 +137,9 @@ export function AuthorDashboard({ conferenceId, conference }: AuthorDashboardPro
                           {paper.submissionNumber ?? paper.id.slice(0, 8).toUpperCase()}
                         </p>
                       </div>
+                    </DataTableCell>
+                    <DataTableCell>
+                      <SubmissionDate value={paper.submittedAt} />
                     </DataTableCell>
                     <DataTableCell>
                       <WorkflowBadge

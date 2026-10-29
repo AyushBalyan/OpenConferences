@@ -1,21 +1,14 @@
 'use client';
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
   fetchDecisions,
   fetchAllPapers,
   fetchReviewProgress,
   fetchReviewRounds,
 } from '@/lib/api-client';
-import { currentCycleDecisions, resolveDecisionRound } from '@/lib/review-rounds';
+import { currentCycleDecisions } from '@/lib/review-rounds';
+import { useSession } from '@/lib/auth-client';
 import type { PaperDto } from '@/lib/submission-types';
 import type { DecisionDto, DecisionOutcome, ReviewRoundDto } from '@/lib/review-types';
 
@@ -27,20 +20,24 @@ type PaperRow = {
   version: number;
   cycleId: string | null;
   warning: string | null;
+  submittedReviews: number | null;
+  requiredReviews: number | null;
+  roundNumber: number | null;
 };
 
 export type PendingDecision = {
   outcome: DecisionOutcome | '';
   rationale: string;
+  cycleId?: string | null;
 };
 
 type DecisionsWorkspaceValue = {
   conferenceId: string;
-  roundId: string;
   rounds: ReviewRoundDto[];
   papers: PaperRow[];
   decisions: (DecisionDto & {
     paperTitle?: string;
+    paperSubmittedAt?: string | null;
     submissionNumber?: string | null;
     roundNumber?: number;
   })[];
@@ -51,12 +48,18 @@ type DecisionsWorkspaceValue = {
   filteredDecisions: DecisionsWorkspaceValue['decisions'];
   decisionByPaper: Map<
     string,
-    DecisionDto & { paperTitle?: string; submissionNumber?: string | null; roundNumber?: number }
+    DecisionDto & {
+      paperTitle?: string;
+      paperSubmittedAt?: string | null;
+      submissionNumber?: string | null;
+      roundNumber?: number;
+    }
   >;
   selected: Set<string>;
   setSelected: React.Dispatch<React.SetStateAction<Set<string>>>;
   pending: Record<string, PendingDecision>;
   setPending: React.Dispatch<React.SetStateAction<Record<string, PendingDecision>>>;
+  draftStatus: 'saving' | 'saved' | 'unavailable';
   bulkOutcome: DecisionOutcome | '';
   setBulkOutcome: React.Dispatch<React.SetStateAction<DecisionOutcome | ''>>;
   loading: boolean;
@@ -67,7 +70,6 @@ type DecisionsWorkspaceValue = {
   busy: boolean;
   setBusy: (busy: boolean) => void;
   refresh: () => Promise<void>;
-  onRoundChange: (roundId: string) => Promise<void>;
 };
 
 const DecisionsWorkspaceContext = createContext<DecisionsWorkspaceValue | null>(null);
@@ -87,14 +89,23 @@ export function DecisionsWorkspaceProvider({
   conferenceId: string;
   children: React.ReactNode;
 }) {
-  const [roundId, setRoundId] = useState('');
-  const roundRef = useRef('');
+  const { data: session } = useSession();
   const [rounds, setRounds] = useState<ReviewRoundDto[]>([]);
   const [papers, setPapers] = useState<PaperRow[]>([]);
   const [decisions, setDecisions] = useState<DecisionsWorkspaceValue['decisions']>([]);
   const [allDecisions, setAllDecisions] = useState<DecisionsWorkspaceValue['decisions']>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Record<string, PendingDecision>>({});
+  const [loadedDraftKey, setLoadedDraftKey] = useState('');
+  const [savedDrafts, setSavedDrafts] = useState('');
+  const [storageFailed, setStorageFailed] = useState(false);
+  const draftKey = session?.user.id ? `decision-drafts:${session.user.id}:${conferenceId}` : '';
+  const serializedDrafts = JSON.stringify(pending);
+  const draftStatus = storageFailed
+    ? 'unavailable'
+    : savedDrafts === serializedDrafts
+      ? 'saved'
+      : 'saving';
   const [bulkOutcome, setBulkOutcome] = useState<DecisionOutcome | ''>('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -137,10 +148,11 @@ export function DecisionsWorkspaceProvider({
   }
 
   const refresh = useCallback(async () => {
-    const [roundList, paperList, progress] = await Promise.all([
+    const [roundList, paperList, progress, decisionList] = await Promise.all([
       fetchReviewRounds(conferenceId),
       fetchAllPapers(conferenceId),
       fetchReviewProgress(conferenceId),
+      fetchDecisions(conferenceId),
     ]);
 
     setRounds(roundList);
@@ -156,39 +168,107 @@ export function DecisionsWorkspaceProvider({
           version: p.version,
           cycleId: progressByPaper.get(p.id)?.cycleId ?? null,
           warning: progressByPaper.get(p.id)?.warning ?? null,
+          submittedReviews: progressByPaper.get(p.id)?.submittedReviewCount ?? null,
+          requiredReviews: progress.minimumReviews ?? null,
+          roundNumber: progressByPaper.get(p.id)?.roundNumber ?? null,
         })),
     );
 
-    const activeRound =
-      roundList.find((round) => round.id === roundRef.current) ?? resolveDecisionRound(roundList);
-    if (activeRound) {
-      setRoundId(activeRound.id);
-      roundRef.current = activeRound.id;
-      const decisionList = await fetchDecisions(conferenceId);
-      setAllDecisions(decisionList.data);
-      setDecisions(decisionList.data);
-    } else {
-      setRoundId('');
-      setAllDecisions([]);
-      setDecisions([]);
-    }
+    setAllDecisions(decisionList.data);
+    setDecisions(decisionList.data);
     setError(null);
   }, [conferenceId]);
 
-  const onRoundChange = useCallback(
-    async (nextRoundId: string) => {
-      roundRef.current = nextRoundId;
-      setRoundId(nextRoundId);
-      setSelected(new Set());
-      setPending({});
-      if (!nextRoundId) {
-        setDecisions([]);
-        return;
+  useEffect(() => {
+    if (!draftKey) return;
+    let restored: Record<string, PendingDecision> = {};
+    try {
+      const parsed: unknown = JSON.parse(sessionStorage.getItem(draftKey) ?? '{}');
+      if (parsed && typeof parsed === 'object') {
+        restored = Object.fromEntries(
+          Object.entries(parsed).filter(
+            ([, value]) =>
+              value &&
+              typeof value === 'object' &&
+              ['', 'ACCEPT', 'REJECT', 'MINOR_REVISION', 'MAJOR_REVISION'].includes(
+                value.outcome,
+              ) &&
+              typeof value.rationale === 'string',
+          ),
+        );
       }
-      setDecisions(allDecisions.filter((decision) => decision.roundId === nextRoundId));
-    },
-    [allDecisions],
-  );
+    } catch {
+      setStorageFailed(true);
+    }
+    setPending(restored);
+    setLoadedDraftKey(draftKey);
+    setSavedDrafts(JSON.stringify(restored));
+  }, [draftKey]);
+
+  useEffect(() => {
+    if (!draftKey || loadedDraftKey !== draftKey) return;
+    try {
+      sessionStorage.setItem(draftKey, serializedDrafts);
+      setSavedDrafts(serializedDrafts);
+      setStorageFailed(false);
+    } catch {
+      setStorageFailed(true);
+    }
+  }, [draftKey, loadedDraftKey, serializedDrafts]);
+
+  useEffect(() => {
+    if (loading || loadedDraftKey !== draftKey) return;
+    setSelected(
+      (previous) =>
+        new Set(
+          [...previous].filter((paperId) => undecidedPapers.some((paper) => paper.id === paperId)),
+        ),
+    );
+    setPending((previous) =>
+      Object.fromEntries(
+        Object.entries(previous).filter(([paperId, draft]) => {
+          const paper = undecidedPapers.find((item) => item.id === paperId);
+          return paper && draft.cycleId === paper.cycleId;
+        }),
+      ),
+    );
+  }, [undecidedPapers, loading, loadedDraftKey, draftKey]);
+
+  useEffect(() => {
+    function guard(event: BeforeUnloadEvent) {
+      if (Object.keys(pending).length && draftStatus !== 'saved') event.preventDefault();
+    }
+    function guardNavigation(event: MouseEvent) {
+      if (
+        !Object.keys(pending).length ||
+        draftStatus === 'saved' ||
+        !(event.target instanceof Element)
+      )
+        return;
+      const link = event.target.closest('a');
+      if (
+        !link ||
+        new URL(link.href).pathname.startsWith(
+          `/dashboard/conferences/${conferenceId}/reviews/decisions`,
+        )
+      )
+        return;
+      if (
+        !window.confirm(
+          'Your draft could not be saved in this browser. Leaving this page will discard it. Leave anyway?',
+        )
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }
+    window.addEventListener('beforeunload', guard);
+    document.addEventListener('click', guardNavigation, true);
+    return () => {
+      window.removeEventListener('beforeunload', guard);
+      document.removeEventListener('click', guardNavigation, true);
+    };
+  }, [pending, draftStatus, conferenceId]);
 
   useEffect(() => {
     setLoading(true);
@@ -199,7 +279,6 @@ export function DecisionsWorkspaceProvider({
 
   const value: DecisionsWorkspaceValue = {
     conferenceId,
-    roundId,
     rounds,
     papers,
     decisions,
@@ -213,9 +292,10 @@ export function DecisionsWorkspaceProvider({
     setSelected,
     pending,
     setPending,
+    draftStatus,
     bulkOutcome,
     setBulkOutcome,
-    loading,
+    loading: loading || !draftKey || loadedDraftKey !== draftKey,
     error,
     message,
     setError,
@@ -223,7 +303,6 @@ export function DecisionsWorkspaceProvider({
     busy,
     setBusy,
     refresh,
-    onRoundChange,
   };
 
   return (
