@@ -47,6 +47,8 @@ To enable writes, edit the integration in Settings → Integrations and select *
 
 Send `POST /assignments` with a stable UUID `requestId`, `paperId`, integration-specific `reviewerId` from the reviewer reads, and a required future ISO `dueAt` containing UTC or an explicit offset. Optional `cycleId` must be the paper's current cycle. An eligible submitted paper with no cycle gets its first cycle in the same transaction. Drafts, withdrawals, decided cycles, historical cycles, foreign references, absent reviewer membership, authorship, declared conflicts, conflict bids, and duplicate assignments are rejected. An email address alone is not an assignment identifier; pending invitations cannot be assigned.
 
+Authorship checks match the submitting account, linked coauthor accounts, and author email addresses after trimming whitespace and ignoring case. The same shared check protects dashboard assignments, replacements, copied assignments, and review saves/submissions, including old assignments created before an email-only coauthor was recognized. An author can still review unrelated papers after accepting reviewer access; the author role and existing submissions remain intact.
+
 ```json
 {
   "requestId": "00000000-0000-4000-8000-000000000001",
@@ -128,4 +130,4 @@ The dedicated backend tests exercise actual HTTP controllers, PostgreSQL RLS, Re
 
 ## Client example
 
-[bot-client.mjs](bot-client.mjs) lists paper metadata without logging response bodies. Supply `BOT_API_BASE_URL`, `BOT_CONFERENCE_ID` and `BOT_API_KEY` from private server-side environment variables. To use a model bot, build the adapter on its server/tool side and restrict the data it forwards according to your conference policy. OAuth, MCP, direct provider integrations, file downloads, mutations other than paper assignment, and webhooks are outside v1.
+[bot-client.mjs](bot-client.mjs) lists paper metadata without logging response bodies. Supply `BOT_API_BASE_URL`, `BOT_CONFERENCE_ID` and `BOT_API_KEY` from private server-side environment variables. To use a model bot, build the adapter on its server/tool side and restrict the data it forwards according to your conference policy. OAuth, MCP, direct provider integrations, file downloads, mutations other than paper assignment and invitation link generation/removal, and webhooks are outside v1.

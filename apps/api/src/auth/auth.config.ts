@@ -9,6 +9,7 @@ import { prisma, generateId } from '@openconferences/db';
 import type { AuditService } from '../audit/audit.service';
 import { NotificationPublisher } from '../messaging/notification.publisher';
 import { formatEmailDate } from '../messaging/format-email-date';
+import { REVIEWER_INVITATION_TTL_DAYS } from '../review/invitation-links';
 import type {
   AuthEmailVerifyPayload,
   AuthMfaOtpPayload,
@@ -246,7 +247,7 @@ export function createAuthInstance(deps: AuthDependencies): AuthInstance {
         },
       }),
       magicLink({
-        expiresIn: 86400,
+        expiresIn: REVIEWER_INVITATION_TTL_DAYS * 24 * 60 * 60,
         storeToken: 'hashed',
         sendMagicLink: async ({ email, token, metadata }) => {
           if (!isReviewerInvitationMetadata(metadata)) {

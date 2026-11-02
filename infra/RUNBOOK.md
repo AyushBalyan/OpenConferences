@@ -503,6 +503,13 @@ export DATABASE_URL='postgresql://postgres.qbqnfrrmgvoaaudznadn:OWNER_PASSWORD@a
 
 Then redeploy API and worker. Re-run the bootstrap whenever you add a new queue name in code.
 
+If startup fails with `must be owner of table job` for
+`integration.access-retention`, run the current bootstrap script: it includes
+that queue along with `reviewer.reminder_digest.prepare` and
+`outreach.campaign.send`. An older bootstrap list omitted these queues. Run it
+against the same database used by the worker, using the owner connection; keep
+the worker's runtime connection on `openconferences_worker`.
+
 Cascading Coolify errors during cutover usually mean each redeploy unlocked the _next_ check (`auth` → `schema CREATE` → `REFERENCES` → `must be owner`). The last step is ownership — fixed by this bootstrap, not another `GRANT`.
 
 ### Coolify healthcheck (API)

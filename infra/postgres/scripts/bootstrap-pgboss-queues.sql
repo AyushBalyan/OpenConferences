@@ -11,13 +11,16 @@ SELECT pgboss.create_queue(name, '{}'::json)
 FROM unnest(
   ARRAY[
     'noop.smoke',
+    'reviewer.reminder_digest.prepare',
+    'integration.access-retention',
     'email.send',
     'notification.send',
     'notification.reminder_sweep',
     'file.scan',
     'invoice.generate',
     'registration.discard_sweep',
-    'payment.reconcile'
+    'payment.reconcile',
+    'outreach.campaign.send'
   ]
 ) AS name;
 
