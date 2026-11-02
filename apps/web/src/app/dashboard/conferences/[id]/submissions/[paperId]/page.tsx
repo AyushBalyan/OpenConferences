@@ -1128,7 +1128,11 @@ function SubmissionDetail() {
         </p>
       ) : null}
       {section === 'registration' && isAccepted ? (
-        <RegistrationCard conferenceId={conferenceId} paperId={paperId} />
+        <RegistrationCard
+          conferenceId={conferenceId}
+          conferenceName={conference?.name ?? 'Conference registration'}
+          paperId={paperId}
+        />
       ) : null}
 
       {section === 'camera-ready' && isAccepted ? (

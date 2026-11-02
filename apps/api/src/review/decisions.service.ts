@@ -197,7 +197,12 @@ export class DecisionsService {
     }
 
     if (input.outcome === 'ACCEPT') {
-      await this.registrations.openRegistration(conference.organizationId, conferenceId, paperId);
+      await this.registrations.openRegistration(
+        conference.organizationId,
+        conferenceId,
+        paperId,
+        userId,
+      );
     }
 
     return {
@@ -296,6 +301,7 @@ export class DecisionsService {
           conference.organizationId,
           conferenceId,
           paper.id,
+          userId,
         );
       }
     }

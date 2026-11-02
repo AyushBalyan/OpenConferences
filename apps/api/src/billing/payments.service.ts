@@ -10,7 +10,7 @@ import {
 import { NotificationPublisher } from '../messaging/notification.publisher';
 import { generateId, withTenantContext } from '@openconferences/db';
 import type { Payment, Registration, RoleKind } from '@openconferences/db';
-import type { RefundInput } from '@openconferences/schemas';
+import type { RefundInput, VerifyPaymentInput, PaymentQuote } from '@openconferences/schemas';
 import { getConfig } from '@openconferences/config/env';
 import { AuditService } from '../audit/audit.service';
 import { QueueService } from '../queue/queue.service';
@@ -26,7 +26,9 @@ import {
 import { PaymentProviderRegistry } from './payment-provider.registry';
 import { RegistrationsService } from './registrations.service';
 import { InvoicesService } from './invoices.service';
-import { estimateProvisionalAmount, parseFeeSchedule } from './fee-resolver';
+import { parseFeeSchedule } from './fee-resolver';
+import { RazorpayProvider } from './razorpay.provider';
+import type { ParsedWebhookEvent } from './payment-provider.interface';
 
 @Injectable()
 export class PaymentsService {
@@ -40,6 +42,7 @@ export class PaymentsService {
     private readonly notifications: NotificationPublisher,
     private readonly queue: QueueService,
     private readonly invoices: InvoicesService,
+    private readonly razorpay: RazorpayProvider,
   ) {}
 
   async initiatePayment(
@@ -57,104 +60,166 @@ export class PaymentsService {
       roles,
     );
 
-    if (registration.status === 'PAID') {
-      throw new ConflictException('Registration is already paid');
-    }
-
-    if (registration.status === 'AWAITING_VERIFICATION') {
-      throw new ConflictException('Registration payment is pending verification');
-    }
-
-    if (registration.status === 'DISCARDED_NONPAYMENT' || registration.status === 'CANCELLED') {
-      throw new ConflictException('Registration is no longer payable');
-    }
-    const payablePaper = await withTenantContext({ userId, conferenceId }, async (tx) =>
-      tx.paper.findFirst({
-        where: { id: paperId, conferenceId },
-        select: { status: true },
-      }),
+    const feeSchedule = parseFeeSchedule(conference.feeSchedule);
+    const billingAffiliation = await this.registrations.resolveBillingAffiliation(
+      userId,
+      registration,
     );
-    if (payablePaper?.status === 'WITHDRAWN' || payablePaper?.status === 'WITHDRAWN_NONPAYMENT') {
-      throw new ConflictException('This paper has been withdrawn');
+    if (!billingAffiliation) {
+      throw new UnprocessableEntityException(
+        'Enter your affiliation for the invoice before payment.',
+      );
     }
-
-    if (new Date() > registration.deadlineAt) {
-      throw new ConflictException('Registration deadline has passed');
-    }
-
-    if (registration.audience === 'STUDENT') {
-      const hasDoc = await this.hasStudentDocument(registration.id);
-      if (!hasDoc) {
+    const provider = this.providerRegistry.resolve(conference.organizationId);
+    let quote: PaymentQuote | undefined;
+    if (!registration.lockedTiming && registration.status === 'PENDING') {
+      try {
+        quote = await this.registrations.quoteForPayment(userId, registration, feeSchedule);
+      } catch (error) {
         throw new UnprocessableEntityException(
-          'Student verification document is required before payment',
+          error instanceof Error ? error.message : 'Unable to calculate fee',
         );
       }
     }
 
-    const existingByKey = await withTenantContext({}, async (tx) =>
-      tx.payment.findFirst({ where: { idempotencyKey } }),
-    );
-
-    if (existingByKey) {
-      const provider = this.providerRegistry.resolve(conference.organizationId);
-      return this.buildInitiateResponse(existingByKey, registration, provider.name);
-    }
-
-    const feeSchedule = parseFeeSchedule(conference.feeSchedule);
-    const kind = registration.status === 'ADDITIONAL_PAYMENT_REQUIRED' ? 'ADDITIONAL' : 'INITIAL';
-
-    let amountMinor: number;
-    if (kind === 'ADDITIONAL') {
-      const paidState = await withTenantContext({}, async (tx) =>
-        computePaidState(tx, registration.id),
-      );
-      amountMinor = registration.amountDueMinor - paidState.netMinor;
-      if (amountMinor <= 0) {
-        throw new ConflictException('No additional payment is due');
-      }
-    } else {
-      amountMinor = estimateProvisionalAmount(feeSchedule, registration.audience);
-    }
-
-    const provider = this.providerRegistry.resolve(conference.organizationId);
-    const order = await provider.createOrder({
-      amountMinor,
-      currency: feeSchedule.currency,
-      receipt: `reg-${registration.id}-${kind.toLowerCase()}`,
-      notes: {
-        registrationId: registration.id,
-        paperId,
-        conferenceId,
-      },
-    });
-
-    const payment = await withTenantContext(
+    // Reserve locally under a row lock; call Razorpay after committing, keeping network I/O
+    // outside the transaction. Concurrent clicks reuse the same checkout for this paper.
+    const reserved = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
-      async (tx) =>
-        tx.payment.create({
+      async (tx) => {
+        const current = await lockRegistrationForUpdate(tx, registration.id);
+        if (!current) throw new NotFoundException('Registration not found');
+        if (!['PENDING', 'ADDITIONAL_PAYMENT_REQUIRED'].includes(current.status)) {
+          throw new ConflictException('Registration is already paid or is no longer payable');
+        }
+        const deadline = current.additionalGraceUntil ?? current.deadlineAt;
+        if (new Date() > deadline || new Date() < current.windowOpensAt) {
+          throw new ConflictException('Registration payment window is closed');
+        }
+        if (current.userId && current.userId !== userId) {
+          throw new ConflictException(
+            'Another author has already started registration for this paper',
+          );
+        }
+        if (current.audience === 'STUDENT' && current.status !== 'ADDITIONAL_PAYMENT_REQUIRED') {
+          const verification = await tx.studentVerification.findFirst({
+            where: { registrationId: current.id },
+            include: { fileAsset: true },
+            orderBy: { createdAt: 'desc' },
+          });
+          if (
+            !verification ||
+            !['PENDING', 'APPROVED'].includes(verification.status) ||
+            verification.fileAsset.scanStatus !== 'CLEAN'
+          ) {
+            throw new UnprocessableEntityException(
+              'Upload a valid student verification document before payment',
+            );
+          }
+        }
+        const byKey = await tx.payment.findFirst({ where: { idempotencyKey } });
+        if (byKey && byKey.registrationId !== current.id) {
+          throw new ConflictException('Idempotency key belongs to another registration');
+        }
+        const pending = await tx.payment.findFirst({
+          where: { registrationId: current.id, status: 'CREATED' },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (pending?.providerOrderId && pending.provider === provider.name)
+          return { payment: pending, registration: current, create: false };
+        if (
+          pending &&
+          pending.provider === provider.name &&
+          pending.createdAt.getTime() > Date.now() - 60000
+        ) {
+          throw new ConflictException('Checkout is being prepared. Please try again shortly.');
+        }
+        if (pending)
+          await tx.payment.update({ where: { id: pending.id }, data: { status: 'FAILED' } });
+        if (byKey) throw new ConflictException('Use a new idempotency key to retry this payment');
+        if (current.version !== registration.version) {
+          throw new ConflictException(
+            'Registration details changed. Please refresh and try again.',
+          );
+        }
+        const kind = current.status === 'ADDITIONAL_PAYMENT_REQUIRED' ? 'ADDITIONAL' : 'INITIAL';
+        const paidState = await computePaidState(tx, current.id);
+        const amountMinor =
+          kind === 'ADDITIONAL'
+            ? current.amountDueMinor - paidState.netMinor
+            : (quote?.amountMinor ?? current.amountDueMinor);
+        const currency = quote?.currency ?? current.currency;
+        if (!Number.isSafeInteger(amountMinor) || amountMinor < 100) {
+          throw new ConflictException('No payable amount is due');
+        }
+        const updated = await tx.registration.update({
+          where: { id: current.id },
+          data: {
+            userId,
+            billingAffiliation,
+            ...(quote
+              ? {
+                  amountDueMinor: quote.amountMinor,
+                  regularAmountDueMinor: quote.regularAmountMinor,
+                  currency: quote.currency,
+                  lockedTiming: quote.timing,
+                  isAdditionalPaper: quote.isAdditionalPaper,
+                }
+              : {}),
+            version: { increment: 1 },
+          },
+        });
+        const payment = await tx.payment.create({
           data: {
             id: generateId(),
             organizationId: conference.organizationId,
-            registrationId: registration.id,
+            registrationId: current.id,
             provider: provider.name,
-            providerOrderId: order.orderId,
             status: 'CREATED',
-            amountMinor: order.amountMinor,
-            currency: order.currency,
+            amountMinor,
+            currency,
             kind,
             idempotencyKey,
+          },
+        });
+        return { payment, registration: updated, create: true };
+      },
+    );
+    if (!reserved.create)
+      return this.buildInitiateResponse(
+        reserved.payment,
+        reserved.registration,
+        reserved.payment.provider,
+      );
+
+    let payment;
+    try {
+      const order = await provider.createOrder({
+        amountMinor: reserved.payment.amountMinor,
+        currency: reserved.payment.currency,
+        receipt: `r${reserved.payment.id.replace(/-/g, '')}`,
+        notes: {
+          registrationId: registration.id,
+          paperId,
+          conferenceId,
+          billingCountry: registration.billingCountry ?? '',
+        },
+      });
+      payment = await withTenantContext({ userId, conferenceId }, async (tx) =>
+        tx.payment.update({
+          where: { id: reserved.payment.id },
+          data: {
+            providerOrderId: order.orderId,
             rawPayload: order.raw as object,
           },
         }),
-    );
-
-    await withTenantContext({}, async (tx) =>
-      tx.registration.update({
-        where: { id: registration.id },
-        data: { userId },
-      }),
-    );
-
+      );
+    } catch (error) {
+      await withTenantContext({ userId, conferenceId }, async (tx) =>
+        tx.payment.update({ where: { id: reserved.payment.id }, data: { status: 'FAILED' } }),
+      );
+      throw error;
+    }
     await this.audit.log({
       actorUserId: userId,
       organizationId: conference.organizationId,
@@ -162,10 +227,75 @@ export class PaymentsService {
       action: 'payment.initiated',
       entity: 'Payment',
       entityId: payment.id,
-      diff: { orderId: order.orderId, amountMinor, kind },
+      diff: {
+        orderId: payment.providerOrderId,
+        amountMinor: payment.amountMinor,
+        kind: payment.kind,
+      },
     });
+    return this.buildInitiateResponse(payment, reserved.registration, payment.provider);
+  }
 
-    return this.buildInitiateResponse(payment, registration, provider.name);
+  async verifyPayment(
+    userId: string,
+    conferenceId: string,
+    paperId: string,
+    input: VerifyPaymentInput,
+    roles: RoleKind[],
+  ) {
+    await this.conferences.loadConference(userId, conferenceId, roles);
+    // Access remains valid for a paid paper even if its decision changes later.
+    const registration = await this.registrations.loadRegistration(userId, conferenceId, paperId);
+    if (registration.userId !== userId)
+      throw new ForbiddenException('Only the registering author can verify payment');
+    const payment = await withTenantContext({ userId, conferenceId }, async (tx) =>
+      tx.payment.findFirst({
+        where: {
+          registrationId: registration.id,
+          provider: 'razorpay',
+          providerOrderId: input.razorpay_order_id,
+        },
+      }),
+    );
+    if (!payment?.providerOrderId) throw new NotFoundException('Payment order not found');
+    // Use the order ID saved by the server, never an untrusted client ID in isolation.
+    if (
+      !this.razorpay.verifyCheckoutSignature(
+        payment.providerOrderId,
+        input.razorpay_payment_id,
+        input.razorpay_signature,
+      )
+    ) {
+      throw new BadRequestException('Invalid payment signature');
+    }
+    const entity = await this.razorpay.fetchPayment(input.razorpay_payment_id);
+    if (
+      entity.id !== input.razorpay_payment_id ||
+      entity.order_id !== payment.providerOrderId ||
+      entity.amount !== payment.amountMinor ||
+      entity.currency !== payment.currency
+    ) {
+      throw new BadRequestException('Payment does not match the registration order');
+    }
+    const captured = entity.status === 'captured' && entity.captured === true;
+    if (captured) {
+      await this.processCapture('razorpay', {
+        eventType: 'payment.captured',
+        orderId: entity.order_id,
+        paymentId: entity.id,
+        amountMinor: entity.amount,
+        currency: entity.currency,
+        capturedAt: new Date(entity.created_at * 1000),
+        raw: entity,
+      });
+    }
+    return {
+      verified: true as const,
+      captured,
+      registration: mapRegistration(
+        await this.registrations.loadRegistration(userId, conferenceId, paperId),
+      ),
+    };
   }
 
   async handleWebhook(rawBody: Buffer, signature: string, timestamp?: string) {
@@ -175,17 +305,26 @@ export class PaymentsService {
       throw new ForbiddenException('Invalid webhook signature');
     }
 
-    const payload = JSON.parse(rawBody.toString('utf8')) as unknown;
+    let payload: unknown;
+    try {
+      payload = JSON.parse(rawBody.toString('utf8'));
+    } catch {
+      throw new BadRequestException('Invalid webhook payload');
+    }
     const event = provider.parseWebhook(payload);
 
     if (!event) {
       return { received: true };
     }
 
+    return this.processCapture(provider.name, event);
+  }
+
+  private async processCapture(providerName: string, event: ParsedWebhookEvent) {
     const payment = await withTenantContext({}, async (tx) =>
       tx.payment.findFirst({
         where: {
-          provider: provider.name,
+          provider: providerName,
           providerOrderId: event.orderId,
         },
         include: { registration: true },
@@ -200,7 +339,7 @@ export class PaymentsService {
     const duplicate = await withTenantContext({}, async (tx) =>
       tx.payment.findFirst({
         where: {
-          provider: provider.name,
+          provider: providerName,
           providerPaymentId: event.paymentId,
         },
       }),
@@ -210,30 +349,41 @@ export class PaymentsService {
       return { received: true };
     }
 
-    if (payment.status === 'CAPTURED' && payment.providerPaymentId === event.paymentId) {
-      return { received: true };
-    }
-
-    await withTenantContext({}, async (tx) => {
+    const captureContext = {
+      userId: payment.registration.userId ?? undefined,
+      organizationId: payment.organizationId,
+      conferenceId: payment.registration.conferenceId,
+    };
+    const applied = await withTenantContext(captureContext, async (tx) => {
       const locked = await lockRegistrationForUpdate(tx, payment.registrationId);
       if (!locked) {
         throw new NotFoundException('Registration not found');
       }
 
-      const conference = await tx.conference.findFirst({
-        where: { id: locked.conferenceId },
-      });
-
-      if (!conference) {
-        throw new NotFoundException('Conference not found');
+      const currentPayment = await tx.payment.findUnique({ where: { id: payment.id } });
+      if (!currentPayment) throw new NotFoundException('Payment not found');
+      if (
+        currentPayment.status === 'CAPTURED' ||
+        currentPayment.status === 'REFUNDED' ||
+        currentPayment.status === 'PARTIALLY_REFUNDED'
+      )
+        return false;
+      if (
+        event.amountMinor !== currentPayment.amountMinor ||
+        event.currency !== currentPayment.currency
+      ) {
+        throw new BadRequestException(
+          'Captured payment amount or currency does not match the order',
+        );
       }
-
-      const feeSchedule = parseFeeSchedule(conference.feeSchedule);
 
       let lockedTiming = locked.lockedTiming;
       let amountDueMinor = locked.amountDueMinor;
 
       if (payment.kind === 'INITIAL' && !lockedTiming) {
+        const conference = await tx.conference.findFirst({ where: { id: locked.conferenceId } });
+        if (!conference) throw new NotFoundException('Conference not found');
+        const feeSchedule = parseFeeSchedule(conference.feeSchedule);
         const resolved = this.registrations.resolveAmountDue(
           feeSchedule,
           locked.audience,
@@ -250,8 +400,6 @@ export class PaymentsService {
         data: {
           status: 'CAPTURED',
           providerPaymentId: event.paymentId,
-          amountMinor: event.amountMinor,
-          currency: event.currency,
           rawPayload: event.raw as object,
         },
       });
@@ -266,17 +414,24 @@ export class PaymentsService {
       });
 
       const paidState = await computePaidState(tx, locked.id);
-      const nextStatus = deriveRegistrationStatusAfterCapture(updatedRegistration, paidState);
+      let nextStatus = deriveRegistrationStatusAfterCapture(updatedRegistration, paidState);
+      if (nextStatus === 'AWAITING_VERIFICATION') {
+        const verification = await tx.studentVerification.findFirst({
+          where: { registrationId: locked.id },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (verification?.status === 'APPROVED') nextStatus = 'PAID';
+      }
 
       await tx.registration.update({
         where: { id: locked.id },
         data: { status: nextStatus },
       });
+      return true;
     });
-
-    const capturedPayment = await withTenantContext({}, async (tx) =>
+    const capturedPayment = await withTenantContext(captureContext, async (tx) =>
       tx.payment.findFirst({
-        where: { id: payment.id },
+        where: { id: payment.id, status: 'CAPTURED', providerPaymentId: event.paymentId },
         include: {
           registration: {
             include: {
@@ -289,17 +444,19 @@ export class PaymentsService {
     );
 
     if (capturedPayment) {
-      await this.audit.log({
-        organizationId: capturedPayment.organizationId,
-        conferenceId: capturedPayment.registration.conferenceId,
-        action: 'payment.captured',
-        entity: 'Payment',
-        entityId: capturedPayment.id,
-        diff: {
-          providerPaymentId: event.paymentId,
-          amountMinor: event.amountMinor,
-        },
-      });
+      if (applied)
+        await this.audit.log({
+          actorUserId: capturedPayment.registration.userId,
+          organizationId: capturedPayment.organizationId,
+          conferenceId: capturedPayment.registration.conferenceId,
+          action: 'payment.captured',
+          entity: 'Payment',
+          entityId: capturedPayment.id,
+          diff: {
+            providerPaymentId: event.paymentId,
+            amountMinor: event.amountMinor,
+          },
+        });
 
       // Capture is already committed. Invoice upload and mail must not
       // turn the webhook into a 500, or the provider retries a paid order.
@@ -319,13 +476,21 @@ export class PaymentsService {
             registrationId: capturedPayment.registrationId,
           });
         }
-
+      } catch (err) {
+        this.logger.error(
+          { err, paymentId: capturedPayment.id },
+          'Payment captured; invoice generation could not be scheduled',
+        );
+      }
+      try {
         await this.sendPaymentConfirmation(capturedPayment);
       } catch (err) {
         this.logger.error(
           { err, paymentId: capturedPayment.id },
-          'Payment captured; invoice or confirmation side effect failed',
+          'Payment captured; confirmation email could not be queued',
         );
+        // A provider retry can retry the notification without repeating the charge.
+        throw err;
       }
     }
 
@@ -470,23 +635,6 @@ export class PaymentsService {
     };
   }
 
-  private async hasStudentDocument(registrationId: string): Promise<boolean> {
-    const verification = await withTenantContext({}, async (tx) =>
-      tx.studentVerification.findFirst({
-        where: {
-          registrationId,
-          status: {
-            in: ['PENDING', 'APPROVED', 'CLARIFICATION_REQUESTED', 'REJECTED'],
-          },
-        },
-        include: { fileAsset: true },
-        orderBy: { createdAt: 'desc' },
-      }),
-    );
-
-    return Boolean(verification?.fileAsset?.scanStatus === 'CLEAN');
-  }
-
   private async sendPaymentConfirmation(
     payment: Payment & {
       registration: Registration & {
@@ -496,9 +644,6 @@ export class PaymentsService {
     },
   ) {
     const config = getConfig();
-    if (config.isTest) {
-      return;
-    }
 
     const corresponding =
       payment.registration.paper.authorships.find((a) => a.isCorresponding) ??
@@ -509,7 +654,7 @@ export class PaymentsService {
       return;
     }
 
-    const amountFormatted = `${payment.amountMinor / 100} ${payment.currency}`;
+    const amountFormatted = `${(payment.amountMinor / 100).toFixed(2)} ${payment.currency}`;
 
     await this.notifications.publishPaymentCaptured({
       to,
@@ -517,6 +662,8 @@ export class PaymentsService {
       organizationId: payment.organizationId,
       paperTitle: payment.registration.paper.title,
       amountFormatted,
+      transactionId: payment.providerPaymentId ?? payment.id,
+      registrationUrl: `${config.webUrl.replace(/\/$/, '')}/dashboard/conferences/${payment.registration.conferenceId}/submissions/${payment.registration.paperId}?section=registration`,
       paymentId: payment.id,
       idempotencyKey: `payment-captured-${payment.id}`,
     });

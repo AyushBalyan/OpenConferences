@@ -1,7 +1,13 @@
 import PDFDocument from 'pdfkit';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { createHash } from 'node:crypto';
-import { generateId, withTenantContext } from '@openconferences/db';
+import {
+  generateId,
+  withTenantContext,
+  drawRegistrationInvoice,
+  registrationInvoiceDetails,
+  type RegistrationInvoiceDetails,
+} from '@openconferences/db';
 import type { InvoiceGenerateJobPayload } from '@openconferences/schemas';
 import { getS3Client, getS3Bucket } from './s3.client.js';
 
@@ -28,27 +34,14 @@ async function nextInvoiceNumber(organizationId: string): Promise<string> {
   return `INV-${fiscalYear}-${String(counter.lastNumber).padStart(6, '0')}`;
 }
 
-async function renderInvoicePdf(input: {
-  number: string;
-  conferenceName: string;
-  paperTitle: string;
-  amountMinor: number;
-  currency: string;
-}): Promise<Buffer> {
+async function renderInvoicePdf(input: RegistrationInvoiceDetails): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 50 });
+    const doc = new PDFDocument({ size: 'A4', margin: 0 });
     const chunks: Buffer[] = [];
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
-    doc.fontSize(20).text('Registration Invoice', { align: 'center' });
-    doc.moveDown();
-    doc.fontSize(12).text(`Invoice Number: ${input.number}`);
-    doc.text(`Conference: ${input.conferenceName}`);
-    doc.text(`Paper: ${input.paperTitle}`);
-    doc.text(`Amount: ${(input.amountMinor / 100).toFixed(2)} ${input.currency}`, {
-      align: 'right',
-    });
+    drawRegistrationInvoice(doc, input);
     doc.end();
   });
 }
@@ -68,7 +61,8 @@ export async function processInvoiceJob(payload: InvoiceGenerateJobPayload): Pro
       include: {
         registration: {
           include: {
-            paper: { select: { title: true, submittedById: true } },
+            paper: { include: { authorships: { orderBy: { order: 'asc' } } } },
+            payer: { select: { name: true, email: true } },
             conference: { select: { name: true } },
           },
         },
@@ -81,13 +75,9 @@ export async function processInvoiceJob(payload: InvoiceGenerateJobPayload): Pro
   }
 
   const invoiceNumber = await nextInvoiceNumber(payload.organizationId);
-  const pdfBuffer = await renderInvoicePdf({
-    number: invoiceNumber,
-    conferenceName: payment.registration.conference.name,
-    paperTitle: payment.registration.paper.title,
-    amountMinor: payment.amountMinor,
-    currency: payment.currency,
-  });
+  const pdfBuffer = await renderInvoicePdf(
+    registrationInvoiceDetails(payment, invoiceNumber, new Date()),
+  );
 
   const objectKey = `org/${payload.organizationId}/invoices/${payment.id}/${invoiceNumber}.pdf`;
   const bucket = getS3Bucket();

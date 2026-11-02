@@ -140,6 +140,8 @@ export type PaymentCapturedPayload = {
   organizationId: string;
   paperTitle: string;
   amountFormatted: string;
+  transactionId: string;
+  registrationUrl: string;
   paymentId: string;
   idempotencyKey: string;
 };

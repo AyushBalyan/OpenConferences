@@ -51,11 +51,24 @@ export const feeScheduleSchema = z.object({
   currency: z.string().length(3),
   earlyBirdEndsAt: z.string().datetime().nullable().optional(),
   registrationDeadlineAt: z.string().datetime().nullable().optional(),
+  additionalPaperMinor: z.number().int().positive().optional(),
+  domesticInrPerUsd: z.number().positive().max(1000).optional(),
   matrix: z.record(
     z.enum(['REGULAR', 'STUDENT']),
     z.record(z.enum(['EARLY', 'REGULAR']), z.number().int().nonnegative()),
   ),
 });
+
+// USD cents. "Before 20 November" is midnight at the start of that day in India.
+export const CONFERENCE_2026_FEES = {
+  currency: 'USD',
+  earlyBirdEndsAt: '2026-11-19T18:30:00.000Z',
+  additionalPaperMinor: 5000,
+  matrix: {
+    REGULAR: { EARLY: 12500, REGULAR: 15000 },
+    STUDENT: { EARLY: 7500, REGULAR: 10000 },
+  },
+} as const;
 
 export const reviewConfigSchema = z.object({
   scoreDimensions: z.array(z.string().min(1)).default(['originality', 'clarity', 'significance']),

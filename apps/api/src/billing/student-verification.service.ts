@@ -220,9 +220,12 @@ export class StudentVerificationService {
             },
           });
 
+          const paidState = await computePaidState(tx, registration.id);
+          const fullyPaid =
+            registration.amountDueMinor > 0 && paidState.netMinor >= registration.amountDueMinor;
           const updated = await tx.registration.update({
             where: { id: registration.id },
-            data: { status: 'PAID', version: { increment: 1 } },
+            data: { status: fullyPaid ? 'PAID' : registration.status, version: { increment: 1 } },
           });
 
           return updated;
@@ -253,7 +256,9 @@ export class StudentVerificationService {
           );
         }
 
-        const regularDue = resolveMatrixAmount(feeSchedule, 'REGULAR', registration.lockedTiming);
+        const regularDue =
+          registration.regularAmountDueMinor ??
+          resolveMatrixAmount(feeSchedule, 'REGULAR', registration.lockedTiming);
 
         await tx.studentVerification.update({
           where: { id: verificationId },

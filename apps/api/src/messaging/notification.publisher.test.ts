@@ -10,6 +10,40 @@ import { NotificationPublisher } from './notification.publisher';
 import { PLATFORM_NOTIFICATION_TEMPLATES } from '@openconferences/db';
 import { renderTemplate } from './template-renderer';
 
+describe('payment confirmation email', () => {
+  it('includes the paper, exact currency amount, provider transaction ID and registration link in both formats', async () => {
+    const enqueue = vi.fn().mockResolvedValue('notification-id');
+    const publisher = new NotificationPublisher({ enqueue } as never);
+    await publisher.publishPaymentCaptured({
+      to: 'registered-author@example.test',
+      conferenceId: 'conference',
+      organizationId: 'organization',
+      paperTitle: 'Safe <Research>',
+      amountFormatted: '4250.00 INR',
+      transactionId: 'pay_Razorpay123',
+      registrationUrl: 'https://example.test/registration',
+      paymentId: 'internal-payment-id',
+      idempotencyKey: 'payment-captured-internal-payment-id',
+    });
+    const mail = enqueue.mock.calls[0]![0];
+    expect(mail.to).toBe('registered-author@example.test');
+    expect(mail.idempotencyKey).toBe('payment-captured-internal-payment-id');
+    const template = PLATFORM_NOTIFICATION_TEMPLATES.find((t) => t.key === mail.templateKey)!;
+    for (const body of [template.bodyHtml, template.bodyText]) {
+      const rendered = renderTemplate(body, { ...mail.context, conferenceName: 'Conference 2026' });
+      for (const expected of [
+        'Safe &lt;Research&gt;',
+        '4250.00 INR',
+        'pay_Razorpay123',
+        'https://example.test/registration',
+      ]) {
+        expect(rendered).toContain(expected);
+      }
+      expect(rendered).not.toContain('participation is confirmed');
+    }
+  });
+});
+
 describe('NotificationPublisher.publishPaperSubmitted', () => {
   const enqueue = vi.fn();
   const publisher = new NotificationPublisher({ enqueue } as never);

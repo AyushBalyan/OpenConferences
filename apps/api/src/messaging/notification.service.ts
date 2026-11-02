@@ -116,8 +116,10 @@ export class NotificationService {
 
     const logId = generateId();
 
-    await withTenantContext({}, async (tx) =>
-      tx.notificationLog.create({
+    // Commit the receipt log and its queue job together. A scheduling failure
+    // rolls back the log, so a capture retry can safely enqueue it again.
+    return withTenantContext({}, async (tx) => {
+      await tx.notificationLog.create({
         data: {
           id: logId,
           organizationId: input.organizationId ?? null,
@@ -132,18 +134,30 @@ export class NotificationService {
           relatedEntity: input.relatedEntity ?? null,
           relatedEntityId: input.relatedEntityId ?? null,
         },
-      }),
-    );
-
-    return this.queue.sendNotification({
-      logId,
-      to: normalizedEmail,
-      subject,
-      html,
-      text,
-      replyTo: input.replyTo,
-      tags: input.tags ?? [input.templateKey],
-      idempotencyKey: input.idempotencyKey,
+      });
+      return this.queue.sendNotification(
+        {
+          logId,
+          to: normalizedEmail,
+          subject,
+          html,
+          text,
+          replyTo: input.replyTo,
+          tags: input.tags ?? [input.templateKey],
+          idempotencyKey: input.idempotencyKey,
+        },
+        tx,
+      );
+    }).catch(async (error: unknown) => {
+      // Concurrent callback and webhook deliveries can race on the unique receipt key.
+      // The winning transaction has committed both the log and its delivery job.
+      if (input.idempotencyKey && (error as { code?: string })?.code === 'P2002') {
+        const existing = await withTenantContext({}, (tx) =>
+          tx.notificationLog.findUnique({ where: { idempotencyKey: input.idempotencyKey } }),
+        );
+        if (existing) return existing.id;
+      }
+      throw error;
     });
   }
 

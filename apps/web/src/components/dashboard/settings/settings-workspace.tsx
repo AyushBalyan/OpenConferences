@@ -16,6 +16,10 @@ export type SettingsForm = {
   cameraReadyDueAt: string;
   registrationDueAt: string;
   currency: string;
+  earlyBirdEndsAt: string;
+  registrationDeadlineAt: string;
+  additionalPaperMinor: string;
+  domesticInrPerUsd: string;
   regularEarly: string;
   regularRegular: string;
   studentEarly: string;
@@ -54,11 +58,15 @@ const EMPTY_FORM: SettingsForm = {
   decisionDueAt: '',
   cameraReadyDueAt: '',
   registrationDueAt: '',
-  currency: 'INR',
-  regularEarly: '500000',
-  regularRegular: '750000',
-  studentEarly: '250000',
-  studentRegular: '400000',
+  currency: 'USD',
+  earlyBirdEndsAt: '2026-11-19T18:30',
+  registrationDeadlineAt: '',
+  additionalPaperMinor: '5000',
+  domesticInrPerUsd: '',
+  regularEarly: '12500',
+  regularRegular: '15000',
+  studentEarly: '7500',
+  studentRegular: '10000',
 };
 
 export function SettingsWorkspaceProvider({
@@ -87,6 +95,12 @@ export function SettingsWorkspaceProvider({
       cameraReadyDueAt: toUtcDatetimeLocalValue(conference.cameraReadyDueAt),
       registrationDueAt: toUtcDatetimeLocalValue(conference.registrationDueAt),
       currency: conference.feeSchedule.currency,
+      earlyBirdEndsAt: toUtcDatetimeLocalValue(conference.feeSchedule.earlyBirdEndsAt),
+      registrationDeadlineAt: toUtcDatetimeLocalValue(
+        conference.feeSchedule.registrationDeadlineAt,
+      ),
+      additionalPaperMinor: String(conference.feeSchedule.additionalPaperMinor ?? ''),
+      domesticInrPerUsd: String(conference.feeSchedule.domesticInrPerUsd ?? ''),
       regularEarly: String(conference.feeSchedule.matrix.REGULAR?.EARLY ?? 0),
       regularRegular: String(conference.feeSchedule.matrix.REGULAR?.REGULAR ?? 0),
       studentEarly: String(conference.feeSchedule.matrix.STUDENT?.EARLY ?? 0),
@@ -118,6 +132,12 @@ export function SettingsWorkspaceProvider({
         registrationDueAt: fromUtcDatetimeLocalValue(form.registrationDueAt),
         feeSchedule: {
           currency: form.currency,
+          earlyBirdEndsAt: fromUtcDatetimeLocalValue(form.earlyBirdEndsAt),
+          registrationDeadlineAt: fromUtcDatetimeLocalValue(form.registrationDeadlineAt),
+          ...(form.additionalPaperMinor
+            ? { additionalPaperMinor: Number(form.additionalPaperMinor) }
+            : {}),
+          ...(form.domesticInrPerUsd ? { domesticInrPerUsd: Number(form.domesticInrPerUsd) } : {}),
           matrix: {
             REGULAR: {
               EARLY: Number(form.regularEarly),

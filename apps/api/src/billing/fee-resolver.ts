@@ -1,18 +1,24 @@
-import type { FeeAudience, FeeTiming, BillingFeeSchedule } from '@openconferences/schemas';
+import {
+  billingFeeScheduleSchema,
+  type FeeAudience,
+  type FeeTiming,
+  type BillingFeeSchedule,
+  type PaymentQuote,
+} from '@openconferences/schemas';
 
 export function parseFeeSchedule(raw: unknown): BillingFeeSchedule {
-  const schedule = raw as BillingFeeSchedule;
-  if (!schedule?.currency || !schedule?.matrix) {
+  const result = billingFeeScheduleSchema.safeParse(raw);
+  if (!result.success) {
     throw new Error('Conference fee schedule is not configured');
   }
-  return schedule;
+  return result.data;
 }
 
 export function resolveTiming(capturedAt: Date, earlyBirdEndsAt: Date | null): FeeTiming {
   if (!earlyBirdEndsAt) {
     return 'REGULAR';
   }
-  return capturedAt <= earlyBirdEndsAt ? 'EARLY' : 'REGULAR';
+  return capturedAt < earlyBirdEndsAt ? 'EARLY' : 'REGULAR';
 }
 
 export function resolveMatrixAmount(
@@ -62,4 +68,44 @@ export function estimateProvisionalAmount(
   const earlyBirdEndsAt = getEarlyBirdEndsAt(feeSchedule, null);
   const timing = resolveTiming(now, earlyBirdEndsAt);
   return resolveMatrixAmount(feeSchedule, audience, timing);
+}
+
+export function quoteRegistration(
+  schedule: BillingFeeSchedule,
+  audience: FeeAudience,
+  country: string | null,
+  hasPaidBasePaper: boolean,
+  now = new Date(),
+): PaymentQuote {
+  const timing = resolveTiming(now, getEarlyBirdEndsAt(schedule, null));
+  const isAdditionalPaper = hasPaidBasePaper && schedule.additionalPaperMinor !== undefined;
+  let amountMinor = isAdditionalPaper
+    ? schedule.additionalPaperMinor!
+    : resolveMatrixAmount(schedule, audience, timing);
+  let regularAmountMinor = isAdditionalPaper
+    ? schedule.additionalPaperMinor!
+    : resolveMatrixAmount(schedule, 'REGULAR', timing);
+  let currency = schedule.currency;
+  if (currency === 'USD') {
+    if (!country) throw new Error('Save your billing country before payment.');
+    if (country === 'IN') {
+      if (!schedule.domesticInrPerUsd) {
+        throw new Error(
+          'INR registration pricing is not configured. Please contact the organizers.',
+        );
+      }
+      // USD cents × INR per USD = INR paise; snapshot the rounded amount per order.
+      amountMinor = Math.round(amountMinor * schedule.domesticInrPerUsd);
+      regularAmountMinor = Math.round(regularAmountMinor * schedule.domesticInrPerUsd);
+      currency = 'INR';
+    }
+  }
+  if (
+    ![amountMinor, regularAmountMinor].every(
+      (amount) => Number.isSafeInteger(amount) && amount >= 100 && amount <= 2_147_483_647,
+    )
+  ) {
+    throw new Error('Registration pricing is invalid. Please contact the organizers.');
+  }
+  return { amountMinor, regularAmountMinor, currency, timing, isAdditionalPaper };
 }

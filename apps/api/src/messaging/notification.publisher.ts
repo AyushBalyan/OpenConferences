@@ -285,6 +285,8 @@ export class NotificationPublisher {
       context: {
         paperTitle: payload.paperTitle,
         amountFormatted: payload.amountFormatted,
+        transactionId: payload.transactionId,
+        registrationUrl: payload.registrationUrl,
       },
       organizationId: payload.organizationId,
       conferenceId: payload.conferenceId,

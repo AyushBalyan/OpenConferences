@@ -516,17 +516,26 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
   }),
   letter({
     key: 'registration.confirmed',
-    subject: 'Registration confirmed — {{paperTitle}}',
-    headline: 'Registration confirmed',
+    subject: 'Payment received — {{paperTitle}}',
+    headline: 'Payment received',
     paragraphs: [
-      'Thank you — your registration payment has been received and your participation is confirmed.',
+      'Thank you — your registration payment has been received for the paper below.',
+      'Student registrations remain subject to document verification where applicable.',
     ],
     details: [
       { label: 'Paper', value: '{{paperTitle}}' },
       { label: 'Amount paid', value: '{{amountFormatted}}' },
+      { label: 'Transaction ID', value: '{{transactionId}}' },
     ],
+    cta: { label: 'View registration and invoice', url: '{{registrationUrl}}' },
     secondaryNote: 'Keep this email for your records.',
-    variables: ['paperTitle', 'amountFormatted', 'conferenceName'],
+    variables: [
+      'paperTitle',
+      'amountFormatted',
+      'transactionId',
+      'registrationUrl',
+      'conferenceName',
+    ],
   }),
   letter({
     key: 'registration.verification_approved',

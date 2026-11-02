@@ -4,6 +4,7 @@ import type {
   ConferenceDto,
   ConferenceStatus as SchemaConferenceStatus,
   RoleKind as SchemaRoleKind,
+  BillingFeeSchedule,
 } from '@openconferences/schemas';
 
 type JsonValue = Record<string, unknown>;
@@ -32,14 +33,20 @@ function parseReviewConfig(value: unknown): {
   };
 }
 
-function parseFeeSchedule(value: unknown): {
-  currency: string;
-  matrix: Record<'REGULAR' | 'STUDENT', Record<'EARLY' | 'REGULAR', number>>;
-} {
+function parseFeeSchedule(value: unknown): BillingFeeSchedule {
   const obj = (value ?? {}) as JsonValue;
   const matrix = (obj.matrix ?? {}) as JsonValue;
   return {
     currency: typeof obj.currency === 'string' ? obj.currency : 'INR',
+    ...(typeof obj.additionalPaperMinor === 'number'
+      ? { additionalPaperMinor: obj.additionalPaperMinor }
+      : {}),
+    ...(typeof obj.domesticInrPerUsd === 'number'
+      ? { domesticInrPerUsd: obj.domesticInrPerUsd }
+      : {}),
+    earlyBirdEndsAt: typeof obj.earlyBirdEndsAt === 'string' ? obj.earlyBirdEndsAt : null,
+    registrationDeadlineAt:
+      typeof obj.registrationDeadlineAt === 'string' ? obj.registrationDeadlineAt : null,
     matrix: {
       REGULAR: {
         EARLY: Number((matrix.REGULAR as JsonValue)?.EARLY ?? 0),

@@ -83,12 +83,16 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async sendNotification(input: NotificationJobPayload): Promise<string | null> {
+  async sendNotification(
+    input: NotificationJobPayload,
+    tx?: Prisma.TransactionClient,
+  ): Promise<string | null> {
     if (!this.boss) {
       throw new Error('Queue is not initialized');
     }
 
     return this.boss.send(NOTIFICATION_SEND_JOB_NAME, input, {
+      ...(tx ? { db: prismaQueueAdapter(tx) } : {}),
       singletonKey: input.idempotencyKey ?? input.logId,
       retryLimit: 5,
       retryDelay: 30,
@@ -133,6 +137,9 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
 
     return this.boss.send(INVOICE_GENERATE_JOB_NAME, input, {
       singletonKey: `invoice-${input.paymentId}`,
+      retryLimit: 5,
+      retryDelay: 30,
+      retryBackoff: true,
     });
   }
 

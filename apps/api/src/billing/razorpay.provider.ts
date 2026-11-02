@@ -1,5 +1,11 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  BadGatewayException,
+  ServiceUnavailableException,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import { getConfig } from '@openconferences/config/env';
 import type {
   CreateOrderInput,
@@ -42,7 +48,9 @@ export class RazorpayProvider implements PaymentProvider {
     const keyId = config.razorpay.keyId;
     const keySecret = config.razorpay.keySecret;
     if (!keyId || !keySecret) {
-      throw new Error('Razorpay credentials are not configured');
+      throw new ServiceUnavailableException(
+        'Online payments are not configured. Please contact the organizers.',
+      );
     }
     return { keyId, keySecret, webhookSecret: config.razorpay.webhookSecret };
   }
@@ -52,6 +60,9 @@ export class RazorpayProvider implements PaymentProvider {
   }
 
   async createOrder(input: CreateOrderInput): Promise<CreateOrderResult> {
+    if (!Number.isSafeInteger(input.amountMinor) || input.amountMinor < 100) {
+      throw new BadRequestException('Payment amount must be at least 100 minor currency units');
+    }
     const { keyId, keySecret } = this.credentials;
     const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
 
@@ -66,22 +77,58 @@ export class RazorpayProvider implements PaymentProvider {
         currency: input.currency,
         receipt: input.receipt,
         notes: input.notes ?? {},
-        payment_capture: 1,
       }),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {
-      const body = await response.text();
-      this.logger.error({ status: response.status, body }, 'Razorpay order creation failed');
-      throw new Error(`Razorpay order creation failed: ${response.status}`);
+      this.logger.error({ status: response.status }, 'Razorpay order creation failed');
+      throw new BadGatewayException(
+        'Unable to start payment. Please try again or contact the organizers.',
+      );
     }
 
     const data = (await response.json()) as RazorpayOrderResponse;
+    if (!data.id || data.amount !== input.amountMinor || data.currency !== input.currency) {
+      throw new BadGatewayException('Payment provider returned an unexpected order');
+    }
     return {
       orderId: data.id,
       amountMinor: data.amount,
       currency: data.currency,
       raw: data,
+    };
+  }
+
+  verifyCheckoutSignature(orderId: string, paymentId: string, signature: string): boolean {
+    if (!/^[a-f0-9]{64}$/.test(signature)) return false;
+    const expected = createHmac('sha256', this.credentials.keySecret)
+      .update(`${orderId}|${paymentId}`)
+      .digest();
+    return timingSafeEqual(expected, Buffer.from(signature, 'hex'));
+  }
+
+  async fetchPayment(paymentId: string) {
+    if (!/^pay_[A-Za-z0-9]+$/.test(paymentId)) throw new BadRequestException('Invalid payment ID');
+    const { keyId, keySecret } = this.credentials;
+    const response = await fetch(`https://api.razorpay.com/v1/payments/${paymentId}`, {
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString('base64')}`,
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok)
+      throw new BadGatewayException(
+        'Unable to confirm payment yet. Please refresh registration shortly.',
+      );
+    return (await response.json()) as {
+      id: string;
+      order_id: string;
+      amount: number;
+      currency: string;
+      status: string;
+      captured: boolean;
+      created_at: number;
     };
   }
 
@@ -118,7 +165,7 @@ export class RazorpayProvider implements PaymentProvider {
     }
 
     const entity = data.payload?.payment?.entity;
-    if (!entity?.id || !entity.order_id) {
+    if (!entity?.id || !entity.order_id || entity.status !== 'captured') {
       return null;
     }
 

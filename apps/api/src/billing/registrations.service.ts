@@ -5,7 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import type { DecisionOutcome, Registration, RoleKind } from '@openconferences/db';
+import type { Registration, RoleKind } from '@openconferences/db';
 import { generateId, withTenantContext } from '@openconferences/db';
 import type {
   CreateRegistrationInput,
@@ -30,10 +30,38 @@ import {
   getRegistrationDeadline,
   parseFeeSchedule,
   resolveMatrixAmount,
+  quoteRegistration,
+  resolveTiming,
 } from './fee-resolver';
+import { lockRegistrationForUpdate } from './paid-state';
 
 @Injectable()
 export class RegistrationsService {
+  async resolveBillingAffiliation(
+    userId: string,
+    registration: Registration,
+  ): Promise<string | null> {
+    if (registration.billingAffiliation?.trim()) return registration.billingAffiliation.trim();
+    const payerId = registration.userId ?? userId;
+    return withTenantContext({ userId, conferenceId: registration.conferenceId }, async (tx) => {
+      const linked = await tx.authorship.findFirst({
+        where: { paperId: registration.paperId, userId: payerId },
+        orderBy: { order: 'asc' },
+      });
+      if (linked) return linked.affiliation?.trim() || null;
+      const payer = await tx.user.findUnique({ where: { id: payerId }, select: { email: true } });
+      if (!payer) return null;
+      const legacy = await tx.authorship.findFirst({
+        where: {
+          paperId: registration.paperId,
+          userId: null,
+          email: { equals: payer.email, mode: 'insensitive' },
+        },
+        orderBy: { order: 'asc' },
+      });
+      return legacy?.affiliation?.trim() || null;
+    });
+  }
   constructor(
     private readonly conferences: ConferenceService,
     private readonly papers: PapersService,
@@ -45,8 +73,10 @@ export class RegistrationsService {
     organizationId: string,
     conferenceId: string,
     paperId: string,
+    actorUserId?: string,
   ): Promise<Registration> {
-    const conference = await withTenantContext({}, async (tx) =>
+    const context = { userId: actorUserId, organizationId, conferenceId };
+    const conference = await withTenantContext(context, async (tx) =>
       tx.conference.findFirst({ where: { id: conferenceId } }),
     );
 
@@ -57,7 +87,7 @@ export class RegistrationsService {
     const feeSchedule = parseFeeSchedule(conference.feeSchedule);
     const deadlineAt = getRegistrationDeadline(feeSchedule, conference.registrationDueAt);
 
-    const existing = await withTenantContext({}, async (tx) =>
+    const existing = await withTenantContext(context, async (tx) =>
       tx.registration.findUnique({
         where: { conferenceId_paperId: { conferenceId, paperId } },
       }),
@@ -67,7 +97,7 @@ export class RegistrationsService {
       return existing;
     }
 
-    const registration = await withTenantContext({}, async (tx) =>
+    const registration = await withTenantContext(context, async (tx) =>
       tx.registration.create({
         data: {
           id: generateId(),
@@ -85,6 +115,7 @@ export class RegistrationsService {
     );
 
     await this.audit.log({
+      actorUserId,
       organizationId,
       conferenceId,
       action: 'registration.opened',
@@ -93,7 +124,7 @@ export class RegistrationsService {
       diff: { paperId },
     });
 
-    const paper = await withTenantContext({}, async (tx) =>
+    const paper = await withTenantContext(context, async (tx) =>
       tx.paper.findFirst({
         where: { id: paperId },
         include: { authorships: true },
@@ -128,6 +159,16 @@ export class RegistrationsService {
 
     const registration = await this.loadRegistration(userId, conferenceId, paperId);
     const feeSchedule = parseFeeSchedule(conference.feeSchedule);
+    let paymentQuote = null;
+    let paymentQuoteError: string | null = null;
+    if (registration.status === 'PENDING' && !registration.lockedTiming) {
+      try {
+        paymentQuote = await this.quoteForPayment(userId, registration, feeSchedule);
+      } catch (error) {
+        paymentQuoteError =
+          error instanceof Error ? error.message : 'Unable to calculate registration fee';
+      }
+    }
 
     const [payments, verifications, invoice] = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
@@ -154,6 +195,9 @@ export class RegistrationsService {
 
     return {
       ...mapRegistration(registration),
+      billingAffiliation: await this.resolveBillingAffiliation(userId, registration),
+      paymentQuote,
+      paymentQuoteError,
       payments: payments.map((p) => ({
         id: p.id,
         organizationId: p.organizationId,
@@ -207,29 +251,55 @@ export class RegistrationsService {
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
     const paper = await this.papers.loadPaper(userId, conferenceId, paperId, roles);
 
-    await this.assertPaperAccepted(paper.id, conferenceId);
+    await this.assertPaperAccepted(paper.id, conferenceId, userId);
 
     const registration = await this.loadRegistration(userId, conferenceId, paperId);
 
-    if (!['PENDING', 'ADDITIONAL_PAYMENT_REQUIRED'].includes(registration.status)) {
+    const affiliationOnly = (row: Registration) =>
+      ['PENDING', 'ADDITIONAL_PAYMENT_REQUIRED'].includes(row.status) &&
+      !row.billingAffiliation?.trim() &&
+      Boolean(input.billingAffiliation?.trim()) &&
+      input.audience === row.audience &&
+      (!input.billingCountry || input.billingCountry === row.billingCountry);
+    if (
+      (registration.status !== 'PENDING' || registration.lockedTiming) &&
+      !affiliationOnly(registration)
+    ) {
       throw new ConflictException('Registration audience cannot be changed after payment begins');
     }
+
+    const billingAffiliation =
+      input.billingAffiliation ?? (await this.resolveBillingAffiliation(userId, registration));
+    if (!billingAffiliation)
+      throw new UnprocessableEntityException(
+        'Enter your affiliation for the invoice before payment.',
+      );
 
     const updated = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
-        const current = await tx.registration.findFirst({
-          where: { id: registration.id },
-        });
+        const current = await lockRegistrationForUpdate(tx, registration.id);
 
         if (!current) {
           throw new NotFoundException('Registration not found');
+        }
+        const lockedDetails = current.status !== 'PENDING' || Boolean(current.lockedTiming);
+        if (lockedDetails && !affiliationOnly(current)) {
+          throw new ConflictException(
+            'Registration details cannot be changed after checkout begins',
+          );
         }
 
         return tx.registration.update({
           where: { id: current.id },
           data: {
-            audience: input.audience,
+            ...(!lockedDetails
+              ? {
+                  audience: input.audience,
+                  ...(input.billingCountry ? { billingCountry: input.billingCountry } : {}),
+                }
+              : {}),
+            billingAffiliation,
             version: { increment: 1 },
           },
         });
@@ -297,8 +367,56 @@ export class RegistrationsService {
     paperId: string,
     roles: RoleKind[],
   ): Promise<Registration> {
-    await this.papers.loadPaper(userId, conferenceId, paperId, roles);
+    const paper = await this.papers.loadPaper(userId, conferenceId, paperId, roles);
+    if (
+      paper.submittedById !== userId &&
+      !paper.authorships.some((author) => author.userId === userId)
+    ) {
+      throw new ForbiddenException('Only a paper author can pay for registration');
+    }
+    await this.assertPaperAccepted(paperId, conferenceId, userId);
     return this.loadRegistration(userId, conferenceId, paperId);
+  }
+
+  async quoteForPayment(
+    userId: string,
+    registration: Registration,
+    feeSchedule: BillingFeeSchedule,
+  ) {
+    const bases = await withTenantContext(
+      { userId, conferenceId: registration.conferenceId },
+      async (tx) =>
+        tx.registration.findMany({
+          where: {
+            conferenceId: registration.conferenceId,
+            userId,
+            id: { not: registration.id },
+            isAdditionalPaper: false,
+            status: { in: ['PAID', 'AWAITING_VERIFICATION'] },
+          },
+          include: { payments: true },
+        }),
+    );
+    // Require actual captured funds, not merely an organizer-set status.
+    const hasPaidBasePaper = bases.some((base) => {
+      const net = base.payments.reduce((sum, payment) => {
+        if (
+          payment.kind === 'REFUND' &&
+          ['REFUNDED', 'PARTIALLY_REFUNDED'].includes(payment.status)
+        )
+          return sum - payment.amountMinor;
+        if (payment.kind !== 'REFUND' && payment.status === 'CAPTURED')
+          return sum + payment.amountMinor;
+        return sum;
+      }, 0);
+      return base.amountDueMinor > 0 && net >= base.amountDueMinor;
+    });
+    return quoteRegistration(
+      feeSchedule,
+      registration.audience,
+      registration.billingCountry,
+      hasPaidBasePaper,
+    );
   }
 
   async loadRegistration(
@@ -328,8 +446,7 @@ export class RegistrationsService {
     conferenceRegistrationDueAt: Date | null,
   ): { amountDueMinor: number; lockedTiming: Registration['lockedTiming'] } {
     const earlyBirdEndsAt = getEarlyBirdEndsAt(feeSchedule, conferenceRegistrationDueAt);
-    const timing =
-      lockedTiming ?? (earlyBirdEndsAt && capturedAt <= earlyBirdEndsAt ? 'EARLY' : 'REGULAR');
+    const timing = lockedTiming ?? resolveTiming(capturedAt, earlyBirdEndsAt);
 
     return {
       lockedTiming: timing,
@@ -421,14 +538,23 @@ export class RegistrationsService {
     return filters;
   }
 
-  private async assertPaperAccepted(paperId: string, conferenceId: string) {
-    const decision = await withTenantContext({}, async (tx) =>
-      tx.decision.findFirst({
-        where: { paperId, conferenceId, outcome: 'ACCEPT' as DecisionOutcome },
-      }),
+  private async assertPaperAccepted(paperId: string, conferenceId: string, userId: string) {
+    const [decision, paper] = await withTenantContext({ userId, conferenceId }, async (tx) =>
+      Promise.all([
+        tx.decision.findFirst({
+          where: { paperId, conferenceId },
+          orderBy: [{ round: { roundNumber: 'desc' } }, { createdAt: 'desc' }],
+        }),
+        tx.paper.findFirst({ where: { id: paperId, conferenceId }, select: { status: true } }),
+      ]),
     );
 
-    if (!decision) {
+    if (
+      decision?.outcome !== 'ACCEPT' ||
+      !decision.notifiedAt ||
+      !paper ||
+      !['DECISION_MADE', 'CAMERA_READY'].includes(paper.status)
+    ) {
       throw new UnprocessableEntityException('Registration is only available for accepted papers');
     }
   }

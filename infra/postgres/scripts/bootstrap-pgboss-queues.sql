@@ -21,6 +21,11 @@ FROM unnest(
   ]
 ) AS name;
 
+-- Notification jobs are inserted in the API's application transaction.
+-- These tables may have been created after the initial role-grant migration.
+GRANT SELECT, INSERT ON TABLE pgboss.job TO openconferences_api;
+GRANT SELECT ON TABLE pgboss.queue TO openconferences_api;
+
 SELECT name, created_on
 FROM pgboss.queue
 ORDER BY name;

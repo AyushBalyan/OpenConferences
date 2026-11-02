@@ -185,3 +185,5 @@ export {
 } from './reviewer-digest.js';
 
 export { pruneIntegrationAccessLogs } from './integration-retention.js';
+export { drawRegistrationInvoice, registrationInvoiceDetails } from './invoice-layout.js';
+export type { RegistrationInvoiceDetails, InvoiceCanvas } from './invoice-layout.js';

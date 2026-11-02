@@ -2,7 +2,13 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import PDFDocument from 'pdfkit';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { createHash } from 'node:crypto';
-import { generateId, withTenantContext } from '@openconferences/db';
+import {
+  generateId,
+  withTenantContext,
+  drawRegistrationInvoice,
+  registrationInvoiceDetails,
+  type RegistrationInvoiceDetails,
+} from '@openconferences/db';
 import type { InvoiceGenerateJobPayload } from '@openconferences/schemas';
 import { AuditService } from '../audit/audit.service';
 import { FilesService } from '../files/files.service';
@@ -33,7 +39,8 @@ export class InvoicesService {
         include: {
           registration: {
             include: {
-              paper: { select: { title: true, submittedById: true } },
+              paper: { include: { authorships: { orderBy: { order: 'asc' } } } },
+              payer: { select: { name: true, email: true } },
               conference: { select: { name: true } },
             },
           },
@@ -46,14 +53,9 @@ export class InvoicesService {
     }
 
     const invoiceNumber = await this.nextInvoiceNumber(payload.organizationId);
-    const pdfBuffer = await this.renderInvoicePdf({
-      number: invoiceNumber,
-      conferenceName: payment.registration.conference.name,
-      paperTitle: payment.registration.paper.title,
-      amountMinor: payment.amountMinor,
-      currency: payment.currency,
-      issuedAt: new Date(),
-    });
+    const pdfBuffer = await this.renderInvoicePdf(
+      registrationInvoiceDetails(payment, invoiceNumber, new Date()),
+    );
 
     const objectKey = `org/${payload.organizationId}/invoices/${payment.id}/${invoiceNumber}.pdf`;
     const bucket = getS3Bucket();
@@ -180,32 +182,14 @@ export class InvoicesService {
     return `INV-${fiscalYear}-${String(counter.lastNumber).padStart(6, '0')}`;
   }
 
-  private async renderInvoicePdf(input: {
-    number: string;
-    conferenceName: string;
-    paperTitle: string;
-    amountMinor: number;
-    currency: string;
-    issuedAt: Date;
-  }): Promise<Buffer> {
+  private async renderInvoicePdf(input: RegistrationInvoiceDetails): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-      const doc = new PDFDocument({ margin: 50 });
+      const doc = new PDFDocument({ size: 'A4', margin: 0 });
       const chunks: Buffer[] = [];
-
       doc.on('data', (chunk: Buffer) => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
-
-      doc.fontSize(20).text('Registration Invoice', { align: 'center' });
-      doc.moveDown();
-      doc.fontSize(12).text(`Invoice Number: ${input.number}`);
-      doc.text(`Issued: ${input.issuedAt.toISOString()}`);
-      doc.text(`Conference: ${input.conferenceName}`);
-      doc.text(`Paper: ${input.paperTitle}`);
-      doc.moveDown();
-      doc.text(`Amount: ${(input.amountMinor / 100).toFixed(2)} ${input.currency}`, {
-        align: 'right',
-      });
+      drawRegistrationInvoice(doc, input);
       doc.end();
     });
   }

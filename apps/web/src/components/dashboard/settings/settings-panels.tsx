@@ -1,5 +1,7 @@
 'use client';
 
+import { CONFERENCE_2026_FEES } from '@openconferences/schemas';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -205,6 +207,31 @@ export function SettingsFeesPanel() {
           }}
         >
           <div className="space-y-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() =>
+                setForm({
+                  ...form,
+                  currency: CONFERENCE_2026_FEES.currency,
+                  earlyBirdEndsAt: '2026-11-19T18:30',
+                  additionalPaperMinor: String(CONFERENCE_2026_FEES.additionalPaperMinor),
+                  regularEarly: '12500',
+                  regularRegular: '15000',
+                  studentEarly: '7500',
+                  studentRegular: '10000',
+                })
+              }
+            >
+              Use November 2026 USD fees
+            </Button>
+            <p className="text-sm text-muted-foreground">
+              Early: author $125, student $75. Regular: author $150, student $100. Additional
+              accepted paper: $50. Early pricing ends at 00:00 IST on 20 November 2026. Save to
+              apply to this conference.
+            </p>
+          </div>
+          <div className="space-y-2">
             <Label htmlFor="currency">Currency</Label>
             <Input
               id="currency"
@@ -248,6 +275,55 @@ export function SettingsFeesPanel() {
             </div>
           </div>
 
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="early-bird-ends">Early pricing ends (UTC, exclusive)</Label>
+              <Input
+                id="early-bird-ends"
+                type="datetime-local"
+                value={form.earlyBirdEndsAt}
+                onChange={(e) => setForm({ ...form, earlyBirdEndsAt: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="registration-fee-deadline">
+                Registration deadline override (UTC)
+              </Label>
+              <Input
+                id="registration-fee-deadline"
+                type="datetime-local"
+                value={form.registrationDeadlineAt}
+                onChange={(e) => setForm({ ...form, registrationDeadlineAt: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="additional-paper">Additional paper (minor units)</Label>
+              <Input
+                id="additional-paper"
+                type="number"
+                min="100"
+                step="1"
+                value={form.additionalPaperMinor}
+                onChange={(e) => setForm({ ...form, additionalPaperMinor: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="inr-per-usd">INR per USD for Indian authors</Label>
+              <Input
+                id="inr-per-usd"
+                type="number"
+                min="0.01"
+                max="1000"
+                step="0.01"
+                value={form.domesticInrPerUsd}
+                onChange={(e) => setForm({ ...form, domesticInrPerUsd: e.target.value })}
+              />
+              <p className="text-sm text-muted-foreground">
+                For USD fees only. Set your conference conversion rate to enable INR checkout. Each
+                order keeps its original price.
+              </p>
+            </div>
+          </div>
           <SettingsFeedback />
           <Button type="submit">Save fees</Button>
         </form>

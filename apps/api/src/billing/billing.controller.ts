@@ -104,6 +104,21 @@ export class BillingController {
     });
   }
 
+  @TsRestHandler(billingContract.verifyPayment)
+  @RequireMembership()
+  verifyPayment(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(billingContract.verifyPayment, async ({ params, body }) => {
+      const result = await this.payments.verifyPayment(
+        user.id,
+        params.conferenceId,
+        params.paperId,
+        body,
+        roles,
+      );
+      return { status: 200 as const, body: result };
+    });
+  }
+
   @TsRestHandler(billingContract.getInvoice)
   @RequireMembership()
   getInvoice(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {

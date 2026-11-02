@@ -16,6 +16,16 @@ async function mockAcceptedPaper(
     audience: options.student ? 'STUDENT' : 'REGULAR',
     deadlineAt: '2099-11-25T12:00:00Z',
     amountDueMinor: 0,
+    currency: 'USD',
+    billingCountry: 'US',
+    billingAffiliation: 'Test University',
+    paymentQuote: {
+      amountMinor: 12500,
+      regularAmountMinor: 12500,
+      currency: 'USD',
+      timing: 'EARLY',
+      isAdditionalPaper: false,
+    },
     feeSchedule: {},
     latestVerification: null as { status: string; note: null } | null,
   };
@@ -171,7 +181,9 @@ test('student proof lists acceptable documents, validates files and confirms rec
   await expect(
     page.getByRole('button', { name: 'Uploading document…', exact: true }),
   ).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Save category', exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: 'Save registration details', exact: true }),
+  ).toBeDisabled();
   api.releaseUpload();
   await expect(page.getByText('Document received', { exact: true })).toBeVisible();
   await expect(page.getByText('student-id.png', { exact: true })).toBeVisible();

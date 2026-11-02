@@ -773,6 +773,10 @@ model Registration {
   userId         String?            @db.Uuid
   audience       FeeAudience
   lockedTiming   FeeTiming?
+  billingCountry String?            @db.Char(2)
+  billingAffiliation String?
+  isAdditionalPaper Boolean         @default(false)
+  regularAmountDueMinor Int?
   amountDueMinor Int                @default(0)
   currency       String             @db.Char(3)
   status         RegistrationStatus @default(PENDING)
@@ -793,6 +797,7 @@ model Registration {
   @@unique([conferenceId, paperId])
   @@index([userId])
   @@index([conferenceId, status])
+  @@index([conferenceId, userId, isAdditionalPaper])
   @@map("registrations")
 }
 

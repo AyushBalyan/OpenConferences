@@ -1228,13 +1228,15 @@ export async function fetchRegistration(conferenceId: string, paperId: string) {
 export async function createRegistration(
   conferenceId: string,
   paperId: string,
-  body: { audience: 'REGULAR' | 'STUDENT' },
+  body: { audience: 'REGULAR' | 'STUDENT'; billingCountry?: string; billingAffiliation?: string },
 ) {
   const result = await apiClient.billing.createRegistration({
     params: { conferenceId, paperId },
     body,
   });
   if (result.status === 201) return result.body;
+  if (result.status === 409)
+    throw new Error(result.body.detail ?? 'Registration details are locked');
   if (result.status === 422) throw new Error(result.body.detail ?? 'Validation failed');
   throw new Error('Failed to create registration');
 }
@@ -1273,7 +1275,31 @@ export async function initiatePayment(conferenceId: string, paperId: string) {
   });
   if (result.status === 200) return result.body;
   if (result.status === 422) throw new Error(result.body.detail ?? 'Payment not allowed');
+  if (result.status === 409)
+    throw new Error(result.body.detail ?? 'Payment is already in progress');
   throw new Error('Failed to initiate payment');
+}
+
+export async function verifyPayment(
+  conferenceId: string,
+  paperId: string,
+  body: {
+    razorpay_payment_id: string;
+    razorpay_order_id: string;
+    razorpay_signature: string;
+  },
+) {
+  const result = await apiClient.billing.verifyPayment({ params: { conferenceId, paperId }, body });
+  if (result.status === 200) return result.body;
+  throw new Error(
+    'Payment could not be confirmed yet. Refresh registration shortly or contact the organizers before trying another payment.',
+  );
+}
+
+export async function fetchInvoiceDownload(conferenceId: string, paperId: string) {
+  const result = await apiClient.billing.getInvoice({ params: { conferenceId, paperId } });
+  if (result.status === 200 && result.body.downloadUrl) return result.body.downloadUrl;
+  throw new Error('Invoice is not available yet. Refresh registration shortly and try again.');
 }
 
 export async function fetchRegistrations(
