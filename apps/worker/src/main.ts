@@ -1,4 +1,5 @@
 import { processReviewerDigestJob, recordDigestFailure } from './reviewer-digest.js';
+import os from 'node:os';
 import PgBoss from 'pg-boss';
 import pino from 'pino';
 import { getConfig } from '@openconferences/config/env';
@@ -72,6 +73,40 @@ const logger = pino({ level: config.logLevel });
 let boss: PgBoss | null = null;
 let isShuttingDown = false;
 
+/** pg-boss leaves this unset, so node-pg uses 10. Logged only; the pool is not resized. */
+const PG_BOSS_DEFAULT_POOL_MAX = 10;
+/** Supabase session mode on this project refused clients above this pool_size. */
+const OBSERVED_SESSION_POOL_SIZE = 15;
+
+function databasePoolEstimate(connectionString: string): {
+  host?: string;
+  cpuCount: number;
+  prismaPoolEstimate: number;
+  connectionLimitConfigured: boolean;
+} {
+  const cpuCount = os.cpus().length;
+  let host: string | undefined;
+  let connectionLimit: number | undefined;
+  try {
+    const url = new URL(connectionString);
+    host = url.hostname;
+    const raw = url.searchParams.get('connection_limit');
+    if (raw) {
+      const parsed = Number(raw);
+      if (Number.isInteger(parsed) && parsed > 0) connectionLimit = parsed;
+    }
+  } catch {
+    host = undefined;
+  }
+
+  return {
+    host,
+    cpuCount,
+    prismaPoolEstimate: connectionLimit ?? cpuCount * 2 + 1,
+    connectionLimitConfigured: connectionLimit !== undefined,
+  };
+}
+
 async function startupStep<T>(step: string, run: () => Promise<T>): Promise<T> {
   logger.info({ step }, 'Worker startup step started');
   try {
@@ -103,6 +138,30 @@ function isSessionPoolExhausted(err: unknown): boolean {
 }
 
 async function startWorker(): Promise<void> {
+  const pools = databasePoolEstimate(config.databaseUrl);
+  const estimatedClients = pools.prismaPoolEstimate + PG_BOSS_DEFAULT_POOL_MAX;
+  logger.info(
+    {
+      ...pools,
+      pgBossDefaultPoolMax: PG_BOSS_DEFAULT_POOL_MAX,
+      estimatedClients,
+      observedSessionPoolSize: OBSERVED_SESSION_POOL_SIZE,
+    },
+    'Worker database pools',
+  );
+  if (estimatedClients > OBSERVED_SESSION_POOL_SIZE) {
+    logger.warn(
+      {
+        prismaPoolEstimate: pools.prismaPoolEstimate,
+        pgBossDefaultPoolMax: PG_BOSS_DEFAULT_POOL_MAX,
+        estimatedClients,
+        observedSessionPoolSize: OBSERVED_SESSION_POOL_SIZE,
+        connectionLimitConfigured: pools.connectionLimitConfigured,
+      },
+      'Estimated database clients exceed the session pooler pool_size. A later EMAXCONNSESSION means the pooler refused another connection.',
+    );
+  }
+
   await startupStep('assert-database-role', () => assertSafeDatabaseRole());
 
   boss = new PgBoss({
