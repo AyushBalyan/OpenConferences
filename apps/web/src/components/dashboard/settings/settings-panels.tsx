@@ -1,7 +1,5 @@
 'use client';
 
-import { CONFERENCE_2026_FEES } from '@openconferences/schemas';
-
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -196,7 +194,9 @@ export function SettingsFeesPanel() {
     <Card>
       <CardHeader>
         <CardTitle>Fee schedule</CardTitle>
-        <CardDescription>Registration fees in minor currency units (e.g. paise).</CardDescription>
+        <CardDescription>
+          Registration fees in minor currency units (e.g. paise or cents).
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <form
@@ -207,37 +207,19 @@ export function SettingsFeesPanel() {
           }}
         >
           <div className="space-y-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() =>
-                setForm({
-                  ...form,
-                  currency: CONFERENCE_2026_FEES.currency,
-                  earlyBirdEndsAt: '2026-11-19T18:30',
-                  additionalPaperMinor: String(CONFERENCE_2026_FEES.additionalPaperMinor),
-                  regularEarly: '12500',
-                  regularRegular: '15000',
-                  studentEarly: '7500',
-                  studentRegular: '10000',
-                })
-              }
-            >
-              Use November 2026 USD fees
-            </Button>
-            <p className="text-sm text-muted-foreground">
-              Early: author $125, student $75. Regular: author $150, student $100. Additional
-              accepted paper: $50. Early pricing ends at 00:00 IST on 20 November 2026. Save to
-              apply to this conference.
-            </p>
-          </div>
-          <div className="space-y-2">
             <Label htmlFor="currency">Currency</Label>
-            <Input
+            <select
               id="currency"
               value={form.currency}
               onChange={(e) => setForm({ ...form, currency: e.target.value })}
-            />
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="USD">USD — US Dollar</option>
+              <option value="INR">INR — Indian Rupee</option>
+              {!['USD', 'INR'].includes(form.currency) && (
+                <option value={form.currency}>{form.currency}</option>
+              )}
+            </select>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">

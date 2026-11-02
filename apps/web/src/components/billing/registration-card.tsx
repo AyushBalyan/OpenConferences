@@ -292,14 +292,16 @@ export function RegistrationCard({ conferenceId, conferenceName, paperId }: Regi
                   required
                   disabled={busy}
                   onChange={(event) => setBillingAffiliation(event.target.value)}
-                  aria-describedby="billing-affiliation-help"
+                  aria-describedby={
+                    registration.billingAffiliation ? undefined : 'billing-affiliation-help'
+                  }
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base"
                 />
-                <p id="billing-affiliation-help" className="text-sm text-slate-600">
-                  {registration.billingAffiliation
-                    ? 'Your saved affiliation is shown below your name on the invoice.'
-                    : 'Enter your institution or organization for the invoice before payment.'}
-                </p>
+                {!registration.billingAffiliation && (
+                  <p id="billing-affiliation-help" className="text-sm text-slate-600">
+                    Enter your institution or organization for the invoice before payment.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="audience">Registration category</Label>
@@ -330,11 +332,12 @@ export function RegistrationCard({ conferenceId, conferenceName, paperId }: Regi
                     </option>
                   ))}
                 </select>
-                <p className="text-sm text-slate-600">
-                  {registration.feeSchedule?.currency === 'USD' || registration.currency === 'USD'
-                    ? 'Indian authors pay in INR. Authors outside India pay in USD.'
-                    : `Payment currency: ${registration.currency}.`}
-                </p>
+                {registration.feeSchedule?.currency !== 'USD' &&
+                  registration.currency !== 'USD' && (
+                    <p className="text-sm text-slate-600">
+                      Payment currency: {registration.currency}.
+                    </p>
+                  )}
               </div>
               <p className="text-sm leading-relaxed text-slate-600">
                 Student authors will need to provide a verification document.

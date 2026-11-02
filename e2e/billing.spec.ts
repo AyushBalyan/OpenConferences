@@ -204,7 +204,7 @@ test('registration remains readable at desktop and mobile widths', async ({ page
   }
 });
 
-test('organizers can apply the fee preset and save the conversion rate and cutoff', async ({
+test('organizers can configure fees and save the conversion rate and cutoff', async ({
   page,
 }, testInfo) => {
   await fixture(page);
@@ -231,7 +231,15 @@ test('organizers can apply the fee preset and save the conversion rate and cutof
     await route.fulfill({ json: conference });
   });
   await page.goto(`/dashboard/conferences/${conferenceId}/settings/fees`);
-  await page.getByRole('button', { name: 'Use November 2026 USD fees' }).click();
+  await page.getByLabel('Currency', { exact: true }).selectOption('USD');
+  await page.getByLabel('Regular early', { exact: true }).fill('12500');
+  await page.getByLabel('Regular regular', { exact: true }).fill('15000');
+  await page.getByLabel('Student early', { exact: true }).fill('7500');
+  await page.getByLabel('Student regular', { exact: true }).fill('10000');
+  await page.getByLabel('Additional paper (minor units)', { exact: true }).fill('5000');
+  await page
+    .getByLabel('Early pricing ends (UTC, exclusive)', { exact: true })
+    .fill('2026-11-19T18:30');
   await page.getByLabel('INR per USD for Indian authors').fill('83.27');
   await page.getByRole('button', { name: 'Save fees', exact: true }).click();
   await expect(page.getByText('Settings saved.', { exact: true })).toBeVisible();
