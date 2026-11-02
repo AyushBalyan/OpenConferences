@@ -374,6 +374,7 @@ Unhealthy signs:
 - `Unsafe database role "…"` → wrong `DATABASE_URL` role (still owner/`BYPASSRLS`)
 - Hang then exit with Postgres timeout → wrong host / not session pooler / network
 - Immediate exit on env validation → missing required env var (read the error)
+- `EMAXCONNSESSION` / `session pooler is full` during startup → the session pooler refused another client. The log includes `startupStep`. A following `pg-boss worker started` line means Coolify restarted and the worker recovered; that line lists `queues` and `schedules`.
 
 Quick filter for failures:
 
