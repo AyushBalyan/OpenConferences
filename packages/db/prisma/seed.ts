@@ -99,7 +99,7 @@ async function main(): Promise<void> {
         accounts: {
           create: {
             id: generateId(),
-            accountId: SEED_ADMIN_EMAIL,
+            accountId: adminUserId,
             providerId: 'credential',
             password: passwordHash,
           },
@@ -150,7 +150,7 @@ async function main(): Promise<void> {
         accounts: {
           create: {
             id: generateId(),
-            accountId: SEED_AUTHOR_EMAIL,
+            accountId: authorUserId,
             providerId: 'credential',
             password: authorPasswordHash,
           },
@@ -208,7 +208,7 @@ async function main(): Promise<void> {
         accounts: {
           create: {
             id: generateId(),
-            accountId: SEED_REVIEWER_EMAIL,
+            accountId: reviewerUserId,
             providerId: 'credential',
             password: reviewerPasswordHash,
           },

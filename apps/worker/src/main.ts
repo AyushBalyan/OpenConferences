@@ -76,6 +76,12 @@ async function startWorker(): Promise<void> {
   await boss.createQueue(INVOICE_GENERATE_JOB_NAME);
   await boss.createQueue(DISCARD_SWEEP_JOB_NAME);
   await boss.createQueue(PAYMENT_RECONCILE_JOB_NAME);
+  await boss.schedule(
+    PAYMENT_RECONCILE_JOB_NAME,
+    '*/5 * * * *',
+    {},
+    { singletonKey: 'payment-reconcile' },
+  );
   await boss.createQueue(OUTREACH_SEND_JOB_NAME);
 
   await boss.work(REVIEWER_DIGEST_JOB_NAME, { includeMetadata: true }, async (jobs) => {

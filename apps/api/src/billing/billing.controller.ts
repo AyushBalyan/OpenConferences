@@ -129,6 +129,7 @@ export class BillingController {
         params.conferenceId,
         params.paperId,
         conference.organizationId,
+        roles,
       );
       return { status: 200 as const, body: invoice };
     });

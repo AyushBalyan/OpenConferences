@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import PDFDocument from 'pdfkit';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { createHash } from 'node:crypto';
@@ -13,6 +13,8 @@ import type { InvoiceGenerateJobPayload } from '@openconferences/schemas';
 import { AuditService } from '../audit/audit.service';
 import { FilesService } from '../files/files.service';
 import { getS3Bucket, getS3Client } from '../files/s3.client';
+import type { RoleKind } from '@openconferences/db';
+import { canCoordinateReview } from '../tenancy/role-hierarchy';
 import { mapInvoice } from './billing.mapper';
 
 @Injectable()
@@ -114,13 +116,19 @@ export class InvoicesService {
     conferenceId: string,
     paperId: string,
     organizationId: string,
+    roles: RoleKind[] = [],
   ) {
     const registration = await withTenantContext({ userId, conferenceId }, async (tx) =>
       tx.registration.findFirst({ where: { paperId, conferenceId } }),
     );
 
-    if (!registration) {
+    if (!registration || registration.organizationId !== organizationId) {
       throw new NotFoundException('Registration not found');
+    }
+    if (registration.userId !== userId && !canCoordinateReview(roles)) {
+      throw new ForbiddenException(
+        'Only the registering author or organizers can download this invoice',
+      );
     }
 
     const payment = await withTenantContext({ userId, conferenceId, organizationId }, async (tx) =>

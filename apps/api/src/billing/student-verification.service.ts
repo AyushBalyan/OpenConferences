@@ -207,6 +207,9 @@ export class StudentVerificationService {
           throw new NotFoundException('Registration not found');
         }
 
+        if (['CANCELLED', 'DISCARDED_NONPAYMENT', 'REFUNDED'].includes(registration.status))
+          throw new ConflictException('Registration is no longer eligible for verification');
+
         const now = new Date();
 
         if (input.action === 'APPROVE') {

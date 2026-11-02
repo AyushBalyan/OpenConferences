@@ -48,6 +48,8 @@ export function deriveRegistrationStatusAfterCapture(
   registration: Registration,
   paidState: PaidState,
 ): Registration['status'] {
+  if (['CANCELLED', 'DISCARDED_NONPAYMENT', 'REFUNDED'].includes(registration.status))
+    return registration.status;
   if (paidState.netMinor < registration.amountDueMinor) {
     if (registration.status === 'ADDITIONAL_PAYMENT_REQUIRED') {
       return 'ADDITIONAL_PAYMENT_REQUIRED';
@@ -69,6 +71,8 @@ export function deriveRegistrationStatusAfterRefund(
   registration: Registration,
   paidState: PaidState,
 ): Registration['status'] {
+  if (['CANCELLED', 'DISCARDED_NONPAYMENT', 'REFUNDED'].includes(registration.status))
+    return registration.status;
   if (paidState.netMinor >= registration.amountDueMinor && registration.amountDueMinor > 0) {
     if (registration.audience === 'STUDENT' && registration.status === 'AWAITING_VERIFICATION') {
       return 'AWAITING_VERIFICATION';

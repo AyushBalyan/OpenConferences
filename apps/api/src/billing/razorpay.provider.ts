@@ -180,7 +180,54 @@ export class RazorpayProvider implements PaymentProvider {
     };
   }
 
+  async fetchOrderPayments(orderId: string) {
+    if (!/^order_[A-Za-z0-9]+$/.test(orderId)) throw new BadRequestException('Invalid order ID');
+    const { keyId, keySecret } = this.credentials;
+    const response = await fetch(`https://api.razorpay.com/v1/orders/${orderId}/payments`, {
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString('base64')}`,
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) throw new BadGatewayException('Unable to reconcile payment');
+    const data = (await response.json()) as {
+      items: Array<Awaited<ReturnType<RazorpayProvider['fetchPayment']>>>;
+    };
+    if (!Array.isArray(data.items)) throw new BadGatewayException('Invalid payment collection');
+    return data.items;
+  }
+
+  async fetchRefund(paymentId: string, refundId: string) {
+    if (!/^pay_[A-Za-z0-9]+$/.test(paymentId) || !/^rfnd_[A-Za-z0-9]+$/.test(refundId))
+      throw new BadRequestException('Invalid refund ID');
+    const { keyId, keySecret } = this.credentials;
+    const response = await fetch(
+      `https://api.razorpay.com/v1/payments/${paymentId}/refunds/${refundId}`,
+      {
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString('base64')}`,
+        },
+        signal: AbortSignal.timeout(15000),
+      },
+    );
+    if (!response.ok) throw new BadGatewayException('Unable to reconcile refund');
+    return (await response.json()) as {
+      id: string;
+      payment_id: string;
+      amount: number;
+      currency: string;
+      status: string;
+    };
+  }
+
   async refund(input: RefundInput): Promise<RefundResult> {
+    if (
+      !/^pay_[A-Za-z0-9]+$/.test(input.paymentId) ||
+      !Number.isSafeInteger(input.amountMinor) ||
+      input.amountMinor <= 0 ||
+      !/^[A-Za-z0-9_-]{10,100}$/.test(input.idempotencyKey)
+    )
+      throw new BadRequestException('Invalid refund request');
     const { keyId, keySecret } = this.credentials;
     const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
 
@@ -189,20 +236,35 @@ export class RazorpayProvider implements PaymentProvider {
       headers: {
         Authorization: `Basic ${auth}`,
         'Content-Type': 'application/json',
+        'X-Refund-Idempotency': input.idempotencyKey,
       },
       body: JSON.stringify({
         amount: input.amountMinor,
         notes: input.notes ?? {},
       }),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {
-      const body = await response.text();
-      this.logger.error({ status: response.status, body }, 'Razorpay refund failed');
-      throw new Error(`Razorpay refund failed: ${response.status}`);
+      this.logger.error({ status: response.status }, 'Razorpay refund failed');
+      throw new BadGatewayException('Unable to confirm the refund. Retry the original request.');
     }
 
-    const data = (await response.json()) as { id: string; amount: number };
+    const data = (await response.json()) as {
+      id: string;
+      amount: number;
+      payment_id: string;
+      status: string;
+    };
+    if (
+      !/^rfnd_[A-Za-z0-9]+$/.test(data.id) ||
+      data.amount !== input.amountMinor ||
+      data.payment_id !== input.paymentId ||
+      !['pending', 'processed', 'failed'].includes(data.status)
+    )
+      throw new BadGatewayException(
+        'Unexpected refund response; please retry with the same request',
+      );
     return {
       refundId: data.id,
       amountMinor: data.amount,

@@ -480,6 +480,15 @@ export class DecisionsService {
       },
     });
 
+    if (outcome !== 'ACCEPT') {
+      await tx.registration.updateMany({
+        where: {
+          paperId: paper.id,
+          status: { notIn: ['CANCELLED', 'REFUNDED', 'DISCARDED_NONPAYMENT'] },
+        },
+        data: { status: 'CANCELLED', version: { increment: 1 } },
+      });
+    }
     return { decision, paper, warnings: warning ? [warning] : [] };
   }
 

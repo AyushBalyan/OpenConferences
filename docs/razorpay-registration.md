@@ -109,3 +109,13 @@ The standalone local demo never sends email. Its captured payments expose `/__de
 - Local ignored `.env`: supplied test credentials. `.gitignore` already excludes `.env`.
 
 Verified locally on 2 November 2026: the schema migration applied to a temporary PostgreSQL database; 25 backend payment tests and 13 Chromium checks passed. The registration/capture path also runs with `SET LOCAL ROLE openconferences_api` to exercise production RLS. Both INR and USD unpaid test-mode orders were successfully created through the real Razorpay Orders API using the supplied test keys. This checks order creation, not a completed card payment or live international activation.
+
+## Payment security deployment update
+
+Apply migration `20261103000000_payment_security` before deploying the updated API and worker. It adds original-capture links for refund allocation and normalizes historical credential account IDs required by patched Better Auth. Rebuild the shared database/schema/contract packages. Use Redis 6.2 or newer for atomic GETDEL and counter operations (the existing infrastructure uses Redis 7).
+
+Enable Razorpay webhook events `payment.captured`, `refund.created`, `refund.processed`, and `refund.failed`. A pending refund is reserved but does not reduce the settled paid balance until it is processed. Retry an uncertain refund with the original registration version, amount, and reason; the saved allocation keys prevent duplicate provider refunds. Completed external/dashboard refund events are also recorded. Inspect cancelled registrations with captured funds for manual resolution; capture does not restore eligibility after a rejection/cancellation.
+
+The worker now schedules recovery every five minutes. It sends a timestamped, body-bound HMAC request to `${BETTER_AUTH_URL}${API_BASE_PATH}/internal/billing/reconcile`; API and worker must share `BETTER_AUTH_SECRET` and the URL must be reachable from the worker. Recovery uses provider order-payment queries, resumes reserved refunds and retries missing invoice/email side effects. The internal endpoint rejects unsigned or stale requests. It uses no browser session and exposes no secret to frontend code.
+
+Security validation and remaining dependency advisories are recorded in [the payment audit](./payment-security-audit-2026-11-02.md). Production dependency scanning still reports the Zod 3 memory-exhaustion advisory and 19 moderate advisories; the API now bounds request complexity before schema validation. A coordinated contract-library/Zod migration remains necessary to clear the upstream advisory.

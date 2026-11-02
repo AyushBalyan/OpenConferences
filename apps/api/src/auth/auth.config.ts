@@ -116,6 +116,16 @@ export function createAuthInstance(deps: AuthDependencies): AuthInstance {
     }),
     secondaryStorage: {
       get: async (key) => readSecondaryStorageValue(key, await deps.redis.get(key)),
+      getAndDelete: async (key) => readSecondaryStorageValue(key, await deps.redis.getdel(key)),
+      increment: async (key, ttl) =>
+        Number(
+          await deps.redis.eval(
+            "local n = redis.call('INCR', KEYS[1]); if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]); end; return n",
+            1,
+            key,
+            ttl,
+          ),
+        ),
       set: async (key, value, ttl) => {
         if (!shouldWriteSecondaryStorage(key)) return;
         if (ttl) {

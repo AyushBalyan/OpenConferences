@@ -813,6 +813,7 @@ model Payment {
   currency          String        @db.Char(3)
   kind              PaymentKind
   idempotencyKey    String?
+  refundOfPaymentId String?        @db.Uuid
   rawPayload        Json?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
@@ -820,10 +821,13 @@ model Payment {
   organization Organization @relation(fields: [organizationId], references: [id])
   registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
   invoice      Invoice?
+  refundOf     Payment? @relation("CaptureRefunds", fields: [refundOfPaymentId], references: [id])
+  refunds      Payment[] @relation("CaptureRefunds")
 
   @@unique([provider, providerPaymentId])
   @@index([registrationId])
   @@index([idempotencyKey])
+  @@index([refundOfPaymentId])
   @@map("payments")
 }
 

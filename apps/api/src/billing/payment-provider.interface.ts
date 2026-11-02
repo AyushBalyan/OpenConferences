@@ -25,6 +25,7 @@ export type ParsedWebhookEvent = {
 export type RefundInput = {
   paymentId: string;
   amountMinor: number;
+  idempotencyKey: string;
   notes?: Record<string, string>;
 };
 

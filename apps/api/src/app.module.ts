@@ -19,6 +19,7 @@ import { MailerModule } from './mailer/mailer.module';
 import { MessagingModule } from './messaging/messaging.module';
 import { OutreachModule } from './outreach/outreach.module';
 import { TurnstileModule } from './turnstile/turnstile.module';
+import { PayloadComplexityMiddleware } from './common/middleware/payload-complexity.middleware';
 import { AuthRateLimitMiddleware } from './common/middleware/auth-rate-limit.middleware';
 import { APP_FILTER } from '@nestjs/core';
 import { ProblemExceptionFilter } from './common/filters/problem-exception.filter';
@@ -79,6 +80,6 @@ const config = getConfig();
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(AuthRateLimitMiddleware).forRoutes('*');
+    consumer.apply(PayloadComplexityMiddleware, AuthRateLimitMiddleware).forRoutes('*');
   }
 }

@@ -21,6 +21,9 @@ import { RegistrationsService } from '../../src/billing/registrations.service.ts
 import { InvoicesService } from '../../src/billing/invoices.service.ts';
 import { RazorpayProvider } from '../../src/billing/razorpay.provider.ts';
 import { ensureNotificationTemplates } from '../helpers/notifications';
+import { FilesService } from '../../src/files/files.service';
+import { AuditService } from '../../src/audit/audit.service';
+import { PaymentsService } from '../../src/billing/payments.service';
 import { QueueService } from '../../src/queue/queue.service';
 import { NotificationPublisher } from '../../src/messaging/notification.publisher';
 
@@ -55,7 +58,7 @@ async function createUserWithSession(
       accounts: {
         create: {
           id: generateId(),
-          accountId: email,
+          accountId: userId,
           providerId: 'credential',
           password: passwordHash,
         },
@@ -571,41 +574,30 @@ describe('Billing integration (Phase 8)', () => {
     expect(regFinal.body.status).toBe('PAID');
   });
 
-  it('webhook replay is idempotent', async () => {
-    const payRes = await request(app.getHttpServer())
-      .post(`/api/v1/conferences/${confId}/papers/${paperStudentId}/registration/payment`)
-      .set('Cookie', authorStudentCookie)
-      .set('Idempotency-Key', generateId())
-      .send({});
-
-    if (payRes.status !== 200) {
-      return;
-    }
-
-    const paymentId = `pay_replay_${Date.now()}`;
-    const payload = mockProvider.buildCaptureWebhook(payRes.body.orderId, paymentId);
-    const rawBody = Buffer.from(JSON.stringify(payload));
-    const signature = mockProvider.signWebhookPayload(rawBody);
-
-    await request(app.getHttpServer())
-      .post('/api/v1/webhooks/razorpay')
-      .set('x-razorpay-signature', signature)
-      .send(payload)
-      .expect(200);
-
-    await request(app.getHttpServer())
-      .post('/api/v1/webhooks/razorpay')
-      .set('x-razorpay-signature', signature)
-      .send(payload)
-      .expect(200);
-
-    const payments = await withTenantContext({}, async (tx) =>
-      tx.payment.findMany({
-        where: { providerPaymentId: paymentId },
-      }),
+  it('webhook replay is idempotent even under concurrent delivery', async () => {
+    const payment = await prisma.payment.findFirstOrThrow({
+      where: { registration: { paperId: paperRegularId }, status: 'CAPTURED' },
+    });
+    const before = await prisma.registration.findUniqueOrThrow({
+      where: { id: payment.registrationId },
+    });
+    await Promise.all(
+      Array.from({ length: 8 }, () =>
+        simulateCapture(app, mockProvider, payment.providerOrderId!, payment.providerPaymentId!),
+      ),
     );
-
-    expect(payments).toHaveLength(1);
+    const after = await prisma.registration.findUniqueOrThrow({
+      where: { id: payment.registrationId },
+    });
+    expect(after.version).toBe(before.version);
+    expect(
+      await prisma.payment.count({ where: { providerPaymentId: payment.providerPaymentId } }),
+    ).toBe(1);
+    expect(
+      await prisma.notificationLog.count({
+        where: { idempotencyKey: `payment-captured-${payment.id}` },
+      }),
+    ).toBe(1);
   });
 
   it('returns 404 for cross-conference registration (IDOR)', async () => {
@@ -940,5 +932,595 @@ describe('Billing integration (Phase 8)', () => {
     expect(['PAID', 'ADDITIONAL_PAYMENT_REQUIRED', 'REFUNDED']).toContain(
       res.body.registration.status,
     );
+  });
+  // Adversarial audit: these fixtures use the isolated test DB and a fake gateway only.
+  async function auditCheckout() {
+    const paperId = generateId();
+    await prisma.paper.create({
+      data: {
+        id: paperId,
+        organizationId: orgId,
+        conferenceId: confId,
+        trackId,
+        submittedById: authorUserId,
+        title: 'Payment security audit fixture',
+        abstract: 'Isolated test',
+        keywords: [],
+        status: 'DECISION_MADE',
+        authorships: {
+          create: {
+            id: generateId(),
+            userId: authorUserId,
+            order: 1,
+            isCorresponding: true,
+            fullName: 'Audit Author',
+            affiliation: 'Audit University',
+            email: authorRegularEmail,
+          },
+        },
+      },
+    });
+    const round = await prisma.reviewRound.create({
+      data: {
+        id: generateId(),
+        organizationId: orgId,
+        conferenceId: confId,
+        paperId,
+        roundNumber: 1,
+      },
+    });
+    await prisma.decision.create({
+      data: {
+        id: generateId(),
+        organizationId: orgId,
+        conferenceId: confId,
+        paperId,
+        roundId: round.id,
+        decidedById: chairUserId,
+        outcome: 'ACCEPT',
+        notifiedAt: new Date(),
+      },
+    });
+    await prisma.registration.create({
+      data: {
+        id: generateId(),
+        organizationId: orgId,
+        conferenceId: confId,
+        paperId,
+        audience: 'REGULAR',
+        amountDueMinor: 0,
+        currency: 'USD',
+        billingCountry: 'US',
+        status: 'PENDING',
+        deadlineAt: new Date('2099-12-31'),
+      },
+    });
+    const base = `/api/v1/conferences/${confId}/papers/${paperId}/registration`;
+    const response = await request(app.getHttpServer())
+      .post(`${base}/payment`)
+      .set('Cookie', authorRegularCookie)
+      .set('Idempotency-Key', generateId())
+      .send({})
+      .expect(200);
+    return { base, paperId, ...response.body };
+  }
+
+  it('audit: denies anonymous and unrelated-author registration access and author refunds', async () => {
+    const base = `/api/v1/conferences/${confId}/papers/${paperRegularId}/registration`;
+    await request(app.getHttpServer()).get(base).expect(401);
+    for (const method of ['get', 'post'] as const) {
+      const client = request(app.getHttpServer());
+      const response = await client[method](base)
+        .set('Cookie', authorStudentCookie)
+        .send(method === 'post' ? { audience: 'REGULAR' } : undefined);
+      expect([403, 404]).toContain(response.status);
+    }
+    const reg = await prisma.registration.findFirstOrThrow({ where: { paperId: paperRegularId } });
+    await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/registrations/${reg.id}/refund`)
+      .set('Cookie', authorRegularCookie)
+      .send({ amountMinor: 100, reason: 'Unauthorized', version: reg.version })
+      .expect(403);
+  });
+
+  it('audit: rejects forged webhook signatures without changing payment state', async () => {
+    const checkout = await auditCheckout();
+    const payload = mockProvider.buildCaptureWebhook(checkout.orderId);
+    await request(app.getHttpServer())
+      .post('/api/v1/webhooks/razorpay')
+      .set('x-razorpay-signature', '0'.repeat(64))
+      .send(payload)
+      .expect(403);
+    expect(
+      (await prisma.payment.findUniqueOrThrow({ where: { id: checkout.paymentId } })).status,
+    ).toBe('CREATED');
+  });
+
+  const auditInvariant = it;
+
+  // Regression invariants for the reproduced payment security vulnerabilities.
+  auditInvariant(
+    'audit finding: a late capture must not reactivate a cancelled registration',
+    async () => {
+      const checkout = await auditCheckout();
+      await prisma.registration.update({
+        where: { id: checkout.registration.id },
+        data: { status: 'CANCELLED' },
+      });
+      await simulateCapture(app, mockProvider, checkout.orderId);
+      expect(
+        (await prisma.registration.findUniqueOrThrow({ where: { id: checkout.registration.id } }))
+          .status,
+      ).toBe('CANCELLED');
+    },
+  );
+
+  auditInvariant(
+    'audit finding: a capture after decision reversal must not register a rejected paper',
+    async () => {
+      const checkout = await auditCheckout();
+      await prisma.decision.updateMany({
+        where: { paperId: checkout.paperId },
+        data: { outcome: 'REJECT' },
+      });
+      await simulateCapture(app, mockProvider, checkout.orderId);
+      expect(
+        (await prisma.registration.findUniqueOrThrow({ where: { id: checkout.registration.id } }))
+          .status,
+      ).not.toBe('PAID');
+    },
+  );
+
+  auditInvariant(
+    'audit finding: a committed provider refund must survive local transaction failure without being issued twice',
+    async () => {
+      const checkout = await auditCheckout();
+      await simulateCapture(app, mockProvider, checkout.orderId);
+      const reg = await prisma.registration.findUniqueOrThrow({
+        where: { id: checkout.registration.id },
+      });
+      let providerRefunded = false;
+      const effectiveRefunds = new Map<string, string>();
+      const refund = vi.spyOn(mockProvider, 'refund').mockImplementation(async (input) => {
+        providerRefunded = true;
+        const refundId = effectiveRefunds.get(input.idempotencyKey) ?? `rfnd_${generateId()}`;
+        effectiveRefunds.set(input.idempotencyKey, refundId);
+        return { refundId, amountMinor: input.amountMinor, raw: { status: 'processed' } };
+      });
+      const original = db.withTenantContext;
+      const transaction = vi
+        .spyOn(db, 'withTenantContext')
+        .mockImplementation((context, callback, options) =>
+          original(
+            context,
+            async (tx) => {
+              const result = await callback(tx);
+              if (providerRefunded) {
+                providerRefunded = false;
+                throw new Error('Injected commit failure after provider refund');
+              }
+              return result;
+            },
+            options,
+          ),
+        );
+      const url = `/api/v1/conferences/${confId}/registrations/${reg.id}/refund`;
+      const input = { amountMinor: 100, reason: 'Audit rollback', version: reg.version };
+      try {
+        await request(app.getHttpServer())
+          .post(url)
+          .set('Cookie', chairCookie)
+          .send(input)
+          .expect(500);
+        transaction.mockRestore();
+        await request(app.getHttpServer())
+          .post(url)
+          .set('Cookie', chairCookie)
+          .send(input)
+          .expect(200);
+        expect(effectiveRefunds.size).toBe(1);
+        expect(new Set(refund.mock.calls.map(([input]) => input.idempotencyKey)).size).toBe(1);
+        expect(
+          await prisma.payment.count({
+            where: { registrationId: reg.id, kind: 'REFUND', status: 'REFUNDED' },
+          }),
+        ).toBe(1);
+      } finally {
+        transaction.mockRestore();
+        refund.mockRestore();
+      }
+    },
+  );
+
+  auditInvariant(
+    'audit finding: a refund cannot exceed the remaining amount of the specific captured payment',
+    async () => {
+      const reg = await prisma.registration.findFirstOrThrow({
+        where: { paperId: paperStudentId },
+      });
+      const latest = await prisma.payment.findFirstOrThrow({
+        where: { registrationId: reg.id, status: 'CAPTURED' },
+        orderBy: { createdAt: 'desc' },
+      });
+      const refund = vi.spyOn(mockProvider, 'refund');
+      try {
+        await request(app.getHttpServer())
+          .post(`/api/v1/conferences/${confId}/registrations/${reg.id}/refund`)
+          .set('Cookie', chairCookie)
+          .send({
+            amountMinor: latest.amountMinor + 1,
+            reason: 'Audit multi-payment refund',
+            version: reg.version,
+          });
+        expect(
+          refund.mock.calls.some(
+            ([input]) =>
+              input.paymentId === latest.providerPaymentId &&
+              input.amountMinor > latest.amountMinor,
+          ),
+        ).toBe(false);
+      } finally {
+        refund.mockRestore();
+      }
+    },
+  );
+
+  auditInvariant(
+    'audit finding: another author in the conference must not download a private invoice',
+    async () => {
+      const checkout = await auditCheckout();
+      await simulateCapture(app, mockProvider, checkout.orderId);
+      const file = await prisma.fileAsset.create({
+        data: {
+          id: generateId(),
+          organizationId: orgId,
+          uploadedById: authorUserId,
+          bucket: 'openconferences',
+          objectKey: `org/${orgId}/invoices/audit.pdf`,
+          sizeBytes: 100n,
+          checksumSha256: '0'.repeat(64),
+          mimeType: 'application/pdf',
+          originalFilename: 'audit.pdf',
+          scanStatus: 'CLEAN',
+        },
+      });
+      await prisma.invoice.create({
+        data: {
+          id: generateId(),
+          organizationId: orgId,
+          paymentId: checkout.paymentId,
+          fileAssetId: file.id,
+          number: `AUDIT-${generateId()}`,
+        },
+      });
+      // Use the real download service and restrictive production API role.
+      const service = new InvoicesService(app.get(FilesService), app.get(AuditService));
+      const original = db.withTenantContext;
+      const role = vi
+        .spyOn(db, 'withTenantContext')
+        .mockImplementation((context, callback, options) =>
+          original(
+            context,
+            async (tx) => {
+              await tx.$executeRawUnsafe('SET LOCAL ROLE openconferences_api');
+              return callback(tx);
+            },
+            options,
+          ),
+        );
+      try {
+        const endpoint = app.get(InvoicesService);
+        endpoint.getInvoiceDownload = service.getInvoiceDownload.bind(service);
+        await request(app.getHttpServer())
+          .get(`${checkout.base}/invoice`)
+          .set('Cookie', authorRegularCookie)
+          .expect(200);
+        await request(app.getHttpServer())
+          .get(`${checkout.base}/invoice`)
+          .set('Cookie', chairCookie)
+          .expect(200);
+        const response = await request(app.getHttpServer())
+          .get(`${checkout.base}/invoice`)
+          .set('Cookie', authorStudentCookie);
+        expect([403, 404]).toContain(response.status);
+      } finally {
+        role.mockRestore();
+      }
+    },
+  );
+
+  auditInvariant(
+    'audit finding: reconciliation must consult the provider for a stale pending payment',
+    async () => {
+      const checkout = await auditCheckout();
+      const orderId = `order_${generateId().replace(/-/g, '')}`;
+      const paymentId = `pay_${generateId().replace(/-/g, '')}`;
+      await prisma.payment.update({
+        where: { id: checkout.paymentId },
+        data: {
+          createdAt: new Date(Date.now() - 3600000),
+          provider: 'razorpay',
+          providerOrderId: orderId,
+        },
+      });
+      vi.stubEnv('RAZORPAY_KEY_ID', 'test-key');
+      vi.stubEnv('RAZORPAY_KEY_SECRET', 'test-secret');
+      resetConfig();
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          items: [
+            {
+              id: paymentId,
+              order_id: orderId,
+              amount: checkout.amountMinor,
+              currency: checkout.currency,
+              status: 'captured',
+              captured: true,
+              created_at: Math.floor(Date.now() / 1000),
+            },
+          ],
+        }),
+      });
+      vi.stubGlobal('fetch', fetch);
+      try {
+        const result = await app.get(PaymentsService).runReconciliation(checkout.paymentId);
+        expect(result.inspected).toBe(1);
+        expect(fetch).toHaveBeenCalled();
+        expect(result.failed).toBe(0);
+        expect(
+          (await prisma.registration.findUniqueOrThrow({ where: { id: checkout.registration.id } }))
+            .status,
+        ).toBe('PAID');
+      } finally {
+        vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
+        resetConfig();
+      }
+    },
+  );
+  auditInvariant(
+    'audit finding: pending provider refunds must not be recorded as completed refunds',
+    async () => {
+      const checkout = await auditCheckout();
+      await simulateCapture(app, mockProvider, checkout.orderId);
+      const reg = await prisma.registration.findUniqueOrThrow({
+        where: { id: checkout.registration.id },
+      });
+      const refundId = `rfnd_${generateId()}`;
+      const refund = vi.spyOn(mockProvider, 'refund').mockResolvedValue({
+        refundId,
+        amountMinor: 100,
+        raw: { id: refundId, amount: 100, status: 'pending' },
+      });
+      try {
+        await request(app.getHttpServer())
+          .post(`/api/v1/conferences/${confId}/registrations/${reg.id}/refund`)
+          .set('Cookie', chairCookie)
+          .send({ amountMinor: 100, reason: 'Audit pending refund', version: reg.version })
+          .expect(200);
+        const recorded = await prisma.payment.findFirstOrThrow({
+          where: { providerPaymentId: refundId },
+        });
+        expect(recorded.status).not.toBe('REFUNDED');
+      } finally {
+        refund.mockRestore();
+      }
+    },
+  );
+  it('audit: concurrent checkout retries reuse exactly one existing order', async () => {
+    const checkout = await auditCheckout();
+    const create = vi.spyOn(mockProvider, 'createOrder');
+    try {
+      const responses = await Promise.all(
+        Array.from({ length: 12 }, () =>
+          request(app.getHttpServer())
+            .post(`${checkout.base}/payment`)
+            .set('Cookie', authorRegularCookie)
+            .set('Idempotency-Key', generateId())
+            .send({ amountMinor: 1, currency: 'EUR' }),
+        ),
+      );
+      for (const response of responses) {
+        expect(response.status).toBe(200);
+        expect(response.body.orderId).toBe(checkout.orderId);
+        expect(response.body.amountMinor).toBe(checkout.amountMinor);
+        expect(response.body.currency).toBe('USD');
+      }
+      expect(create).not.toHaveBeenCalled();
+      expect(
+        await prisma.payment.count({ where: { registrationId: checkout.registration.id } }),
+      ).toBe(1);
+    } finally {
+      create.mockRestore();
+    }
+  });
+
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    'audit: rejects invalid refund amount %s',
+    async (amountMinor) => {
+      const reg = await prisma.registration.findFirstOrThrow({
+        where: { paperId: paperRegularId },
+      });
+      const refund = vi.spyOn(mockProvider, 'refund');
+      try {
+        const response = await request(app.getHttpServer())
+          .post(`/api/v1/conferences/${confId}/registrations/${reg.id}/refund`)
+          .set('Cookie', chairCookie)
+          .send({ amountMinor, reason: 'Invalid amount', version: reg.version });
+        expect(response.status).toBe(400);
+        expect(refund).not.toHaveBeenCalled();
+      } finally {
+        refund.mockRestore();
+      }
+    },
+  );
+  it('settles pending refund webhooks once and ignores out-of-order events', async () => {
+    const checkout = await auditCheckout();
+    await simulateCapture(app, mockProvider, checkout.orderId);
+    const capture = await prisma.payment.findUniqueOrThrow({ where: { id: checkout.paymentId } });
+    const reg = await prisma.registration.findUniqueOrThrow({
+      where: { id: checkout.registration.id },
+    });
+    const refundId = `rfnd_${generateId().replace(/-/g, '')}`;
+    const refund = vi
+      .spyOn(mockProvider, 'refund')
+      .mockResolvedValue({ refundId, amountMinor: 100, raw: { status: 'pending' } });
+    await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/registrations/${reg.id}/refund`)
+      .set('Cookie', chairCookie)
+      .send({ amountMinor: 100, reason: 'Pending lifecycle', version: reg.version })
+      .expect(200);
+    refund.mockRestore();
+    expect((await prisma.registration.findUniqueOrThrow({ where: { id: reg.id } })).status).toBe(
+      'PAID',
+    );
+    const intent = await prisma.payment.findFirstOrThrow({
+      where: { providerPaymentId: refundId },
+    });
+    await prisma.payment.updateMany({
+      where: { id: { in: [capture.id, intent.id] } },
+      data: { provider: 'razorpay' },
+    });
+    vi.stubEnv('RAZORPAY_KEY_ID', 'test-key');
+    vi.stubEnv('RAZORPAY_KEY_SECRET', 'test-secret');
+    vi.stubEnv('RAZORPAY_WEBHOOK_SECRET', 'hook-secret');
+    resetConfig();
+    const resolve = vi
+      .spyOn(app.get(PaymentProviderRegistry), 'resolve')
+      .mockReturnValue(app.get(RazorpayProvider));
+    const deliver = async (event: string, status: string) => {
+      const payload = {
+        event,
+        payload: {
+          refund: {
+            entity: {
+              id: refundId,
+              payment_id: capture.providerPaymentId,
+              amount: 100,
+              currency: capture.currency,
+              status,
+            },
+          },
+        },
+      };
+      return request(app.getHttpServer())
+        .post('/api/v1/webhooks/razorpay')
+        .set(
+          'x-razorpay-signature',
+          createHmac('sha256', 'hook-secret').update(JSON.stringify(payload)).digest('hex'),
+        )
+        .send(payload)
+        .expect(201);
+    };
+    try {
+      await deliver('refund.processed', 'processed');
+      const processed = await prisma.registration.findUniqueOrThrow({ where: { id: reg.id } });
+      expect(processed.status).toBe('ADDITIONAL_PAYMENT_REQUIRED');
+      await Promise.all([
+        deliver('refund.processed', 'processed'),
+        deliver('refund.created', 'pending'),
+      ]);
+      expect((await prisma.registration.findUniqueOrThrow({ where: { id: reg.id } })).version).toBe(
+        processed.version,
+      );
+      expect((await prisma.payment.findUniqueOrThrow({ where: { id: intent.id } })).status).toBe(
+        'REFUNDED',
+      );
+      expect(await prisma.payment.count({ where: { providerPaymentId: refundId } })).toBe(1);
+    } finally {
+      resolve.mockRestore();
+      vi.unstubAllEnvs();
+      resetConfig();
+    }
+  });
+
+  it('reserves pending refunds against concurrent requests and rejects changed retry payloads', async () => {
+    const checkout = await auditCheckout();
+    await simulateCapture(app, mockProvider, checkout.orderId);
+    const reg = await prisma.registration.findUniqueOrThrow({
+      where: { id: checkout.registration.id },
+    });
+    const refund = vi.spyOn(mockProvider, 'refund').mockImplementation(async (input) => ({
+      refundId: `rfnd_${input.idempotencyKey}`,
+      amountMinor: input.amountMinor,
+      raw: { status: 'pending' },
+    }));
+    const url = `/api/v1/conferences/${confId}/registrations/${reg.id}/refund`;
+    try {
+      await request(app.getHttpServer())
+        .post(url)
+        .set('Cookie', chairCookie)
+        .send({
+          amountMinor: checkout.amountMinor,
+          reason: 'Full reservation',
+          version: reg.version,
+        })
+        .expect(200);
+      const current = await prisma.registration.findUniqueOrThrow({ where: { id: reg.id } });
+      await request(app.getHttpServer())
+        .post(url)
+        .set('Cookie', chairCookie)
+        .send({ amountMinor: 100, reason: 'Second refund', version: current.version })
+        .expect(400);
+      await request(app.getHttpServer())
+        .post(url)
+        .set('Cookie', chairCookie)
+        .send({ amountMinor: 100, reason: 'Changed retry', version: reg.version })
+        .expect(409);
+      expect(refund).toHaveBeenCalledTimes(1);
+    } finally {
+      refund.mockRestore();
+    }
+  });
+
+  it('rejects unsigned and expired internal reconciliation requests', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/internal/billing/reconcile')
+      .send({})
+      .expect(403);
+    const timestamp = String(Math.floor(Date.now() / 1000) - 600);
+    const signature = createHmac('sha256', getConfig().auth.secret)
+      .update(`${timestamp}.{}`)
+      .digest('hex');
+    await request(app.getHttpServer())
+      .post('/api/v1/internal/billing/reconcile')
+      .set('x-reconcile-signature', signature)
+      .set('x-reconcile-timestamp', timestamp)
+      .send({})
+      .expect(403);
+  });
+  it('rejects oversized collections before route validation and prevents approval of cancelled student registrations', async () => {
+    const checkout = await auditCheckout();
+    await request(app.getHttpServer())
+      .post(checkout.base)
+      .set('Cookie', authorRegularCookie)
+      .send({ audience: 'REGULAR', extra: Array(1001).fill(0) })
+      .expect(413);
+    await prisma.registration.update({
+      where: { id: checkout.registration.id },
+      data: { status: 'CANCELLED', audience: 'STUDENT' },
+    });
+    const document = await prisma.studentVerification.findFirstOrThrow({
+      where: { registration: { paperId: paperStudentId } },
+    });
+    const verification = await prisma.studentVerification.create({
+      data: {
+        id: generateId(),
+        organizationId: orgId,
+        registrationId: checkout.registration.id,
+        fileAssetId: document.fileAssetId,
+        status: 'PENDING',
+      },
+    });
+    await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/student-verifications/${verification.id}/review`)
+      .set('Cookie', chairCookie)
+      .send({ action: 'APPROVE' })
+      .expect(409);
+    expect(
+      (await prisma.registration.findUniqueOrThrow({ where: { id: checkout.registration.id } }))
+        .status,
+    ).toBe('CANCELLED');
   });
 });

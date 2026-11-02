@@ -23,6 +23,15 @@ function extractOtpFromEmail(html: string): string | null {
   return match?.[1] ?? null;
 }
 
+function mergeCookies(existing: string, updates: string): string {
+  const jar = new Map<string, string>();
+  for (const cookie of [existing, updates].flatMap((value) => value.split(';'))) {
+    const separator = cookie.indexOf('=');
+    if (separator > 0) jar.set(cookie.slice(0, separator).trim(), cookie.slice(separator + 1));
+  }
+  return [...jar].map(([name, value]) => `${name}=${value}`).join('; ');
+}
+
 describe('MFA enable (email OTP)', () => {
   let app: INestApplication;
   const email = `mfa-smoke-${Date.now()}@example.com`;
@@ -51,7 +60,7 @@ describe('MFA enable (email OTP)', () => {
         accounts: {
           create: {
             id: generateId(),
-            accountId: email,
+            accountId: userId,
             providerId: 'credential',
             password: await hashPassword(password),
           },
@@ -80,12 +89,11 @@ describe('MFA enable (email OTP)', () => {
       .post('/api/v1/auth/two-factor/enable')
       .set('Origin', origin)
       .set('Cookie', cookie)
-      .send({ password });
+      .send({ password, method: 'otp' });
 
-    expect(enable.status).toBe(200);
-    expect(enable.body.totpURI).toBeTruthy();
-    expect(enable.body.backupCodes?.length).toBeGreaterThan(0);
-    cookie = [cookie, extractCookies(enable.headers['set-cookie'])].filter(Boolean).join('; ');
+    expect(enable.status, JSON.stringify(enable.body)).toBe(200);
+    expect(enable.body.method).toBe('otp');
+    cookie = mergeCookies(cookie, extractCookies(enable.headers['set-cookie']));
 
     resetLastTestNotification();
     const sendOtp = await request(app.getHttpServer())
@@ -107,7 +115,7 @@ describe('MFA enable (email OTP)', () => {
       .send({ code: otp });
 
     expect(verify.status).toBe(200);
-    cookie = [cookie, extractCookies(verify.headers['set-cookie'])].filter(Boolean).join('; ');
+    cookie = mergeCookies(cookie, extractCookies(verify.headers['set-cookie']));
 
     const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
     expect(user.twoFactorEnabled).toBe(true);

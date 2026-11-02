@@ -181,7 +181,7 @@ for (const mode of ['cancel', 'failure', 'pending', 'invalid'] as const) {
   });
 }
 
-test('registration remains readable at desktop and mobile widths', async ({ page }) => {
+test('registration remains readable at desktop and mobile widths', async ({ page }, testInfo) => {
   await fixture(page);
   await page.goto(path);
   await expect(page.getByLabel('Billing country')).toBeVisible();
@@ -192,13 +192,13 @@ test('registration remains readable at desktop and mobile widths', async ({ page
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);
     await page.screenshot({
-      path: `/private/tmp/openconferences-registration-${width}.png`,
+      path: testInfo.outputPath(`registration-${width}.png`),
       fullPage: true,
     });
     if (width === 390) {
       await page.getByRole('button', { name: 'Pay now', exact: true }).scrollIntoViewIfNeeded();
       await page.screenshot({
-        path: '/private/tmp/openconferences-registration-mobile-payment.png',
+        path: testInfo.outputPath('registration-mobile-payment.png'),
       });
     }
   }
@@ -206,7 +206,7 @@ test('registration remains readable at desktop and mobile widths', async ({ page
 
 test('organizers can apply the fee preset and save the conversion rate and cutoff', async ({
   page,
-}) => {
+}, testInfo) => {
   await fixture(page);
   const conference = {
     id: conferenceId,
@@ -254,6 +254,6 @@ test('organizers can apply the fee preset and save the conversion rate and cutof
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);
-    await page.screenshot({ path: `/private/tmp/openconferences-fee-settings-${width}.png` });
+    await page.screenshot({ path: testInfo.outputPath(`fee-settings-${width}.png`) });
   }
 });

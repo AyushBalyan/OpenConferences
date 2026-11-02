@@ -311,6 +311,30 @@ export class PaymentsService {
     } catch {
       throw new BadRequestException('Invalid webhook payload');
     }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload))
+      throw new BadRequestException('Invalid webhook payload');
+    const refundPayload = payload as {
+      event?: string;
+      payload?: {
+        refund?: {
+          entity?: {
+            id: string;
+            payment_id: string;
+            amount: number;
+            currency: string;
+            status: string;
+          };
+        };
+      };
+    };
+    if (
+      provider.name === 'razorpay' &&
+      ['refund.created', 'refund.processed', 'refund.failed'].includes(refundPayload?.event ?? '')
+    ) {
+      const entity = refundPayload.payload?.refund?.entity;
+      if (!entity) throw new BadRequestException('Missing refund entity');
+      return this.processRefundEntity(provider.name, entity);
+    }
     const event = provider.parseWebhook(payload);
 
     if (!event) {
@@ -355,6 +379,8 @@ export class PaymentsService {
       conferenceId: payment.registration.conferenceId,
     };
     const applied = await withTenantContext(captureContext, async (tx) => {
+      // Decision updates lock the paper before registration too.
+      await tx.$queryRaw`SELECT id FROM papers WHERE id = ${payment.registration.paperId}::uuid FOR UPDATE`;
       const locked = await lockRegistrationForUpdate(tx, payment.registrationId);
       if (!locked) {
         throw new NotFoundException('Registration not found');
@@ -414,7 +440,21 @@ export class PaymentsService {
       });
 
       const paidState = await computePaidState(tx, locked.id);
-      let nextStatus = deriveRegistrationStatusAfterCapture(updatedRegistration, paidState);
+      const [decision, paper] = await Promise.all([
+        tx.decision.findFirst({
+          where: { paperId: locked.paperId },
+          orderBy: [{ round: { roundNumber: 'desc' } }, { createdAt: 'desc' }],
+        }),
+        tx.paper.findUnique({ where: { id: locked.paperId } }),
+      ]);
+      const eligible =
+        decision?.outcome === 'ACCEPT' &&
+        decision.notifiedAt &&
+        paper &&
+        ['DECISION_MADE', 'CAMERA_READY'].includes(paper.status);
+      let nextStatus = !eligible
+        ? ('CANCELLED' as const)
+        : deriveRegistrationStatusAfterCapture(updatedRegistration, paidState);
       if (nextStatus === 'AWAITING_VERIFICATION') {
         const verification = await tx.studentVerification.findFirst({
           where: { registrationId: locked.id },
@@ -511,78 +551,102 @@ export class PaymentsService {
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
     const provider = this.providerRegistry.resolve(conference.organizationId);
 
-    const result = await withTenantContext(
+    // Commit the intent BEFORE network I/O. Retries find it by the original
+    // registration version and reuse each allocation's durable provider key.
+    const requestKey = `refund-${registrationId}-${input.version}`;
+    const intents = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
         const registration = await lockRegistrationForUpdate(tx, registrationId);
-        if (!registration || registration.conferenceId !== conferenceId) {
+        if (!registration || registration.conferenceId !== conferenceId)
           throw new NotFoundException('Registration not found');
+        const existing = await tx.payment.findMany({
+          where: { registrationId, kind: 'REFUND', idempotencyKey: requestKey },
+        });
+        if (existing.length) {
+          if (
+            existing.reduce((sum, row) => sum + row.amountMinor, 0) !== input.amountMinor ||
+            existing.some(
+              (row) =>
+                (row.rawPayload as { requestReason?: string })?.requestReason !== input.reason,
+            )
+          )
+            throw new ConflictException('Refund retry must use the original amount and reason');
+          return existing;
         }
-
-        if (registration.version !== input.version) {
+        if (registration.version !== input.version)
           throw new ConflictException('Registration was modified by another request');
-        }
-
-        const captured = await tx.payment.findFirst({
-          where: {
-            registrationId,
-            status: 'CAPTURED',
-            kind: { in: ['INITIAL', 'ADDITIONAL'] },
-            providerPaymentId: { not: null },
-          },
-          orderBy: { createdAt: 'desc' },
+        const payments = await tx.payment.findMany({
+          where: { registrationId },
+          orderBy: { createdAt: 'asc' },
         });
-
-        if (!captured?.providerPaymentId) {
-          throw new BadRequestException('No captured payment available to refund');
+        // Reserve pending refunds too; uncertain outcomes cannot be refunded again.
+        const reserved = payments.filter((row) => row.kind === 'REFUND' && row.status !== 'FAILED');
+        let legacy = reserved
+          .filter((row) => !row.refundOfPaymentId)
+          .reduce((sum, row) => sum + row.amountMinor, 0);
+        let remaining = input.amountMinor;
+        const allocations: Array<{ capture: Payment; amount: number }> = [];
+        for (const capture of payments.filter(
+          (row) => row.kind !== 'REFUND' && row.status === 'CAPTURED' && row.providerPaymentId,
+        )) {
+          let available =
+            capture.amountMinor -
+            reserved
+              .filter((row) => row.refundOfPaymentId === capture.id)
+              .reduce((sum, row) => sum + row.amountMinor, 0);
+          const legacyShare = Math.min(Math.max(available, 0), legacy);
+          legacy -= legacyShare;
+          available -= legacyShare;
+          const amount = Math.min(Math.max(available, 0), remaining);
+          if (amount > 0) {
+            allocations.push({ capture, amount });
+            remaining -= amount;
+          }
         }
-
-        const paidState = await computePaidState(tx, registrationId);
-        if (input.amountMinor > paidState.netMinor) {
-          throw new BadRequestException('Refund amount exceeds net paid amount');
-        }
-
-        const refundResult = await provider.refund({
-          paymentId: captured.providerPaymentId,
-          amountMinor: input.amountMinor,
-          notes: { reason: input.reason },
-        });
-
-        await tx.payment.create({
-          data: {
-            id: generateId(),
-            organizationId: conference.organizationId,
-            registrationId,
-            provider: provider.name,
-            providerPaymentId: refundResult.refundId,
-            status: 'REFUNDED',
-            amountMinor: input.amountMinor,
-            currency: captured.currency,
-            kind: 'REFUND',
-            rawPayload: refundResult.raw as object,
-          },
-        });
-
-        const newPaidState = await computePaidState(tx, registrationId);
-        const nextStatus = deriveRegistrationStatusAfterRefund(registration, newPaidState);
-
-        const updated = await tx.registration.update({
+        if (remaining > 0 || input.amountMinor <= 0)
+          throw new BadRequestException('Refund amount exceeds available captured funds');
+        const rows: Payment[] = [];
+        for (const { capture, amount } of allocations)
+          rows.push(
+            await tx.payment.create({
+              data: {
+                id: generateId(),
+                organizationId: conference.organizationId,
+                registrationId,
+                provider: capture.provider,
+                status: 'CREATED',
+                kind: 'REFUND',
+                amountMinor: amount,
+                currency: capture.currency,
+                refundOfPaymentId: capture.id,
+                idempotencyKey: requestKey,
+                rawPayload: { requestReason: input.reason },
+              },
+            }),
+          );
+        await tx.registration.update({
           where: { id: registrationId },
-          data: {
-            status: nextStatus,
-            version: { increment: 1 },
-          },
+          data: { version: { increment: 1 } },
         });
-
-        return updated;
+        return rows;
       },
+    );
+    for (const intent of intents) {
+      if (intent.status !== 'CREATED') continue;
+      if (intent.provider !== provider.name)
+        throw new ConflictException('Refund provider is not available');
+      await this.executeRefundIntent(intent);
+    }
+    const result = await withTenantContext({ userId, conferenceId }, (tx) =>
+      tx.registration.findUniqueOrThrow({ where: { id: registrationId } }),
     );
 
     await this.audit.log({
       actorUserId: userId,
       organizationId: conference.organizationId,
       conferenceId,
-      action: 'payment.refunded',
+      action: 'payment.refund_requested',
       entity: 'Registration',
       entityId: registrationId,
       diff: { amountMinor: input.amountMinor, reason: input.reason },
@@ -590,33 +654,232 @@ export class PaymentsService {
 
     return {
       registration: mapRegistration(result),
-      message: 'Refund processed successfully',
+      message: 'Refund request recorded. Completion depends on the payment provider.',
     };
   }
 
+  private async executeRefundIntent(intent: Payment) {
+    const capture = await withTenantContext({}, (tx) =>
+      tx.payment.findUnique({ where: { id: intent.refundOfPaymentId! } }),
+    );
+    if (!capture?.providerPaymentId)
+      throw new BadRequestException('Original captured payment not found');
+    const provider = this.providerRegistry.resolve(intent.organizationId);
+    let entity: {
+      id: string;
+      payment_id: string;
+      amount: number;
+      currency: string;
+      status: string;
+    };
+    if (intent.providerPaymentId && intent.provider === 'razorpay') {
+      entity = await this.razorpay.fetchRefund(capture.providerPaymentId, intent.providerPaymentId);
+    } else {
+      const result = await provider.refund({
+        paymentId: capture.providerPaymentId,
+        amountMinor: intent.amountMinor,
+        idempotencyKey: intent.id,
+        notes: {
+          reason: (intent.rawPayload as { requestReason?: string })?.requestReason ?? '',
+          refundIntentId: intent.id,
+        },
+      });
+      const raw = result.raw as { status?: string };
+      entity = {
+        id: result.refundId,
+        payment_id: capture.providerPaymentId,
+        amount: result.amountMinor,
+        currency: intent.currency,
+        status: raw.status ?? '',
+      };
+    }
+    if (
+      entity.amount !== intent.amountMinor ||
+      entity.payment_id !== capture.providerPaymentId ||
+      entity.currency !== intent.currency ||
+      !['pending', 'processed', 'failed'].includes(entity.status)
+    )
+      throw new BadRequestException('Refund does not match the reserved request');
+    await this.processRefundEntity(intent.provider, entity, intent.id);
+  }
+
+  private async processRefundEntity(
+    provider: string,
+    entity: {
+      id: string;
+      payment_id: string;
+      amount: number;
+      currency: string;
+      status: string;
+      notes?: { refundIntentId?: string };
+    },
+    intentId?: string,
+  ) {
+    const capture = await withTenantContext({}, (tx) =>
+      tx.payment.findFirst({
+        where: {
+          provider,
+          providerPaymentId: entity.payment_id,
+          kind: { not: 'REFUND' },
+          status: 'CAPTURED',
+        },
+      }),
+    );
+    if (!capture) return { received: true };
+    if (
+      !entity.id ||
+      !Number.isSafeInteger(entity.amount) ||
+      entity.amount <= 0 ||
+      entity.amount > capture.amountMinor ||
+      entity.currency !== capture.currency ||
+      !['pending', 'processed', 'failed'].includes(entity.status)
+    )
+      throw new BadRequestException('Invalid refund entity');
+    await withTenantContext({}, async (tx) => {
+      const reg = await lockRegistrationForUpdate(tx, capture.registrationId);
+      if (!reg) throw new NotFoundException('Registration not found');
+      const existing =
+        (await tx.payment.findFirst({ where: { provider, providerPaymentId: entity.id } })) ??
+        ((intentId ?? entity.notes?.refundIntentId)
+          ? await tx.payment.findUnique({
+              where: { id: (intentId ?? entity.notes?.refundIntentId)! },
+            })
+          : null);
+      if (
+        existing &&
+        (existing.kind !== 'REFUND' ||
+          existing.registrationId !== reg.id ||
+          (existing.refundOfPaymentId !== null && existing.refundOfPaymentId !== capture.id) ||
+          existing.amountMinor !== entity.amount ||
+          (existing.providerPaymentId && existing.providerPaymentId !== entity.id))
+      )
+        throw new BadRequestException('Refund identity mismatch');
+      // Processed is terminal. Older pending events cannot undo a failure.
+      if (
+        existing?.status === 'REFUNDED' ||
+        (existing?.status === 'FAILED' && entity.status === 'pending')
+      )
+        return;
+      const status =
+        entity.status === 'processed'
+          ? 'REFUNDED'
+          : entity.status === 'failed'
+            ? 'FAILED'
+            : 'CREATED';
+      const rawPayload = { ...((existing?.rawPayload as object) ?? {}), entity };
+      if (existing)
+        await tx.payment.update({
+          where: { id: existing.id },
+          data: { providerPaymentId: entity.id, refundOfPaymentId: capture.id, status, rawPayload },
+        });
+      else
+        await tx.payment.create({
+          data: {
+            id: generateId(),
+            organizationId: capture.organizationId,
+            registrationId: reg.id,
+            provider,
+            providerPaymentId: entity.id,
+            status,
+            amountMinor: entity.amount,
+            currency: entity.currency,
+            kind: 'REFUND',
+            refundOfPaymentId: capture.id,
+            rawPayload,
+          },
+        });
+      if (status === 'REFUNDED') {
+        const paidState = await computePaidState(tx, reg.id);
+        await tx.registration.update({
+          where: { id: reg.id },
+          data: {
+            status: deriveRegistrationStatusAfterRefund(reg, paidState),
+            version: { increment: 1 },
+          },
+        });
+      }
+    });
+    return { received: true };
+  }
+
   async runReconciliation(paymentId?: string) {
-    const stalePayments = await withTenantContext({}, async (tx) =>
+    // Oldest updated rows first: touch inspected rows so active orders cannot starve the next batch.
+    const payments = await withTenantContext({}, (tx) =>
       tx.payment.findMany({
         where: {
-          status: 'CREATED',
           ...(paymentId ? { id: paymentId } : {}),
+          status: 'CREATED',
           createdAt: { lt: new Date(Date.now() - 30 * 60 * 1000) },
         },
+        orderBy: { updatedAt: 'asc' },
         take: 100,
       }),
     );
-
-    for (const payment of stalePayments) {
-      await this.audit.log({
-        organizationId: payment.organizationId,
-        action: 'payment.reconciliation_stale',
-        entity: 'Payment',
-        entityId: payment.id,
-        diff: { providerOrderId: payment.providerOrderId },
-      });
+    let failed = 0;
+    for (const payment of payments) {
+      try {
+        if (payment.kind === 'REFUND') await this.executeRefundIntent(payment);
+        else if (payment.provider === 'razorpay' && payment.providerOrderId) {
+          for (const entity of await this.razorpay.fetchOrderPayments(payment.providerOrderId)) {
+            if (
+              entity.order_id !== payment.providerOrderId ||
+              entity.amount !== payment.amountMinor ||
+              entity.currency !== payment.currency
+            )
+              throw new BadRequestException('Reconciled payment does not match the order');
+            if (entity.status === 'captured' && entity.captured === true)
+              await this.processCapture('razorpay', {
+                eventType: 'payment.captured',
+                orderId: entity.order_id,
+                paymentId: entity.id,
+                amountMinor: entity.amount,
+                currency: entity.currency,
+                capturedAt: new Date(entity.created_at * 1000),
+                raw: entity,
+              });
+          }
+        }
+        await withTenantContext({}, (tx) =>
+          tx.payment.update({ where: { id: payment.id }, data: { updatedAt: new Date() } }),
+        );
+      } catch (err) {
+        failed++;
+        this.logger.error({ err, paymentId: payment.id }, 'Payment reconciliation failed');
+      }
     }
-
-    return { inspected: stalePayments.length };
+    // Recover committed captures whose invoice/email scheduling failed. Replays are idempotent.
+    const captures = await withTenantContext({}, (tx) =>
+      tx.payment.findMany({
+        where: {
+          status: 'CAPTURED',
+          kind: { not: 'REFUND' },
+          ...(paymentId ? { id: paymentId } : {}),
+        },
+        orderBy: { updatedAt: 'asc' },
+        take: 100,
+      }),
+    );
+    for (const payment of captures) {
+      try {
+        if (payment.providerOrderId && payment.providerPaymentId)
+          await this.processCapture(payment.provider, {
+            eventType: 'payment.captured',
+            orderId: payment.providerOrderId,
+            paymentId: payment.providerPaymentId,
+            amountMinor: payment.amountMinor,
+            currency: payment.currency,
+            capturedAt: payment.createdAt,
+            raw: payment.rawPayload,
+          });
+        await withTenantContext({}, (tx) =>
+          tx.payment.update({ where: { id: payment.id }, data: { updatedAt: new Date() } }),
+        );
+      } catch (err) {
+        failed++;
+        this.logger.error({ err, paymentId: payment.id }, 'Payment side effects recovery failed');
+      }
+    }
+    return { inspected: payments.length, failed };
   }
 
   private buildInitiateResponse(

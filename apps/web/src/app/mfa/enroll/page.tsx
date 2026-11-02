@@ -84,6 +84,7 @@ function MfaEnrollForm() {
     setError(null);
     const enableResult = await authClient.twoFactor.enable({
       password: values.password,
+      method: 'otp',
     });
 
     if (enableResult.error) {
@@ -91,7 +92,11 @@ function MfaEnrollForm() {
       return;
     }
 
-    if (enableResult.data?.backupCodes?.length) {
+    if (
+      enableResult.data &&
+      'backupCodes' in enableResult.data &&
+      enableResult.data.backupCodes.length
+    ) {
       setBackupCodes(enableResult.data.backupCodes);
     }
 

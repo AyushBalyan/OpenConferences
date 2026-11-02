@@ -35,7 +35,7 @@ async function createUserWithSession(
       accounts: {
         create: {
           id: generateId(),
-          accountId: email,
+          accountId: userId,
           providerId: 'credential',
           password: passwordHash,
         },

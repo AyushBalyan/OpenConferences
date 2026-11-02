@@ -83,4 +83,85 @@ describe('Razorpay protocol', () => {
       }),
     ).toBeNull();
   });
+  it.each([
+    '',
+    'a',
+    'a'.repeat(63),
+    'a'.repeat(65),
+    'g'.repeat(64),
+    '../'.repeat(22),
+    ' '.repeat(64),
+    '零'.repeat(64),
+  ])('rejects malformed signature %j without throwing', (signature) => {
+    expect(provider.verifyCheckoutSignature('order_123', 'pay_123', signature)).toBe(false);
+    expect(provider.verifyWebhookSignature(Buffer.from('{}'), signature)).toBe(false);
+  });
+  it.each([
+    '../orders',
+    'pay_../secrets',
+    'https://example.test',
+    'pay_123?x=1',
+    'pay_123/other',
+    '',
+  ])('rejects unsafe payment ID %j before network access', async (paymentId) => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    await expect(provider.fetchPayment(paymentId)).rejects.toThrow('Invalid payment ID');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each([-1, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects non-payable amount %j before network access',
+    async (amountMinor) => {
+      const fetch = vi.fn();
+      vi.stubGlobal('fetch', fetch);
+      await expect(
+        provider.createOrder({ amountMinor, currency: 'INR', receipt: 'audit' }),
+      ).rejects.toThrow();
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+  it('sends durable refund idempotency keys with identical retry bodies and a timeout', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: 'rfnd_123',
+        payment_id: 'pay_123',
+        amount: 100,
+        status: 'pending',
+      }),
+    });
+    vi.stubGlobal('fetch', fetch);
+    const input = {
+      paymentId: 'pay_123',
+      amountMinor: 100,
+      idempotencyKey: 'refund-request-123',
+      notes: { refundIntentId: 'intent' },
+    };
+    await provider.refund(input);
+    await provider.refund(input);
+    expect(fetch.mock.calls[0][1].headers['X-Refund-Idempotency']).toBe(input.idempotencyKey);
+    expect(fetch.mock.calls[0][1].body).toBe(fetch.mock.calls[1][1].body);
+    expect(fetch.mock.calls[0][1].signal).toBeDefined();
+  });
+  it('rejects refund responses for another payment or amount', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: 'rfnd_123',
+          payment_id: 'pay_other',
+          amount: 100,
+          status: 'processed',
+        }),
+      }),
+    );
+    await expect(
+      provider.refund({
+        paymentId: 'pay_123',
+        amountMinor: 100,
+        idempotencyKey: 'refund-request-123',
+      }),
+    ).rejects.toThrow('Unexpected refund');
+  });
 });

@@ -17,6 +17,7 @@ type PendingMockOrder = {
   notes?: Record<string, string>;
 };
 
+const refunds = new Map<string, RefundResult>();
 const pendingOrders = new Map<string, PendingMockOrder>();
 
 @Injectable()
@@ -83,11 +84,21 @@ export class MockPaymentProvider implements PaymentProvider {
   }
 
   async refund(input: RefundInput): Promise<RefundResult> {
-    return {
-      refundId: `rfnd_mock_${randomUUID()}`,
+    const existing = refunds.get(input.idempotencyKey);
+    if (existing) return existing;
+    const refundId = `rfnd_mock_${randomUUID()}`;
+    const result = {
+      refundId,
       amountMinor: input.amountMinor,
-      raw: { id: `rfnd_mock_${randomUUID()}`, amount: input.amountMinor },
+      raw: {
+        id: refundId,
+        amount: input.amountMinor,
+        status: 'processed',
+        payment_id: input.paymentId,
+      },
     };
+    refunds.set(input.idempotencyKey, result);
+    return result;
   }
 
   getPendingOrder(orderId: string): PendingMockOrder | undefined {
@@ -124,4 +135,5 @@ export class MockPaymentProvider implements PaymentProvider {
 
 export function resetMockPaymentProvider(): void {
   pendingOrders.clear();
+  refunds.clear();
 }
