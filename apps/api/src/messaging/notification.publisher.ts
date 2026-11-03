@@ -268,7 +268,11 @@ export class NotificationPublisher {
     await this.notifications.enqueue({
       templateKey: 'registration.window_open',
       to: payload.to,
-      context: { paperTitle: payload.paperTitle, deadlineAt: payload.deadlineAt },
+      context: {
+        paperTitle: payload.paperTitle,
+        deadlineAt: payload.deadlineAt,
+        registrationUrl: payload.registrationUrl,
+      },
       organizationId: payload.organizationId,
       conferenceId: payload.conferenceId,
       idempotencyKey: payload.idempotencyKey,

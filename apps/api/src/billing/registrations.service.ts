@@ -5,6 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { getConfig } from '@openconferences/config/env';
 import type { Registration, RoleKind } from '@openconferences/db';
 import { generateId, withTenantContext } from '@openconferences/db';
 import type {
@@ -140,6 +141,7 @@ export class RegistrationsService {
         organizationId,
         paperTitle: paper?.title ?? 'Your paper',
         deadlineAt: deadlineAt.toISOString(),
+        registrationUrl: `${getConfig().webUrl.replace(/\/$/, '')}/dashboard/conferences/${conferenceId}/submissions/${paperId}?section=registration`,
         registrationId: registration.id,
         idempotencyKey: `registration-window-${registration.id}`,
       });

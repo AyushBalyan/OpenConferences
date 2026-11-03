@@ -215,3 +215,29 @@ describe('review coordination notifications', () => {
     ).toBe(false);
   });
 });
+
+describe('registration opening email', () => {
+  it('renders a direct registration tab link in HTML and plain text', async () => {
+    const enqueue = vi.fn().mockResolvedValue('notification-id');
+    const publisher = new NotificationPublisher({ enqueue } as never);
+    const registrationUrl =
+      'https://example.test/dashboard/conferences/conference/submissions/paper?section=registration';
+    await publisher.publishRegistrationWindowOpen({
+      to: 'author@example.test',
+      conferenceId: 'conference',
+      organizationId: 'organization',
+      paperTitle: 'Accepted paper',
+      deadlineAt: '2026-12-01T00:00:00.000Z',
+      registrationUrl,
+      registrationId: 'registration',
+      idempotencyKey: 'registration-window-registration',
+    });
+    const mail = enqueue.mock.calls[0]![0];
+    const template = PLATFORM_NOTIFICATION_TEMPLATES.find((t) => t.key === mail.templateKey)!;
+    const context = { ...mail.context, conferenceName: 'Conference 2026' };
+    expect(renderTemplate(template.bodyHtml, context)).toContain(`href="${registrationUrl}"`);
+    expect(renderTemplate(template.bodyText, context)).toContain(
+      `Complete registration: ${registrationUrl}`,
+    );
+  });
+});

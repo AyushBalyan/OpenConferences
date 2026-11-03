@@ -166,6 +166,7 @@ function buildSampleContext(templateKey: string, webUrl: string): Record<string,
     'registration.window_open': {
       paperTitle: 'Deliverability Test Paper',
       deadlineAt: deadline,
+      registrationUrl: `${base}/dashboard/conferences/test-conference/submissions/test-paper?section=registration`,
     },
     'registration.early_bird_ending': {
       paperTitle: 'Deliverability Test Paper',

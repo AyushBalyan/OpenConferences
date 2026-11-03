@@ -130,6 +130,7 @@ export type RegistrationWindowOpenPayload = {
   organizationId: string;
   paperTitle: string;
   deadlineAt: string;
+  registrationUrl: string;
   registrationId: string;
   idempotencyKey: string;
 };

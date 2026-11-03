@@ -495,9 +495,10 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
       { label: 'Paper', value: '{{paperTitle}}' },
       { label: 'Registration deadline', value: '{{deadlineAt}}' },
     ],
+    cta: { label: 'Complete registration', url: '{{registrationUrl}}' },
     secondaryNote:
       'Papers that remain unpaid after the registration deadline may be withdrawn from the program.',
-    variables: ['paperTitle', 'deadlineAt', 'conferenceName'],
+    variables: ['paperTitle', 'deadlineAt', 'conferenceName', 'registrationUrl'],
   }),
   letter({
     key: 'registration.early_bird_ending',
