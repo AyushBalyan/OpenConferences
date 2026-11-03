@@ -28,6 +28,7 @@ import {
 } from '@/lib/api-client';
 import { DECISION_OPTIONS } from '@/lib/review-types';
 import type { NotificationLogDto } from '@openconferences/schemas';
+import { ReviewReleaseControl, ReviewReleaseWarning } from './review-release';
 import { DecisionConfirmation } from './decision-confirmation';
 import { useConferenceWorkspace } from '@/components/dashboard/conference-workspace';
 
@@ -267,6 +268,7 @@ export function DecisionsRecordedPanel() {
             <DataTableHead>Submission date</DataTableHead>
             <DataTableHead className="normal-case tracking-normal">Outcome</DataTableHead>
             <DataTableHead className="normal-case tracking-normal">Email status</DataTableHead>
+            <DataTableHead className="normal-case tracking-normal">Reviews</DataTableHead>
             <DataTableHead className="normal-case tracking-normal">Rationale</DataTableHead>
             <DataTableHead className="normal-case tracking-normal">Action</DataTableHead>
           </tr>
@@ -274,7 +276,7 @@ export function DecisionsRecordedPanel() {
         <DataTableBody>
           {!rows.length ? (
             <DataTableRow>
-              <DataTableCell colSpan={6}>
+              <DataTableCell colSpan={7}>
                 <p role="status" className="py-6 text-slate-600">
                   No recorded decisions match this search or filter. Try another title, paper code,
                   or filter.
@@ -338,6 +340,9 @@ export function DecisionsRecordedPanel() {
                 ) : null}
               </DataTableCell>
               <DataTableCell>
+                <ReviewReleaseControl cycleId={decision.roundId} />
+              </DataTableCell>
+              <DataTableCell>
                 {decision.rationale ? (
                   <details className="min-w-40 text-sm text-slate-600">
                     <summary className="cursor-pointer">View full rationale</summary>
@@ -388,6 +393,7 @@ export function DecisionsRecordedPanel() {
             {target.decision.submissionNumber} · {target.decision.paperTitle}
           </p>
           <p>Outcome: {decisionOutcomeLabel(target.decision.outcome)}</p>
+          <ReviewReleaseWarning cycleIds={[target.decision.roundId]} />
           <p>To: {target.recipient}</p>
           <p>
             The decision email will be queued immediately and the outcome released to the author.

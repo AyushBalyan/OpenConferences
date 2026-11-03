@@ -3,10 +3,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
   fetchDecisions,
+  fetchReviewCoordination,
   fetchAllPapers,
   fetchReviewProgress,
   fetchReviewRounds,
 } from '@/lib/api-client';
+import type { ReviewCoordinationDto } from '@openconferences/schemas';
 import { currentCycleDecisions } from '@/lib/review-rounds';
 import { useSession } from '@/lib/auth-client';
 import type { PaperDto } from '@/lib/submission-types';
@@ -34,6 +36,7 @@ export type PendingDecision = {
 type DecisionsWorkspaceValue = {
   conferenceId: string;
   rounds: ReviewRoundDto[];
+  reviewReleaseByCycle: Map<string, ReviewCoordinationDto['data'][number]>;
   papers: PaperRow[];
   decisions: (DecisionDto & {
     paperTitle?: string;
@@ -91,6 +94,9 @@ export function DecisionsWorkspaceProvider({
 }) {
   const { data: session } = useSession();
   const [rounds, setRounds] = useState<ReviewRoundDto[]>([]);
+  const [reviewReleaseByCycle, setReviewReleaseByCycle] = useState<
+    DecisionsWorkspaceValue['reviewReleaseByCycle']
+  >(new Map());
   const [papers, setPapers] = useState<PaperRow[]>([]);
   const [decisions, setDecisions] = useState<DecisionsWorkspaceValue['decisions']>([]);
   const [allDecisions, setAllDecisions] = useState<DecisionsWorkspaceValue['decisions']>([]);
@@ -148,14 +154,22 @@ export function DecisionsWorkspaceProvider({
   }
 
   const refresh = useCallback(async () => {
-    const [roundList, paperList, progress, decisionList] = await Promise.all([
+    const [roundList, paperList, progress, decisionList, coordination] = await Promise.all([
       fetchReviewRounds(conferenceId),
       fetchAllPapers(conferenceId),
       fetchReviewProgress(conferenceId),
       fetchDecisions(conferenceId),
+      fetchReviewCoordination(conferenceId).catch(() => null),
     ]);
 
     setRounds(roundList);
+    setReviewReleaseByCycle(
+      new Map(
+        (coordination?.data ?? []).flatMap((row) =>
+          row.cycleId ? [[row.cycleId, row] as const] : [],
+        ),
+      ),
+    );
     const progressByPaper = new Map(progress.data.map((row) => [row.paperId, row]));
     setPapers(
       paperList
@@ -280,6 +294,7 @@ export function DecisionsWorkspaceProvider({
   const value: DecisionsWorkspaceValue = {
     conferenceId,
     rounds,
+    reviewReleaseByCycle,
     papers,
     decisions,
     undecidedPapers,

@@ -13,10 +13,15 @@ async function mockApi(
     failDecision?: boolean;
     failLogs?: boolean;
     partialBulk?: boolean;
+    reviewsReleased?: boolean;
+    additionalHidden?: boolean;
+    failRelease?: boolean;
+    failReleaseStatus?: boolean;
   } = {},
 ) {
   const requests: Array<{ endpoint: string; body: Record<string, unknown> }> = [];
   const logs: Array<Record<string, unknown>> = [];
+  const releasedCycles = new Set<string>();
   const conference = {
     id: conferenceId,
     organizationId: conferenceId,
@@ -102,6 +107,25 @@ async function mockApi(
     if (route.request().method() === 'POST') {
       const input = route.request().postDataJSON() ?? {};
       requests.push({ endpoint, body: input });
+      if (endpoint.endsWith('/reviews/release')) {
+        if (options.failRelease) {
+          await route.fulfill({
+            status: 409,
+            contentType: 'application/json',
+            body: JSON.stringify({ detail: 'Review round was modified by another request' }),
+          });
+          return;
+        }
+        const round = rounds.find((r) => endpoint.includes(r.id))!;
+        releasedCycles.add(round.id);
+        round.version += 1;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ releasedCount: 2, round, message: 'Reviews released to authors' }),
+        });
+        return;
+      }
       if (endpoint.endsWith('/decision')) {
         if (options.failDecision) {
           await route.fulfill({ status: 500, contentType: 'application/json', body: '{}' });
@@ -223,7 +247,25 @@ async function mockApi(
       };
     else if (endpoint === '/conferences') body = { data: [conference], nextCursor: null };
     else if (endpoint === `/conferences/${conferenceId}`) body = conference;
-    else if (endpoint.endsWith('/review-progress'))
+    else if (endpoint.endsWith('/review-coordination')) {
+      if (options.failReleaseStatus) status = 500;
+      body = {
+        data: rounds.map((round, index) => ({
+          paperId: round.paperId,
+          paperTitle: papers[index]!.title,
+          submissionNumber: papers[index]!.submissionNumber,
+          cycleId: round.id,
+          cycleVersion: round.version,
+          submittedReviewCount: index === 1 ? 0 : 2,
+          reviewsReleasedAt:
+            options.reviewsReleased || releasedCycles.has(round.id) ? '2026-10-21T10:00:00Z' : null,
+          canReleaseReviews:
+            index !== 1 &&
+            (!options.reviewsReleased || options.additionalHidden) &&
+            !releasedCycles.has(round.id),
+        })),
+      };
+    } else if (endpoint.endsWith('/review-progress'))
       body = {
         data: rounds.map((r, index) => ({
           paperId: r.paperId,
@@ -685,3 +727,112 @@ test('search and reviewer labels fit desktop and mobile', async ({ page }) => {
     ).toBe(true);
   }
 });
+
+test('decisions warn before recording unreleased reviews and release with the cycle version', async ({
+  page,
+}) => {
+  const fixture = await mockApi(page);
+  await page.goto(`${path}/pending`);
+  await page.getByRole('radio', { name: /^Accept/ }).click();
+  await page.getByRole('button', { name: 'Record accept', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText(
+    'Reviews have not been fully released to authors.',
+  );
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Release reviews', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Committee-only comments remain private.');
+  expect(fixture.requests).toHaveLength(0);
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Release reviews', exact: true })
+    .click();
+  await expect(page.getByText('Reviews released to authors', { exact: true }).last()).toBeVisible();
+  expect(fixture.requests[0]!.endpoint).toContain(
+    `/papers/${id(10)}/cycles/${id(2000)}/reviews/release`,
+  );
+  expect(fixture.requests[0]!.body).toEqual({ version: 1 });
+  await page.getByRole('button', { name: 'Record accept', exact: true }).click();
+  await expect(page.getByRole('dialog')).not.toContainText('Reviews have not been fully released');
+  await page.screenshot({ path: '/tmp/decisions-release-desktop.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: '/tmp/decisions-release-mobile.png', fullPage: true });
+});
+
+test('bulk decisions identify the papers with unreleased reviews', async ({ page }) => {
+  await mockApi(page);
+  await page.goto(`${path}/pending`);
+  await page.getByRole('checkbox', { name: 'Select all visible pending papers' }).check();
+  await page.getByLabel('Fill blanks with').selectOption('ACCEPT');
+  await page.getByRole('button', { name: 'Record 2', exact: true }).click();
+  const warning = page.getByRole('dialog').getByRole('alert');
+  await expect(warning).toContainText('Reviews have not been fully released');
+  await expect(warning).toContainText('SYS-A1');
+  await expect(warning).toContainText('SYS-B2');
+});
+
+test('recorded decisions allow releasing feedback and warn before sending', async ({ page }) => {
+  await mockApi(page);
+  await page.goto(`${path}/recorded`);
+  await expect(page.getByRole('button', { name: 'Release reviews', exact: true })).toHaveCount(2);
+  await page.getByRole('button', { name: 'Review and send' }).first().click();
+  await expect(page.getByRole('dialog').getByRole('alert')).toContainText(
+    'Reviews have not been fully released',
+  );
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Release reviews', exact: true }).first().click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Release reviews', exact: true })
+    .click();
+  await expect(page.getByRole('button', { name: 'Release reviews', exact: true })).toHaveCount(1);
+});
+
+test('failed release keeps reviews hidden and permits retry', async ({ page }) => {
+  await mockApi(page, { failRelease: true });
+  await page.goto(`${path}/pending`);
+  await page.getByRole('button', { name: 'Release reviews', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Release reviews', exact: true })
+    .click();
+  await expect(page.getByText('Reviews not released to authors', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Release reviews', exact: true })).toBeEnabled();
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'Review round was modified' }),
+  ).toBeVisible();
+});
+
+test('missing release status is not treated as released', async ({ page }) => {
+  await mockApi(page, { failReleaseStatus: true });
+  await page.goto(`${path}/pending`);
+  await page.getByRole('radio', { name: /^Accept/ }).click();
+  await page.getByRole('button', { name: 'Record accept', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText(
+    'Review release status could not be verified.',
+  );
+});
+
+for (const additionalHidden of [false, true]) {
+  test(`a previous release ${additionalHidden ? 'still warns about newly submitted hidden feedback' : 'does not warn when all feedback is visible'}`, async ({
+    page,
+  }) => {
+    await mockApi(page, { reviewsReleased: true, additionalHidden });
+    await page.goto(`${path}/pending`);
+    await page.getByRole('radio', { name: /^Accept/ }).click();
+    await page.getByRole('button', { name: 'Record accept', exact: true }).click();
+    await expect(page.getByRole('dialog').getByRole('alert')).toHaveCount(additionalHidden ? 1 : 0);
+    if (additionalHidden) {
+      await expect(page.getByRole('dialog')).toContainText('Reviews have not been fully released');
+      for (const [name, width, height] of [
+        ['desktop', 1440, 1000],
+        ['mobile', 390, 844],
+      ] as const) {
+        await page.setViewportSize({ width, height });
+        await page.screenshot({ path: `/tmp/decisions-warning-${name}.png`, fullPage: true });
+        expect(
+          await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+        ).toBe(true);
+      }
+    }
+  });
+}

@@ -9,6 +9,7 @@ import { bulkDecide, fetchPaper, makeDecision } from '@/lib/api-client';
 import { DECISION_OPTIONS, decisionOutcomeLabel, type DecisionOutcome } from '@/lib/review-types';
 import { useDecisionsWorkspace, type PaperRow } from './decisions-workspace';
 import { ReviewDossier } from './review-dossier';
+import { ReviewReleaseControl, ReviewReleaseWarning } from './review-release';
 import { DecisionConfirmation } from './decision-confirmation';
 import Link from 'next/link';
 
@@ -584,6 +585,7 @@ export function DecisionsPendingPanel() {
                   </Button>
                 </div>
               </header>
+              {active.cycleId ? <ReviewReleaseControl cycleId={active.cycleId} /> : null}
               {active.cycleId && (
                 <ReviewDossier
                   key={`${active.cycleId}:${active.id}`}
@@ -760,6 +762,7 @@ export function DecisionsPendingPanel() {
             {active.submissionNumber} · {active.title}
           </p>
           <p>Outcome: {decisionOutcomeLabel(draft.outcome)}</p>
+          <ReviewReleaseWarning cycleIds={[active.cycleId]} />
           <p>
             {OUTCOME_STYLE[draft.outcome].hint}. This changes the paper’s workflow. No decision
             email will be sent. Send it separately from Recorded decisions.
@@ -781,6 +784,11 @@ export function DecisionsPendingPanel() {
           onCancel={() => setConfirming(null)}
         >
           <p>These outcomes change each paper’s workflow. No decision emails will be sent.</p>
+          <ReviewReleaseWarning
+            cycleIds={bulkItems.map(
+              (item) => papers.find((paper) => paper.id === item.paperId)?.cycleId ?? null,
+            )}
+          />
           <ul className="space-y-3">
             {bulkItems.map((item) => {
               const paper = papers.find((row) => row.id === item.paperId);
