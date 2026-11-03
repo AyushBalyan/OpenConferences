@@ -5,6 +5,7 @@ import { getConfig } from '@openconferences/config/env';
 import { assertSafeDatabaseRole } from '@openconferences/db';
 import { AppModule } from './app.module';
 import { initSentry } from './common/sentry';
+import { apiCorsOptions } from './common/cors';
 
 async function bootstrap(): Promise<void> {
   // Plain console before Nest logger exists — visible in Coolify docker logs during hangs.
@@ -26,11 +27,7 @@ async function bootstrap(): Promise<void> {
   app.useLogger(logger);
 
   app.use(helmet());
-  app.enableCors({
-    origin: config.api.corsOrigins,
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'cf-turnstile-response', 'X-Requested-With'],
-  });
+  app.enableCors(apiCorsOptions(config.api.corsOrigins));
 
   app.setGlobalPrefix(config.api.basePath.replace(/^\//, ''));
 
