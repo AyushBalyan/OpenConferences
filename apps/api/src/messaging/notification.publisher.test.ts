@@ -227,6 +227,7 @@ describe('registration opening email', () => {
       conferenceId: 'conference',
       organizationId: 'organization',
       paperTitle: 'Accepted paper',
+      conferenceName: 'Test Conference',
       deadlineAt: '2026-12-01T00:00:00.000Z',
       registrationUrl,
       registrationId: 'registration',
@@ -234,7 +235,8 @@ describe('registration opening email', () => {
     });
     const mail = enqueue.mock.calls[0]![0];
     const template = PLATFORM_NOTIFICATION_TEMPLATES.find((t) => t.key === mail.templateKey)!;
-    const context = { ...mail.context, conferenceName: 'Conference 2026' };
+    const context = mail.context;
+    expect(context.conferenceName).toBe('Test Conference');
     expect(renderTemplate(template.bodyHtml, context)).toContain(`href="${registrationUrl}"`);
     expect(renderTemplate(template.bodyText, context)).toContain(
       `Complete registration: ${registrationUrl}`,

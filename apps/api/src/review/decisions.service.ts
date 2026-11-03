@@ -193,7 +193,13 @@ export class DecisionsService {
 
     const shouldNotify = input.notify !== false;
     if (shouldNotify) {
-      await this.notifyDecisionAuthors([result.paper], [result.decision], input.roundId);
+      await this.notifyDecisionAuthors(
+        userId,
+        conference.name,
+        [result.paper],
+        [result.decision],
+        input.roundId,
+      );
     }
 
     if (input.outcome === 'ACCEPT') {
@@ -289,6 +295,8 @@ export class DecisionsService {
     const firstSuccess = successes[0];
     if (input.notify !== false && firstSuccess) {
       await this.notifyDecisionAuthors(
+        userId,
+        conference.name,
         successes.map((row) => row.paper),
         successes.map((row) => row.decision),
         firstSuccess.decision.roundId,
@@ -354,6 +362,8 @@ export class DecisionsService {
     }
 
     await this.notifyDecisionAuthors(
+      userId,
+      conference.name,
       decisions.map((d) => d.paper),
       decisions,
       roundId,
@@ -509,6 +519,8 @@ export class DecisionsService {
   }
 
   private async notifyDecisionAuthors(
+    userId: string,
+    conferenceName: string,
     papers: Array<PaperForDecision>,
     decisions: Array<Pick<Decision, 'id' | 'paperId' | 'roundId' | 'outcome' | 'rationale'>>,
     roundId: string,
@@ -516,13 +528,19 @@ export class DecisionsService {
     const now = new Date();
     const decisionIds = decisions.map((d) => d.id);
 
-    const rounds = await withTenantContext({}, async (tx) => {
-      await tx.decision.updateMany({
-        where: { id: { in: decisionIds } },
+    const firstPaper = papers[0];
+    if (!firstPaper || decisions.length === 0) return;
+    const { conferenceId, organizationId } = firstPaper;
+    const rounds = await withTenantContext({ userId, conferenceId, organizationId }, async (tx) => {
+      const updated = await tx.decision.updateMany({
+        where: { id: { in: decisionIds }, conferenceId },
         data: { notifiedAt: now },
       });
+      if (updated.count !== decisionIds.length) {
+        throw new ConflictException('Could not release all decisions to authors');
+      }
       return tx.reviewRound.findMany({
-        where: { id: { in: decisions.map((decision) => decision.roundId) } },
+        where: { id: { in: decisions.map((decision) => decision.roundId) }, conferenceId },
         select: { id: true, revisionDueAt: true },
       });
     });
@@ -544,6 +562,7 @@ export class DecisionsService {
         conferenceId: paper.conferenceId,
         organizationId: paper.organizationId,
         paperTitle: title,
+        conferenceName,
         outcomeLabel,
         rationaleBlock: decision.rationale?.trim()
           ? `Committee note: ${decision.rationale.trim()}`

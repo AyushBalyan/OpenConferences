@@ -117,6 +117,7 @@ export type DecisionNotifiedPayload = {
   conferenceId: string;
   organizationId: string;
   paperTitle: string;
+  conferenceName?: string;
   outcomeLabel: string;
   rationaleBlock: string;
   acceptBlock: string;
@@ -129,6 +130,7 @@ export type RegistrationWindowOpenPayload = {
   conferenceId: string;
   organizationId: string;
   paperTitle: string;
+  conferenceName?: string;
   deadlineAt: string;
   registrationUrl: string;
   registrationId: string;

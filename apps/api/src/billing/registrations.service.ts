@@ -140,6 +140,7 @@ export class RegistrationsService {
         conferenceId,
         organizationId,
         paperTitle: paper?.title ?? 'Your paper',
+        conferenceName: conference.name,
         deadlineAt: deadlineAt.toISOString(),
         registrationUrl: `${getConfig().webUrl.replace(/\/$/, '')}/dashboard/conferences/${conferenceId}/submissions/${paperId}?section=registration`,
         registrationId: registration.id,

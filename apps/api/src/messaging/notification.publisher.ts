@@ -251,6 +251,7 @@ export class NotificationPublisher {
       to: payload.to,
       context: {
         paperTitle: payload.paperTitle,
+        conferenceName: payload.conferenceName,
         outcomeLabel: payload.outcomeLabel,
         rationaleBlock: payload.rationaleBlock,
         acceptBlock: payload.acceptBlock,
@@ -270,6 +271,7 @@ export class NotificationPublisher {
       to: payload.to,
       context: {
         paperTitle: payload.paperTitle,
+        conferenceName: payload.conferenceName,
         deadlineAt: payload.deadlineAt,
         registrationUrl: payload.registrationUrl,
       },
