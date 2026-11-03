@@ -15,6 +15,7 @@ import { generateId, Prisma, withTenantContext } from '@openconferences/db';
 import type { FileAsset, PaperVersion, VersionKind } from '@openconferences/db';
 import { applyScanResult } from '@openconferences/db';
 import type { FileScanJobPayload } from '@openconferences/schemas';
+import { lockOpenCfp } from '../tenancy/cfp-window';
 import { AuditService } from '../audit/audit.service';
 import { getS3Bucket, getS3Client } from './s3.client';
 import { consumePendingUpload, getPendingUpload, storePendingUpload } from './pending-uploads';
@@ -206,6 +207,7 @@ export class FilesService {
           conferenceId: input.conferenceId,
         },
         async (tx) => {
+          if (input.kind === 'SUBMISSION') await lockOpenCfp(tx, input.conferenceId);
           const fileAsset = await tx.fileAsset.create({
             data: {
               id: fileAssetId,

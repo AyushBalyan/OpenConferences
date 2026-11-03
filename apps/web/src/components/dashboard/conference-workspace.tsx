@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { effectiveConferenceStatus } from '@openconferences/schemas';
 import { fetchConference, fetchConferences } from '@/lib/api-client';
 import type { Conference } from '@/lib/conference-types';
 import { DashboardShell } from './dashboard-shell';
@@ -32,6 +33,7 @@ export function ConferenceWorkspaceProvider({
   conferenceId: string;
   children: React.ReactNode;
 }) {
+  const [clock, setClock] = useState(Date.now);
   const [conference, setConference] = useState<Conference | null>(null);
   const [conferences, setConferences] = useState<Conference[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,6 +41,7 @@ export function ConferenceWorkspaceProvider({
 
   const refresh = useCallback(async () => {
     const [conf, list] = await Promise.all([fetchConference(conferenceId), fetchConferences()]);
+    setClock(Date.now());
     setConference(conf);
     setConferences(list.data);
     setError(null);
@@ -51,10 +54,34 @@ export function ConferenceWorkspaceProvider({
       .finally(() => setLoading(false));
   }, [refresh]);
 
+  useEffect(() => {
+    if (!conference || !['DRAFT', 'CFP_OPEN'].includes(conference.status)) return;
+    const next = [conference.cfpOpensAt, conference.cfpClosesAt]
+      .filter((value): value is string => Boolean(value))
+      .map((value) => new Date(value).getTime())
+      .filter((time) => time > clock)
+      .sort((a, b) => a - b)[0];
+    if (next === undefined) return;
+    const timer = window.setTimeout(
+      () => {
+        setClock(Date.now());
+        void refresh().catch(() => undefined);
+      },
+      Math.min(Math.max(next - Date.now(), 1), 2_147_483_647),
+    );
+    return () => window.clearTimeout(timer);
+  }, [conference, clock, refresh]);
+
+  const visibleConference = conference
+    ? { ...conference, status: effectiveConferenceStatus(conference, new Date(clock)) }
+    : null;
   const value: ConferenceWorkspaceContextValue = {
     conferenceId,
-    conference,
-    conferences,
+    conference: visibleConference,
+    conferences: conferences.map((item) => ({
+      ...item,
+      status: effectiveConferenceStatus(item, new Date(clock)),
+    })),
     loading,
     error,
     refresh,

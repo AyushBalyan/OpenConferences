@@ -1,9 +1,10 @@
-import { describe, expect, it, beforeAll, afterAll } from 'vitest';
+import { describe, expect, it, beforeAll, afterAll, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 import request from 'supertest';
 import { getConfig } from '@openconferences/config/env';
+import * as db from '@openconferences/db';
 import { prisma, generateId, withTenantContext, applyScanResult } from '@openconferences/db';
 import {
   lastTestNotifications,
@@ -116,6 +117,8 @@ describe('Paper submission integration', () => {
             name: 'Submission Conf',
             authorJoinToken: generateId(),
             status: 'CFP_OPEN',
+            cfpOpensAt: new Date('2020-01-01'),
+            cfpClosesAt: new Date('2099-01-01'),
           },
           {
             id: confBId,
@@ -124,6 +127,8 @@ describe('Paper submission integration', () => {
             name: 'Submission Conf B',
             authorJoinToken: generateId(),
             status: 'CFP_OPEN',
+            cfpOpensAt: new Date('2020-01-01'),
+            cfpClosesAt: new Date('2099-01-01'),
           },
         ],
       });
@@ -232,6 +237,8 @@ describe('Paper submission integration', () => {
           slug: `legacy-${legacyConfId.slice(0, 8)}`,
           name: 'Legacy Conference',
           status: 'CFP_OPEN',
+          cfpOpensAt: new Date('2020-01-01'),
+          cfpClosesAt: new Date('2099-01-01'),
           authorJoinToken: generateId(),
         },
       });
@@ -1475,5 +1482,121 @@ describe('Paper submission integration', () => {
         .send({ reason: 'Own paper', version: current.version, confirm: 'WITHDRAW' });
       expect(denied.status).toBe(403);
     });
+  });
+  it('enforces the CFP cutoff for create, draft edits, submission, authorship and uploads, while keeping drafts readable', async () => {
+    const draft = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/papers`)
+      .set('Cookie', authorCookie)
+      .send({
+        trackId,
+        title: 'Deadline regression',
+        abstract: 'This paper tests deadline enforcement.',
+        keywords: ['deadline'],
+      })
+      .expect(201);
+    const paperPath = `/api/v1/conferences/${confId}/papers/${draft.body.id}`;
+    const upload = await request(app.getHttpServer())
+      .post(`${paperPath}/versions/initiate`)
+      .set('Cookie', authorCookie)
+      .send({
+        kind: 'SUBMISSION',
+        originalFilename: 'paper.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 1024,
+      })
+      .expect(200);
+    await prisma.conference.update({
+      where: { id: confId },
+      data: { cfpClosesAt: new Date(Date.now() - 1000) },
+    });
+    try {
+      await request(app.getHttpServer())
+        .post(`/api/v1/conferences/${confId}/papers`)
+        .set('Cookie', authorCookie)
+        .send({ title: 'Late draft', abstract: 'Late', keywords: [] })
+        .expect(409);
+      await request(app.getHttpServer())
+        .patch(paperPath)
+        .set('Cookie', authorCookie)
+        .send({ title: 'Late edit', version: draft.body.version })
+        .expect(409);
+      await request(app.getHttpServer())
+        .post(`${paperPath}/submit`)
+        .set('Cookie', authorCookie)
+        .send({})
+        .expect(409);
+      await request(app.getHttpServer())
+        .post(`${paperPath}/versions/initiate`)
+        .set('Cookie', authorCookie)
+        .send({
+          kind: 'SUBMISSION',
+          originalFilename: 'late.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 1024,
+        })
+        .expect(409);
+      await request(app.getHttpServer())
+        .post(`${paperPath}/versions/complete`)
+        .set('Cookie', authorCookie)
+        .send({ kind: 'SUBMISSION', objectKey: upload.body.objectKey })
+        .expect(409);
+      await request(app.getHttpServer())
+        .post(`${paperPath}/authorships`)
+        .set('Cookie', authorCookie)
+        .send({ fullName: 'Late Author', email: 'late@example.test', isCorresponding: false })
+        .expect(409);
+      await request(app.getHttpServer()).get(paperPath).set('Cookie', authorCookie).expect(200);
+      expect((await prisma.paper.findUniqueOrThrow({ where: { id: draft.body.id } })).status).toBe(
+        'DRAFT',
+      );
+    } finally {
+      await prisma.conference.update({
+        where: { id: confId },
+        data: { cfpClosesAt: new Date('2099-01-01') },
+      });
+    }
+  });
+
+  it('enforces the deadline while running as the restricted production API database role', async () => {
+    const original = db.withTenantContext;
+    const role = vi
+      .spyOn(db, 'withTenantContext')
+      .mockImplementation((context, callback, options) =>
+        original(
+          context,
+          async (tx) => {
+            await tx.$executeRawUnsafe('SET LOCAL ROLE openconferences_api');
+            return callback(tx);
+          },
+          options,
+        ),
+      );
+    try {
+      const draft = await request(app.getHttpServer())
+        .post(`/api/v1/conferences/${confId}/papers`)
+        .set('Cookie', authorCookie)
+        .send({
+          trackId,
+          title: 'Restricted-role deadline test',
+          abstract: 'Author creates a draft with production RLS enabled.',
+          keywords: [],
+        })
+        .expect(201);
+      await prisma.conference.update({
+        where: { id: confId },
+        data: { cfpClosesAt: new Date(Date.now() - 1000) },
+      });
+      await request(app.getHttpServer())
+        .post(`/api/v1/conferences/${confId}/papers/${draft.body.id}/submit`)
+        .set('Cookie', authorCookie)
+        .send({})
+        .expect(409);
+    } finally {
+      role.mockRestore();
+      await prisma.conference.update({
+        where: { id: confId },
+        data: { cfpClosesAt: new Date('2099-01-01') },
+      });
+    }
   });
 });

@@ -115,6 +115,8 @@ describe('Author submit join link integration', () => {
             name: 'Author Join Conference',
             authorJoinToken,
             status: 'CFP_OPEN',
+            cfpOpensAt: new Date('2020-01-01'),
+            cfpClosesAt: new Date('2099-01-01'),
           },
           {
             id: otherConferenceId,
@@ -123,6 +125,8 @@ describe('Author submit join link integration', () => {
             name: 'Other Conference',
             authorJoinToken: generateId(),
             status: 'CFP_OPEN',
+            cfpOpensAt: new Date('2020-01-01'),
+            cfpClosesAt: new Date('2099-01-01'),
           },
         ],
       });
@@ -256,7 +260,11 @@ describe('Author submit join link integration', () => {
     await withTenantContext({}, async (tx) => {
       await tx.conference.update({
         where: { id: conferenceId },
-        data: { status: 'CFP_OPEN' },
+        data: {
+          status: 'CFP_OPEN',
+          cfpOpensAt: new Date('2020-01-01'),
+          cfpClosesAt: new Date('2099-01-01'),
+        },
       });
     });
   });
@@ -283,5 +291,26 @@ describe('Author submit join link integration', () => {
 
     expect(fresh.status).toBe(200);
     expect(fresh.body.conferenceId).toBe(conferenceId);
+  });
+  it('blocks public join links after the deadline and after manual closure under the API database role', async () => {
+    const current = await prisma.conference.findUniqueOrThrow({ where: { id: conferenceId } });
+    for (const data of [
+      { status: 'CFP_OPEN' as const, cfpClosesAt: new Date('2020-01-02') },
+      { status: 'CFP_CLOSED' as const, cfpClosesAt: new Date('2099-01-01') },
+    ]) {
+      await prisma.conference.update({ where: { id: conferenceId }, data });
+      const resolved = await prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe('SET LOCAL ROLE openconferences_api');
+        return tx.$queryRaw<
+          Array<{ status: string }>
+        >`SELECT status::text AS status FROM public.app_resolve_conference_by_author_join_token(${current.authorJoinToken}::uuid)`;
+      });
+      expect(resolved[0]?.status).toBe('CFP_CLOSED');
+      await request(app.getHttpServer())
+        .post('/api/v1/conferences/join-as-author')
+        .set('Cookie', otherAuthorCookie)
+        .send({ token: current.authorJoinToken })
+        .expect(409);
+    }
   });
 });

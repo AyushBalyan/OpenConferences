@@ -50,6 +50,7 @@ export function OrganizerDashboard({
   const [analytics, setAnalytics] = useState<ConferenceAnalyticsOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [cfpAction, setCfpAction] = useState<'CFP_OPEN' | 'CFP_CLOSED' | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -122,13 +123,16 @@ export function OrganizerDashboard({
   const registrationCount = analytics?.registrations.paid ?? null;
   const submissionCount = countActiveSubmissions(analytics?.submissions ?? null, papers);
 
-  async function openCfp() {
+  async function changeCfp(status: 'CFP_OPEN' | 'CFP_CLOSED') {
     setActionError(null);
+    setCfpAction(status);
     try {
-      await transitionConferenceStatus(conferenceId, 'CFP_OPEN');
+      await transitionConferenceStatus(conferenceId, status);
       await onRefresh();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Transition failed');
+      setActionError(err instanceof Error ? err.message : 'Unable to update the call for papers');
+    } finally {
+      setCfpAction(null);
     }
   }
 
@@ -280,7 +284,11 @@ export function OrganizerDashboard({
             ) : papers.length === 0 ? (
               <Card>
                 <CardContent className="py-10 text-center text-sm text-slate-500">
-                  No submissions yet. Publish the CFP to start receiving papers.
+                  {conference.status === 'DRAFT'
+                    ? 'No submissions yet. Publish the CFP to start receiving papers.'
+                    : conference.status === 'CFP_OPEN'
+                      ? 'No submissions yet. Share the public submit link with authors.'
+                      : 'No submissions were received.'}
                 </CardContent>
               </Card>
             ) : (
@@ -376,12 +384,34 @@ export function OrganizerDashboard({
               <p className="text-sm text-slate-500">
                 Blinding: {conference.blindingMode.replace(/_/g, ' ')}
               </p>
-              {canManageConference(roles) && conference.status === 'DRAFT' ? (
-                <Button onClick={openCfp} size="sm">
-                  Publish CFP
+              {canManageConference(roles) && ['DRAFT', 'CFP_CLOSED'].includes(conference.status) ? (
+                <Button
+                  onClick={() => changeCfp('CFP_OPEN')}
+                  disabled={cfpAction !== null}
+                  size="sm"
+                >
+                  {cfpAction === 'CFP_OPEN'
+                    ? 'Opening CFP…'
+                    : conference.status === 'CFP_CLOSED'
+                      ? 'Reopen CFP'
+                      : 'Publish CFP'}
                 </Button>
               ) : null}
-              {actionError ? <p className="text-sm text-rose-600">{actionError}</p> : null}
+              {canManageConference(roles) && conference.status === 'CFP_OPEN' ? (
+                <Button
+                  onClick={() => changeCfp('CFP_CLOSED')}
+                  disabled={cfpAction !== null}
+                  variant="outline"
+                  size="sm"
+                >
+                  {cfpAction === 'CFP_CLOSED' ? 'Closing CFP…' : 'Close CFP'}
+                </Button>
+              ) : null}
+              {actionError ? (
+                <p role="alert" className="text-sm text-rose-600">
+                  {actionError}
+                </p>
+              ) : null}
             </CardContent>
           </Card>
 

@@ -4,6 +4,7 @@ import type { WorkflowTone } from './workflow-badge';
 const STATUS_TONE: Record<string, WorkflowTone> = {
   DRAFT: 'info',
   CFP_OPEN: 'success',
+  CFP_CLOSED: 'neutral',
   REVIEWING: 'pending',
   DECISIONS: 'pending',
   FINALIZATION: 'pending',
@@ -21,7 +22,7 @@ const STATUS_STYLES: Record<WorkflowTone, string> = {
 
 export function StatusBadge({ status }: { status: string }) {
   const tone = STATUS_TONE[status] ?? 'neutral';
-  const label = status.replace(/_/g, ' ');
+  const label = status === 'CFP_CLOSED' ? 'CFP Closed' : status.replace(/_/g, ' ');
 
   return (
     <span

@@ -4,6 +4,8 @@ export type Conference = {
   slug: string;
   name: string;
   status: string;
+  cfpOpensAt?: string | null;
+  cfpClosesAt?: string | null;
   blindingMode: string;
   version: number;
   myRoles: string[];

@@ -29,6 +29,7 @@ import {
 import { assertScope } from '../common/scope/assert-scope';
 import { AuditService } from '../audit/audit.service';
 import { NotificationPublisher } from '../messaging/notification.publisher';
+import { assertCfpOpen, lockOpenCfp } from '../tenancy/cfp-window';
 import { ConferenceService } from '../tenancy/conference.service';
 import { canCoordinateReview } from '../tenancy/role-hierarchy';
 import { isPrivilegedReader, mapPaper } from './submission.mapper';
@@ -85,7 +86,7 @@ export class PapersService {
 
   async create(userId: string, conferenceId: string, input: CreatePaperInput, roles: RoleKind[]) {
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-    this.assertCfpOpen(conference);
+    assertCfpOpen(conference);
 
     if (!roles.includes('AUTHOR') && !isPrivilegedReader(roles)) {
       throw new ForbiddenException('Author role required to create submissions');
@@ -110,6 +111,7 @@ export class PapersService {
       paper = await withTenantContext(
         { userId, conferenceId, organizationId: conference.organizationId },
         async (tx) => {
+          const cfp = await lockOpenCfp(tx, conferenceId);
           const openPapers = await this.lockedCorrespondingCount(tx, {
             conferenceId,
             userId,
@@ -118,6 +120,7 @@ export class PapersService {
           if (openPapers >= MAX_CORRESPONDING_PAPERS) {
             throw new CorrespondingPaperLimitError();
           }
+          assertCfpOpen(cfp);
           return tx.paper.create({
             data: {
               id: generateId(),
@@ -246,7 +249,7 @@ export class PapersService {
     await this.assertAuthorCanEdit(userId, paper, roles);
 
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-    this.assertCfpOpen(conference);
+    assertCfpOpen(conference);
 
     if (paper.status !== 'DRAFT') {
       throw new ConflictException('Only draft papers can be edited');
@@ -271,8 +274,9 @@ export class PapersService {
 
     const updated = await withTenantContext(
       { userId, conferenceId, organizationId: paper.organizationId },
-      async (tx) =>
-        tx.paper.update({
+      async (tx) => {
+        await lockOpenCfp(tx, conferenceId);
+        return tx.paper.update({
           where: { id: paperId },
           data: {
             title: input.title,
@@ -282,7 +286,8 @@ export class PapersService {
             version: { increment: 1 },
           },
           include: paperInclude,
-        }),
+        });
+      },
     );
 
     return mapPaper(updated);
@@ -293,7 +298,7 @@ export class PapersService {
     await this.assertAuthorCanEdit(userId, paper, roles);
 
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-    this.assertCfpOpen(conference);
+    assertCfpOpen(conference);
 
     if (paper.status !== 'DRAFT') {
       throw new ConflictException('Paper has already been submitted');
@@ -629,6 +634,7 @@ export class PapersService {
         const assigned = await withTenantContext(
           { userId, conferenceId: paper.conferenceId, organizationId: paper.organizationId },
           async (tx) => {
+            const cfp = await lockOpenCfp(tx, paper.conferenceId);
             const submittedPapers = await this.lockedCorrespondingCount(tx, {
               conferenceId: paper.conferenceId,
               userId: corresponding.userId,
@@ -638,6 +644,7 @@ export class PapersService {
             if (submittedPapers >= MAX_CORRESPONDING_PAPERS) {
               throw new CorrespondingPaperLimitError();
             }
+            assertCfpOpen(cfp);
             const result = await tx.paper.updateMany({
               where: { id: paper.id, status: 'DRAFT', submissionNumber: null },
               data: {
@@ -710,12 +717,6 @@ export class PapersService {
     }
 
     return paper;
-  }
-
-  private assertCfpOpen(conference: { status: string }) {
-    if (conference.status !== 'CFP_OPEN') {
-      throw new ConflictException('Conference is not accepting submissions');
-    }
   }
 
   private async lockedCorrespondingCount(

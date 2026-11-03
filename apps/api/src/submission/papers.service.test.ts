@@ -29,7 +29,16 @@ vi.mock('@openconferences/db', () => ({
 }));
 
 describe('submission replacement scan gate', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    queryRaw.mockResolvedValue([
+      {
+        status: 'CFP_OPEN',
+        cfpOpensAt: new Date('2020-01-01'),
+        cfpClosesAt: new Date('2099-01-01'),
+      },
+    ]);
+  });
   it('captures the submission date in the same update that submits the paper', async () => {
     const createdAt = new Date('2026-10-01T10:00:00Z');
     const draft = {
@@ -54,7 +63,14 @@ describe('submission replacement scan gate', () => {
       currentVersion: { id: 'current', fileAsset: { scanStatus: 'CLEAN' } },
     };
     const service = new PapersService(
-      { loadConference: vi.fn().mockResolvedValue({ status: 'CFP_OPEN', slug: 'test' }) } as never,
+      {
+        loadConference: vi.fn().mockResolvedValue({
+          status: 'CFP_OPEN',
+          cfpOpensAt: new Date('2020-01-01'),
+          cfpClosesAt: new Date('2099-01-01'),
+          slug: 'test',
+        }),
+      } as never,
       { log: vi.fn() } as never,
       { publishPaperSubmitted: vi.fn() } as never,
     );
@@ -85,7 +101,13 @@ describe('submission replacement scan gate', () => {
     'does not submit the older clean version when a replacement is %s',
     async (scanStatus) => {
       const service = new PapersService(
-        { loadConference: vi.fn().mockResolvedValue({ status: 'CFP_OPEN' }) } as never,
+        {
+          loadConference: vi.fn().mockResolvedValue({
+            status: 'CFP_OPEN',
+            cfpOpensAt: new Date('2020-01-01'),
+            cfpClosesAt: new Date('2099-01-01'),
+          }),
+        } as never,
         {} as never,
         {} as never,
       );
@@ -117,6 +139,8 @@ describe('submission replacement scan gate', () => {
       {
         loadConference: vi.fn().mockResolvedValue({
           status: 'CFP_OPEN',
+          cfpOpensAt: new Date('2020-01-01'),
+          cfpClosesAt: new Date('2099-01-01'),
           organizationId: 'org',
           name: 'Test Conference',
         }),
@@ -146,6 +170,8 @@ describe('submission replacement scan gate', () => {
       {
         loadConference: vi.fn().mockResolvedValue({
           status: 'CFP_OPEN',
+          cfpOpensAt: new Date('2020-01-01'),
+          cfpClosesAt: new Date('2099-01-01'),
           organizationId: 'org',
           name: 'Test Conference',
           slug: 'test-conf',
@@ -174,5 +200,58 @@ describe('submission replacement scan gate', () => {
       status: 409,
       response: { code: 'CORRESPONDING_PAPER_LIMIT' },
     });
+  });
+  it('rechecks the deadline after waiting for the corresponding-author lock', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-03T00:00:00Z'));
+    findUser.mockResolvedValue({ id: 'author', name: 'Author', email: 'author@example.test' });
+    findTrack.mockResolvedValue({ id: 'track' });
+    count.mockImplementationOnce(async () => {
+      vi.setSystemTime(new Date('2099-01-02'));
+      return 0;
+    });
+    const conference = {
+      status: 'CFP_OPEN',
+      organizationId: 'org',
+      cfpOpensAt: new Date('2020-01-01'),
+      cfpClosesAt: new Date('2099-01-01'),
+    };
+    const service = new PapersService(
+      { loadConference: vi.fn().mockResolvedValue(conference) } as never,
+      {} as never,
+      {} as never,
+    );
+    try {
+      await expect(
+        service.create('author', 'conf', { title: 'Late', abstract: 'Abstract', keywords: [] }, [
+          'AUTHOR',
+        ]),
+      ).rejects.toMatchObject({ status: 409 });
+      expect(createPaper).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('rechecks manual closure inside the write transaction even after a stale open precheck', async () => {
+    findUser.mockResolvedValue({ id: 'author', name: 'Author', email: 'author@example.test' });
+    findTrack.mockResolvedValue({ id: 'track' });
+    const conference = {
+      status: 'CFP_OPEN',
+      organizationId: 'org',
+      cfpOpensAt: new Date('2020-01-01'),
+      cfpClosesAt: new Date('2099-01-01'),
+    };
+    queryRaw.mockResolvedValueOnce([{ ...conference, status: 'CFP_CLOSED' }]);
+    const service = new PapersService(
+      { loadConference: vi.fn().mockResolvedValue(conference) } as never,
+      {} as never,
+      {} as never,
+    );
+    await expect(
+      service.create('author', 'conf', { title: 'Closed', abstract: 'Abstract', keywords: [] }, [
+        'AUTHOR',
+      ]),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(createPaper).not.toHaveBeenCalled();
   });
 });

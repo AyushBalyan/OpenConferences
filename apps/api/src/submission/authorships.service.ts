@@ -1,3 +1,4 @@
+import { lockOpenCfp } from '../tenancy/cfp-window';
 import {
   BadRequestException,
   ConflictException,
@@ -35,6 +36,7 @@ export class AuthorshipsService {
       const authorship = await withTenantContext(
         { userId, conferenceId, organizationId: paper.organizationId },
         async (tx) => {
+          await lockOpenCfp(tx, conferenceId);
           if (input.isCorresponding) {
             await tx.authorship.updateMany({
               where: { paperId, isCorresponding: true },
@@ -58,7 +60,8 @@ export class AuthorshipsService {
       );
 
       return mapAuthorship(authorship);
-    } catch {
+    } catch (error) {
+      if (error instanceof ConflictException) throw error;
       throw new ConflictException('Could not add authorship (duplicate corresponding author?)');
     }
   }
@@ -82,11 +85,13 @@ export class AuthorshipsService {
     const affiliation = input.affiliation.trim();
     const updated = await withTenantContext(
       { userId, conferenceId, organizationId: paper.organizationId },
-      async (tx) =>
-        tx.authorship.update({
+      async (tx) => {
+        await lockOpenCfp(tx, conferenceId);
+        return tx.authorship.update({
           where: { id: authorshipId },
           data: { affiliation: affiliation.length > 0 ? affiliation : null },
-        }),
+        });
+      },
     );
 
     return mapAuthorship(updated);
@@ -113,6 +118,7 @@ export class AuthorshipsService {
     const reordered = await withTenantContext(
       { userId, conferenceId, organizationId: paper.organizationId },
       async (tx) => {
+        await lockOpenCfp(tx, conferenceId);
         // Offset technique (§18.10): move to temporary high orders first
         const offset = 1000;
         for (let i = 0; i < input.authorshipIds.length; i++) {
@@ -161,6 +167,7 @@ export class AuthorshipsService {
     await withTenantContext(
       { userId, conferenceId, organizationId: paper.organizationId },
       async (tx) => {
+        await lockOpenCfp(tx, conferenceId);
         await tx.authorship.delete({ where: { id: authorshipId } });
 
         const remaining = await tx.authorship.findMany({

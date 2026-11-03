@@ -24,6 +24,7 @@ enum MembershipScope {
 enum ConferenceStatus {
   DRAFT
   CFP_OPEN
+  CFP_CLOSED
   REVIEWING
   DECISIONS
   FINALIZATION

@@ -9,6 +9,7 @@ import type { RoleKind, TenantContext, VersionKind } from '@openconferences/db';
 import { withTenantContext } from '@openconferences/db';
 import type { CompleteVersionInput, InitiateVersionInput } from '@openconferences/schemas';
 import { FilesService, manuscriptDownloadFilename } from '../files/files.service';
+import { assertCfpOpen } from '../tenancy/cfp-window';
 import { ConferenceService } from '../tenancy/conference.service';
 import { PapersService } from './papers.service';
 import { isPrivilegedReader, mapPaperVersion } from './submission.mapper';
@@ -202,6 +203,7 @@ export class VersionsService {
     }
 
     if (kind === 'SUBMISSION') {
+      assertCfpOpen(await this.conferences.loadConference(userId, conferenceId, roles));
       this.assertAuthorCanUpload(userId, paper, roles);
       if (paper.status !== 'DRAFT') {
         throw new ConflictException('Submission versions can only be uploaded for draft papers');

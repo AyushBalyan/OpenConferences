@@ -50,7 +50,8 @@ export function AuthorDashboard({ conferenceId, conference }: AuthorDashboardPro
     [papers],
   );
 
-  const phaseLabel = conference.status.replace(/_/g, ' ');
+  const phaseLabel =
+    conference.status === 'CFP_CLOSED' ? 'CFP Closed' : conference.status.replace(/_/g, ' ');
 
   return (
     <>
@@ -60,11 +61,13 @@ export function AuthorDashboard({ conferenceId, conference }: AuthorDashboardPro
         actions={
           <>
             <ManuscriptTemplateButton />
-            <Button asChild>
-              <Link href={`/dashboard/conferences/${conferenceId}/submissions/new`}>
-                New submission
-              </Link>
-            </Button>
+            {conference.status === 'CFP_OPEN' && (
+              <Button asChild>
+                <Link href={`/dashboard/conferences/${conferenceId}/submissions/new`}>
+                  New submission
+                </Link>
+              </Button>
+            )}
           </>
         }
       />

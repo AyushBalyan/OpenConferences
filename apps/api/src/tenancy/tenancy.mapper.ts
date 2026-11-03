@@ -1,3 +1,4 @@
+import { effectiveConferenceStatus } from '@openconferences/schemas';
 import type { Conference, ConferenceStatus, Track } from '@openconferences/db';
 import type {
   BlindingMode as SchemaBlindingMode,
@@ -69,7 +70,7 @@ export function mapConference(
     organizationId: conference.organizationId,
     slug: conference.slug,
     name: conference.name,
-    status: conference.status as SchemaConferenceStatus,
+    status: deriveStatusFromWindows(conference) as SchemaConferenceStatus,
     blindingMode: conference.blindingMode as SchemaBlindingMode,
     cfpOpensAt: toIso(conference.cfpOpensAt),
     cfpClosesAt: toIso(conference.cfpClosesAt),
@@ -103,8 +104,9 @@ export function mapTrack(track: Track) {
 }
 
 export const VALID_STATUS_TRANSITIONS: Record<ConferenceStatus, ConferenceStatus[]> = {
-  DRAFT: ['CFP_OPEN', 'ARCHIVED'],
-  CFP_OPEN: ['REVIEWING', 'DRAFT', 'ARCHIVED'],
+  DRAFT: ['CFP_OPEN', 'CFP_CLOSED', 'ARCHIVED'],
+  CFP_OPEN: ['CFP_CLOSED', 'REVIEWING', 'DRAFT', 'ARCHIVED'],
+  CFP_CLOSED: ['CFP_OPEN', 'REVIEWING', 'ARCHIVED'],
   REVIEWING: ['DECISIONS', 'CFP_OPEN', 'ARCHIVED'],
   DECISIONS: ['FINALIZATION', 'REVIEWING', 'ARCHIVED'],
   FINALIZATION: ['COMPLETED', 'DECISIONS', 'ARCHIVED'],
@@ -113,31 +115,7 @@ export const VALID_STATUS_TRANSITIONS: Record<ConferenceStatus, ConferenceStatus
 };
 
 export function deriveStatusFromWindows(conference: Conference): ConferenceStatus {
-  const now = new Date();
-
-  if (conference.status === 'ARCHIVED' || conference.status === 'COMPLETED') {
-    return conference.status;
-  }
-
-  // Before the CFP window opens, status is always draft (§6 — window-driven lifecycle).
-  if (!conference.cfpOpensAt || now < conference.cfpOpensAt) {
-    return 'DRAFT';
-  }
-
-  if (!conference.cfpClosesAt || now < conference.cfpClosesAt) {
-    return 'CFP_OPEN';
-  }
-
-  if (conference.cfpClosesAt && now >= conference.cfpClosesAt) {
-    if (conference.reviewDueAt && now < conference.reviewDueAt) {
-      return 'REVIEWING';
-    }
-    if (conference.decisionDueAt && now < conference.decisionDueAt) {
-      return 'DECISIONS';
-    }
-  }
-
-  return conference.status;
+  return effectiveConferenceStatus(conference);
 }
 
 export function parseOptionalDate(value: string | null | undefined): Date | null | undefined {

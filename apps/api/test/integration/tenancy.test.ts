@@ -73,6 +73,7 @@ describe('Tenancy & RBAC integration', () => {
   let organizerUserId: string;
   let authorUserId: string;
   let organizerCookie = '';
+  let authorCookie = '';
   let outsiderCookie = '';
 
   beforeAll(async () => {
@@ -91,6 +92,7 @@ describe('Tenancy & RBAC integration', () => {
 
     organizerUserId = organizer.userId;
     authorUserId = author.userId;
+    authorCookie = author.cookie;
     organizerCookie = organizer.cookie;
     outsiderCookie = outsider.cookie;
 
@@ -278,14 +280,17 @@ describe('Tenancy & RBAC integration', () => {
       .expect(403);
   });
 
-  it('organizer can transition to CFP_OPEN after windows configured', async () => {
+  it('organizer can publish a scheduled CFP without opening submissions before its start', async () => {
     const response = await request(app.getHttpServer())
       .patch(`/api/v1/conferences/${confAId}/status`)
       .set('Cookie', organizerCookie)
       .send({ status: 'CFP_OPEN' });
 
     expect(response.status).toBe(200);
-    expect(response.body.status).toBe('CFP_OPEN');
+    expect(response.body.status).toBe('DRAFT');
+    expect((await prisma.conference.findUniqueOrThrow({ where: { id: confAId } })).status).toBe(
+      'CFP_OPEN',
+    );
 
     const audit = await prisma.auditLog.findFirst({
       where: { action: 'conference.status_transition', conferenceId: confAId },
@@ -338,5 +343,85 @@ describe('Tenancy & RBAC integration', () => {
     );
 
     expect(tracks.length).toBeGreaterThanOrEqual(1);
+  });
+  it('manual CFP closure persists through the original date window and is organizer-only', async () => {
+    await prisma.conference.update({
+      where: { id: confAId },
+      data: {
+        status: 'CFP_OPEN',
+        cfpOpensAt: new Date('2020-01-01'),
+        cfpClosesAt: new Date('2099-01-01'),
+      },
+    });
+    const path = `/api/v1/conferences/${confAId}`;
+    await request(app.getHttpServer())
+      .patch(`${path}/status`)
+      .set('Cookie', authorCookie)
+      .send({ status: 'CFP_CLOSED' })
+      .expect(403);
+    const closed = await request(app.getHttpServer())
+      .patch(`${path}/status`)
+      .set('Cookie', organizerCookie)
+      .send({ status: 'CFP_CLOSED' })
+      .expect(200);
+    expect(closed.body.status).toBe('CFP_CLOSED');
+    const edited = await request(app.getHttpServer())
+      .patch(`${path}/settings`)
+      .set('Cookie', organizerCookie)
+      .send({ cfpClosesAt: '2099-02-01T00:00:00.000Z' })
+      .expect(200);
+    expect(edited.body.status).toBe('CFP_CLOSED');
+    expect((await prisma.conference.findUniqueOrThrow({ where: { id: confAId } })).status).toBe(
+      'CFP_CLOSED',
+    );
+    expect(
+      (await request(app.getHttpServer()).get(path).set('Cookie', organizerCookie).expect(200)).body
+        .status,
+    ).toBe('CFP_CLOSED');
+    const open = await request(app.getHttpServer())
+      .patch(`${path}/status`)
+      .set('Cookie', organizerCookie)
+      .send({ status: 'CFP_OPEN' })
+      .expect(200);
+    expect(open.body.status).toBe('CFP_OPEN');
+  });
+  it('reports expired CFP as closed without a scheduler and rejects reopening an elapsed cutoff', async () => {
+    await prisma.conference.update({
+      where: { id: confAId },
+      data: {
+        status: 'CFP_OPEN',
+        cfpOpensAt: new Date('2020-01-01'),
+        cfpClosesAt: new Date('2020-01-02'),
+        reviewDueAt: null,
+        decisionDueAt: null,
+      },
+    });
+    const path = `/api/v1/conferences/${confAId}`;
+    expect(
+      (await request(app.getHttpServer()).get(path).set('Cookie', organizerCookie).expect(200)).body
+        .status,
+    ).toBe('CFP_CLOSED');
+    const list = await request(app.getHttpServer())
+      .get('/api/v1/conferences')
+      .set('Cookie', organizerCookie)
+      .expect(200);
+    expect(list.body.data.find((item: { id: string }) => item.id === confAId).status).toBe(
+      'CFP_CLOSED',
+    );
+    await request(app.getHttpServer())
+      .patch(`${path}/status`)
+      .set('Cookie', organizerCookie)
+      .send({ status: 'CFP_OPEN' })
+      .expect(409);
+    await request(app.getHttpServer())
+      .post(`${path}/papers`)
+      .set('Cookie', authorCookie)
+      .send({ title: 'Late', abstract: 'An abstract', keywords: [] })
+      .expect(409);
+    await request(app.getHttpServer())
+      .patch(`${path}/settings`)
+      .set('Cookie', organizerCookie)
+      .send({ cfpClosesAt: '2019-01-01T00:00:00.000Z' })
+      .expect(409);
   });
 });

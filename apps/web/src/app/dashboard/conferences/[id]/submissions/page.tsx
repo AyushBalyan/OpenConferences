@@ -106,7 +106,7 @@ export default function SubmissionsListPage() {
       }
       error={error}
       actions={
-        !showAllPapers ? (
+        !showAllPapers && conference?.status === 'CFP_OPEN' ? (
           <Button asChild>
             <Link href={`/dashboard/conferences/${conferenceId}/submissions/new`}>
               New submission
@@ -165,7 +165,7 @@ export default function SubmissionsListPage() {
                 : 'Start a new submission when the call for papers is open.'
             }
           />
-          {!showAllPapers ? (
+          {!showAllPapers && conference?.status === 'CFP_OPEN' ? (
             <Button asChild>
               <Link href={`/dashboard/conferences/${conferenceId}/submissions/new`}>
                 Submit your first paper

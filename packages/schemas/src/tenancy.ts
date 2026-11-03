@@ -15,6 +15,7 @@ export const membershipScopeSchema = z.enum(['ORGANIZATION', 'CONFERENCE']);
 export const conferenceStatusSchema = z.enum([
   'DRAFT',
   'CFP_OPEN',
+  'CFP_CLOSED',
   'REVIEWING',
   'DECISIONS',
   'FINALIZATION',

@@ -377,4 +377,33 @@ describe('Dashboard, pagination & analytics integration', () => {
 
     expect(res.status).toBe(403);
   });
+  it('shows CFP Closed on the global dashboard after an elapsed deadline', async () => {
+    const prior = await prisma.conference.findUniqueOrThrow({ where: { id: confAId } });
+    await prisma.conference.update({
+      where: { id: confAId },
+      data: {
+        status: 'CFP_OPEN',
+        cfpOpensAt: new Date('2020-01-01'),
+        cfpClosesAt: new Date('2020-01-02'),
+      },
+    });
+    try {
+      const response = await request(app.getHttpServer())
+        .get('/api/v1/me/dashboard')
+        .set('Cookie', authorCookie)
+        .expect(200);
+      expect(
+        response.body.authorConferences.find((item: { id: string }) => item.id === confAId).status,
+      ).toBe('CFP_CLOSED');
+    } finally {
+      await prisma.conference.update({
+        where: { id: confAId },
+        data: {
+          status: prior.status,
+          cfpOpensAt: prior.cfpOpensAt,
+          cfpClosesAt: prior.cfpClosesAt,
+        },
+      });
+    }
+  });
 });

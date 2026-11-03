@@ -69,8 +69,8 @@ export function AuthorSubmitLinkCard({ conferenceId, cfpOpen }: AuthorSubmitLink
       <CardContent className="space-y-3">
         {cfpOpen === false ? (
           <p className="text-sm text-amber-700">
-            CFP is not open yet. The link will grant author access only after you open the call for
-            papers.
+            Submissions are closed. Authors can use this link only while the call for papers is
+            open.
           </p>
         ) : null}
         {error ? <p className="text-sm text-destructive">{error}</p> : null}

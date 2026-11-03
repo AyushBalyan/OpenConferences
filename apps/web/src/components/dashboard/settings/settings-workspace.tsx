@@ -1,5 +1,7 @@
 'use client';
 
+import { useConferenceWorkspace } from '../conference-workspace';
+
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { fetchConference, updateConferenceSettings } from '@/lib/api-client';
 import { fromUtcDatetimeLocalValue, toUtcDatetimeLocalValue } from '@/lib/datetime-utc';
@@ -76,6 +78,7 @@ export function SettingsWorkspaceProvider({
   conferenceId: string;
   children: React.ReactNode;
 }) {
+  const { refresh: refreshConference } = useConferenceWorkspace();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -152,6 +155,7 @@ export function SettingsWorkspaceProvider({
       });
       setSaved(true);
       await load();
+      await refreshConference();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
     }

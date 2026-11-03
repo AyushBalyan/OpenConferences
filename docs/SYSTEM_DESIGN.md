@@ -322,7 +322,7 @@ PostgreSQL, accessed via Prisma. Conventions used throughout:
 ### 4.1 Enums
 
 ```sql
-CREATE TYPE conference_status   AS ENUM ('DRAFT','CFP_OPEN','REVIEWING','DECISIONS','FINALIZATION','COMPLETED','ARCHIVED');
+CREATE TYPE conference_status   AS ENUM ('DRAFT','CFP_OPEN','CFP_CLOSED','REVIEWING','DECISIONS','FINALIZATION','COMPLETED','ARCHIVED');
 CREATE TYPE role_kind           AS ENUM ('PLATFORM_ADMIN','ORG_ADMIN','ORGANIZER','CHAIR','REVIEWER','AUTHOR');
 CREATE TYPE membership_scope    AS ENUM ('ORGANIZATION','CONFERENCE');
 CREATE TYPE paper_status        AS ENUM ('DRAFT','SUBMITTED','UNDER_REVIEW','DECISION_MADE','CAMERA_READY','WITHDRAWN','WITHDRAWN_NONPAYMENT');
@@ -695,7 +695,9 @@ Workflow is driven by **dated phase windows on the conference** (CFP, bidding, r
 stateDiagram-v2
   [*] --> DRAFT
   DRAFT --> CFP_OPEN: publish CFP
-  CFP_OPEN --> REVIEWING: CFP closes / assign reviewers
+  CFP_OPEN --> CFP_CLOSED: deadline reached / organizer closes CFP
+  CFP_CLOSED --> CFP_OPEN: organizer reopens with a future cutoff
+  CFP_CLOSED --> REVIEWING: review phase begins
   REVIEWING --> DECISIONS: reviews complete
   DECISIONS --> FINALIZATION: acceptances notified (per-accepted-paper windows open)
   state FINALIZATION {
@@ -1529,7 +1531,7 @@ Magic-byte sniffing, server checksum, ClamAV gating (`PENDING_SCAN → CLEAN | I
 
 ### 18.7 Lifecycle = per-phase windows + per-paper state
 
-`Conference.status` is display-only; peer-review model in §19.
+`Conference.status` supplies the effective display phase and records explicit organizer overrides. CFP acceptance requires a published call, `cfpOpensAt <= now < cfpClosesAt`, and no manual closure. Expiry displays `CFP_CLOSED` without a scheduler; it does not automatically start reviewing. Explicit later phases and manual closure are preserved. Peer-review work remains per-paper (§19).
 
 ### 18.8 Auth lifecycle + MFA
 

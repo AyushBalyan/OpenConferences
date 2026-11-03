@@ -45,7 +45,7 @@ describe('deriveStatusFromWindows', () => {
     ).toBe('DRAFT');
   });
 
-  it('returns CFP_OPEN when now is within the CFP window', () => {
+  it('keeps an unpublished draft closed even when dates are within the CFP window', () => {
     const pastOpen = new Date(Date.now() - 86400000);
     const futureClose = new Date(Date.now() + 86400000 * 30);
 
@@ -57,7 +57,7 @@ describe('deriveStatusFromWindows', () => {
           cfpClosesAt: futureClose,
         }),
       ),
-    ).toBe('CFP_OPEN');
+    ).toBe('DRAFT');
   });
 
   it('returns DRAFT when CFP opens is not configured', () => {
@@ -72,7 +72,7 @@ describe('deriveStatusFromWindows', () => {
     ).toBe('DRAFT');
   });
 
-  it('returns REVIEWING after CFP closes when review due is in the future', () => {
+  it('returns CFP_CLOSED after CFP closes even when review due is in the future', () => {
     const pastOpen = new Date(Date.now() - 86400000 * 30);
     const pastClose = new Date(Date.now() - 86400000);
     const futureReviewDue = new Date(Date.now() + 86400000 * 14);
@@ -86,7 +86,7 @@ describe('deriveStatusFromWindows', () => {
           reviewDueAt: futureReviewDue,
         }),
       ),
-    ).toBe('REVIEWING');
+    ).toBe('CFP_CLOSED');
   });
 
   it('keeps ARCHIVED and COMPLETED terminal statuses', () => {

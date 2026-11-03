@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { RoleKind } from '@openconferences/db';
 import { withTenantContext } from '@openconferences/db';
 import type { MeDashboard } from '@openconferences/schemas';
-import { effectiveReviewDeadline } from '@openconferences/schemas';
+import { effectiveReviewDeadline, effectiveConferenceStatus } from '@openconferences/schemas';
 import { effectiveRolesForConference, mergeRolesByConference } from '../tenancy/membership-roles';
 import { maxRoleRank } from '../tenancy/role-hierarchy';
 
@@ -43,7 +43,15 @@ export class MeDashboardService {
           include: {
             roles: true,
             conference: {
-              select: { id: true, name: true, slug: true, status: true, organizationId: true },
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+                status: true,
+                organizationId: true,
+                cfpOpensAt: true,
+                cfpClosesAt: true,
+              },
             },
           },
         }),
@@ -85,7 +93,7 @@ export class MeDashboardService {
           id: conference.id,
           name: conference.name,
           slug: conference.slug,
-          status: conference.status,
+          status: effectiveConferenceStatus(conference),
           myRoles,
         };
       });

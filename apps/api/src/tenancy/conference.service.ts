@@ -305,13 +305,14 @@ export class ConferenceService {
 
     const conference = await this.loadConference(actorUserId, conferenceId, userRoles);
 
-    if (
-      input.cfpOpensAt &&
-      input.cfpClosesAt &&
-      new Date(input.cfpOpensAt) >= new Date(input.cfpClosesAt)
-    ) {
+    const opens =
+      input.cfpOpensAt === undefined ? conference.cfpOpensAt : parseOptionalDate(input.cfpOpensAt);
+    const closes =
+      input.cfpClosesAt === undefined
+        ? conference.cfpClosesAt
+        : parseOptionalDate(input.cfpClosesAt);
+    if (opens && closes && opens >= closes)
       throw new ConflictException('CFP opens must be before CFP closes');
-    }
 
     const updated = await withTenantContext(
       {

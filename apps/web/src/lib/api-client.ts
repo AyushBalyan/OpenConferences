@@ -363,7 +363,14 @@ export async function updateNotificationTemplate(
 export async function transitionConferenceStatus(
   id: string,
   status:
-    'DRAFT' | 'CFP_OPEN' | 'REVIEWING' | 'DECISIONS' | 'FINALIZATION' | 'COMPLETED' | 'ARCHIVED',
+    | 'DRAFT'
+    | 'CFP_OPEN'
+    | 'CFP_CLOSED'
+    | 'REVIEWING'
+    | 'DECISIONS'
+    | 'FINALIZATION'
+    | 'COMPLETED'
+    | 'ARCHIVED',
 ) {
   const result = await apiClient.conferences.transitionStatus({
     params: { id },

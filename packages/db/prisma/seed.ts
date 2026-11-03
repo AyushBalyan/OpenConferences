@@ -58,6 +58,8 @@ async function main(): Promise<void> {
         name: 'Demo Conference 2026',
         authorJoinToken: generateId(),
         status: 'CFP_OPEN',
+        cfpOpensAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        cfpClosesAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         blindingMode: 'DOUBLE',
         biddingOpensAt: new Date('2026-01-01T00:00:00Z'),
         biddingClosesAt: new Date('2026-12-31T23:59:59Z'),
