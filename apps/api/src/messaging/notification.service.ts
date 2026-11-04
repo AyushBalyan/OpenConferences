@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { getConfig } from '@openconferences/config/env';
-import type { NotificationLog, NotificationStatus } from '@openconferences/db';
+import type { NotificationLog, NotificationStatus, Prisma } from '@openconferences/db';
 import { generateId, withTenantContext } from '@openconferences/db';
 import type { NotificationLogListDto, NotificationLogDto } from '@openconferences/schemas';
 import { renderTemplate } from './template-renderer';
@@ -67,7 +67,10 @@ export class NotificationService {
     private readonly queue: QueueService,
   ) {}
 
-  async enqueue(input: EnqueueNotificationInput): Promise<string | null> {
+  async enqueue(
+    input: EnqueueNotificationInput,
+    transaction?: Prisma.TransactionClient,
+  ): Promise<string | null> {
     const normalizedEmail = input.to.trim().toLowerCase();
 
     const suppressed = await withTenantContext({}, async (tx) =>
@@ -118,7 +121,7 @@ export class NotificationService {
 
     // Commit the receipt log and its queue job together. A scheduling failure
     // rolls back the log, so a capture retry can safely enqueue it again.
-    return withTenantContext({}, async (tx) => {
+    const persist = async (tx: Prisma.TransactionClient) => {
       await tx.notificationLog.create({
         data: {
           id: logId,
@@ -148,7 +151,9 @@ export class NotificationService {
         },
         tx,
       );
-    }).catch(async (error: unknown) => {
+    };
+    if (transaction) return persist(transaction);
+    return withTenantContext({}, persist).catch(async (error: unknown) => {
       // Concurrent callback and webhook deliveries can race on the unique receipt key.
       // The winning transaction has committed both the log and its delivery job.
       if (input.idempotencyKey && (error as { code?: string })?.code === 'P2002') {

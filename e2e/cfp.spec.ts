@@ -124,16 +124,16 @@ test('an open author page closes at the deadline and removes new submission', as
   ).toBeVisible();
   await expect(page.getByRole('link', { name: 'New submission', exact: true })).toHaveCount(0);
 });
-test('chairs cannot close CFP and a failed organizer request remains retryable', async ({
-  page,
-}) => {
+test('chairs cannot close CFP', async ({ page }) => {
   await mockCfp(page, { role: 'CHAIR' });
   await page.goto(path);
   await expect(page.getByRole('heading', { name: 'Organizer overview' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Close CFP', exact: true })).toHaveCount(0);
-  await page.unrouteAll({ behavior: 'wait' });
+});
+
+test('a failed organizer request remains retryable', async ({ page }) => {
   await mockCfp(page, { failClose: true });
-  await page.reload();
+  await page.goto(path);
   const close = page.getByRole('button', { name: 'Close CFP', exact: true });
   await close.click();
   await expect(page.getByText('Conference changed. Refresh and try again.').first()).toBeVisible();

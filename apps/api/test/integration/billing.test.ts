@@ -17,6 +17,7 @@ import {
 import { PaymentProviderRegistry } from '../../src/billing/payment-provider.registry.ts';
 
 import { REDIS_CLIENT } from '../../src/redis/redis.module.ts';
+import { DecisionsService } from '../../src/review/decisions.service';
 import { RegistrationsService } from '../../src/billing/registrations.service.ts';
 import { InvoicesService } from '../../src/billing/invoices.service.ts';
 import { RazorpayProvider } from '../../src/billing/razorpay.provider.ts';
@@ -314,6 +315,8 @@ describe('Billing integration (Phase 8)', () => {
             conferenceId: confId,
             paperId,
             audience: 'REGULAR',
+            billingName: 'Test Author',
+            billingAddress: '12 Test Road',
             amountDueMinor: 0,
             currency: 'INR',
             status: 'PENDING',
@@ -382,7 +385,7 @@ describe('Billing integration (Phase 8)', () => {
     await request(app.getHttpServer())
       .post(base)
       .set('Cookie', authorRegularCookie)
-      .send({ audience: 'REGULAR' })
+      .send({ billingName: 'Test Author', billingAddress: '12 Test Road', audience: 'REGULAR' })
       .expect(422);
     await request(app.getHttpServer())
       .post(`${base}/payment`)
@@ -393,7 +396,12 @@ describe('Billing integration (Phase 8)', () => {
     await request(app.getHttpServer())
       .post(base)
       .set('Cookie', authorRegularCookie)
-      .send({ audience: 'REGULAR', billingAffiliation: '   ' })
+      .send({
+        billingName: 'Test Author',
+        billingAddress: '12 Test Road',
+        audience: 'REGULAR',
+        billingAffiliation: '   ',
+      })
       .expect(400);
     const saved = await request(app.getHttpServer())
       .post(base)
@@ -425,11 +433,104 @@ describe('Billing integration (Phase 8)', () => {
     });
   });
 
+  it('rejects checkout without billing name or address at the API boundary', async () => {
+    const registration = await prisma.registration.findFirstOrThrow({
+      where: { paperId: paperRegularId },
+    });
+    for (const field of ['billingName', 'billingAddress']) {
+      await prisma.registration.update({ where: { id: registration.id }, data: { [field]: null } });
+      await request(app.getHttpServer())
+        .post(`/api/v1/conferences/${confId}/papers/${paperRegularId}/registration/payment`)
+        .set('Cookie', authorRegularCookie)
+        .set('Idempotency-Key', generateId())
+        .send({})
+        .expect(422);
+      await prisma.registration.update({
+        where: { id: registration.id },
+        data: { [field]: registration[field as 'billingName' | 'billingAddress'] },
+      });
+    }
+  });
+
+  it('reopens an untouched cancelled registration while preserving billing details', async () => {
+    const registration = await prisma.registration.findFirstOrThrow({
+      where: { paperId: paperRegularId },
+    });
+    await prisma.registration.update({
+      where: { id: registration.id },
+      data: { status: 'CANCELLED' },
+    });
+    const reopened = await app
+      .get(RegistrationsService)
+      .openRegistration(orgId, confId, paperRegularId, authorUserId);
+    expect(reopened.status).toBe('PENDING');
+    expect(reopened.billingName).toBe(registration.billingName);
+  });
+
+  it('does not reopen a cancelled checkout with locked pricing', async () => {
+    const registration = await prisma.registration.findFirstOrThrow({
+      where: { paperId: paperRegularId },
+    });
+    await prisma.registration.update({
+      where: { id: registration.id },
+      data: { status: 'CANCELLED', lockedTiming: 'EARLY' },
+    });
+    await expect(
+      app.get(RegistrationsService).openRegistration(orgId, confId, paperRegularId, authorUserId),
+    ).rejects.toThrow('requires organizer reconciliation');
+    expect(
+      (await prisma.registration.findUniqueOrThrow({ where: { id: registration.id } })).status,
+    ).toBe('CANCELLED');
+    await prisma.registration.update({
+      where: { id: registration.id },
+      data: { status: registration.status, lockedTiming: registration.lockedTiming },
+    });
+  });
+
+  it('rolls back decision release when email scheduling fails and rejects stale or withdrawn releases', async () => {
+    const paper = await prisma.paper.findUniqueOrThrow({
+      where: { id: paperRegularId },
+      include: { authorships: true },
+    });
+    const decision = await prisma.decision.findFirstOrThrow({ where: { paperId: paperRegularId } });
+    await prisma.decision.update({ where: { id: decision.id }, data: { notifiedAt: null } });
+    const release = (d = decision) =>
+      (
+        app.get(DecisionsService) as unknown as {
+          notifyDecisionAuthors(
+            userId: string,
+            name: string,
+            papers: (typeof paper)[],
+            decisions: (typeof decision)[],
+          ): Promise<void>;
+        }
+      ).notifyDecisionAuthors(authorUserId, 'Test Conference', [paper], [d]);
+    const queue = vi
+      .spyOn(app.get(QueueService), 'sendNotification')
+      .mockRejectedValueOnce(new Error('queue unavailable'));
+    await expect(release()).rejects.toThrow('queue unavailable');
+    queue.mockRestore();
+    expect(
+      (await prisma.decision.findUniqueOrThrow({ where: { id: decision.id } })).notifiedAt,
+    ).toBeNull();
+    expect(await prisma.notificationLog.count({ where: { relatedEntityId: decision.id } })).toBe(0);
+    await expect(release({ ...decision, id: generateId() })).rejects.toThrow(
+      'Only the current decision',
+    );
+    await prisma.paper.update({ where: { id: paper.id }, data: { status: 'WITHDRAWN' } });
+    await expect(release()).rejects.toThrow('Only the current decision');
+    await prisma.paper.update({ where: { id: paper.id }, data: { status: paper.status } });
+    await prisma.decision.update({
+      where: { id: decision.id },
+      data: { notifiedAt: decision.notifiedAt },
+    });
+  });
+
   it('regular author completes early-bird payment', async () => {
     await request(app.getHttpServer())
       .post(`/api/v1/conferences/${confId}/papers/${paperRegularId}/registration`)
       .set('Cookie', authorRegularCookie)
-      .send({ audience: 'REGULAR' })
+      .send({ billingName: 'Test Author', billingAddress: '12 Test Road', audience: 'REGULAR' })
       .expect(201);
 
     const payRes = await request(app.getHttpServer())
@@ -493,7 +594,7 @@ describe('Billing integration (Phase 8)', () => {
     await request(app.getHttpServer())
       .post(`/api/v1/conferences/${confId}/papers/${paperStudentId}/registration`)
       .set('Cookie', authorStudentCookie)
-      .send({ audience: 'STUDENT' })
+      .send({ billingName: 'Test Author', billingAddress: '12 Test Road', audience: 'STUDENT' })
       .expect(201);
 
     await request(app.getHttpServer())
@@ -508,7 +609,7 @@ describe('Billing integration (Phase 8)', () => {
     await request(app.getHttpServer())
       .post(`/api/v1/conferences/${confId}/papers/${paperStudentId}/registration`)
       .set('Cookie', authorStudentCookie)
-      .send({ audience: 'STUDENT' })
+      .send({ billingName: 'Test Author', billingAddress: '12 Test Road', audience: 'STUDENT' })
       .expect(201);
 
     const initiate = await request(app.getHttpServer())
@@ -634,7 +735,7 @@ describe('Billing integration (Phase 8)', () => {
       await request(app.getHttpServer())
         .post(`/api/v1/conferences/${confId}/papers/${paperId}/registration`)
         .set('Cookie', authorRegularCookie)
-        .send({ audience: 'REGULAR' })
+        .send({ billingName: 'Test Author', billingAddress: '12 Test Road', audience: 'REGULAR' })
         .expect(422);
       await request(app.getHttpServer())
         .post(`/api/v1/conferences/${confId}/papers/${paperId}/registration/payment`)
@@ -688,7 +789,12 @@ describe('Billing integration (Phase 8)', () => {
       await request(app.getHttpServer())
         .post(base)
         .set('Cookie', authorRegularCookie)
-        .send({ audience: 'REGULAR', billingCountry: 'US' })
+        .send({
+          billingName: 'Test Author',
+          billingAddress: '12 Test Road',
+          audience: 'REGULAR',
+          billingCountry: 'US',
+        })
         .expect(201);
       const preview = await request(app.getHttpServer())
         .get(base)
@@ -721,7 +827,12 @@ describe('Billing integration (Phase 8)', () => {
       await request(app.getHttpServer())
         .post(base)
         .set('Cookie', authorRegularCookie)
-        .send({ audience: 'STUDENT', billingCountry: 'IN' })
+        .send({
+          billingName: 'Test Author',
+          billingAddress: '12 Test Road',
+          audience: 'STUDENT',
+          billingCountry: 'IN',
+        })
         .expect(409);
       await simulateCapture(app, mockProvider, first.body.orderId, `pay_later_${Date.now()}`);
       const result = await request(app.getHttpServer())
@@ -763,12 +874,22 @@ describe('Billing integration (Phase 8)', () => {
     await request(app.getHttpServer())
       .post(base)
       .set('Cookie', authorRegularCookie)
-      .send({ audience: 'REGULAR', billingCountry: 'ZZ' })
+      .send({
+        billingName: 'Test Author',
+        billingAddress: '12 Test Road',
+        audience: 'REGULAR',
+        billingCountry: 'ZZ',
+      })
       .expect(400);
     await request(app.getHttpServer())
       .post(base)
       .set('Cookie', authorRegularCookie)
-      .send({ audience: 'REGULAR', billingCountry: 'IN' })
+      .send({
+        billingName: 'Test Author',
+        billingAddress: '12 Test Road',
+        audience: 'REGULAR',
+        billingCountry: 'IN',
+      })
       .expect(201);
     const payment = await request(app.getHttpServer())
       .post(`${base}/payment`)
@@ -818,7 +939,12 @@ describe('Billing integration (Phase 8)', () => {
     await request(app.getHttpServer())
       .post(base)
       .set('Cookie', authorRegularCookie)
-      .send({ audience: 'REGULAR', billingCountry: 'GB' })
+      .send({
+        billingName: 'Test Author',
+        billingAddress: '12 Test Road',
+        audience: 'REGULAR',
+        billingCountry: 'GB',
+      })
       .expect(201);
     const response = await request(app.getHttpServer())
       .post(`${base}/payment`)
@@ -1001,6 +1127,8 @@ describe('Billing integration (Phase 8)', () => {
         conferenceId: confId,
         paperId,
         audience: 'REGULAR',
+        billingName: 'Test Author',
+        billingAddress: '12 Test Road',
         amountDueMinor: 0,
         currency: 'USD',
         billingCountry: 'US',
@@ -1508,7 +1636,12 @@ describe('Billing integration (Phase 8)', () => {
     await request(app.getHttpServer())
       .post(checkout.base)
       .set('Cookie', authorRegularCookie)
-      .send({ audience: 'REGULAR', extra: Array(1001).fill(0) })
+      .send({
+        billingName: 'Test Author',
+        billingAddress: '12 Test Road',
+        audience: 'REGULAR',
+        extra: Array(1001).fill(0),
+      })
       .expect(413);
     await prisma.registration.update({
       where: { id: checkout.registration.id },

@@ -92,6 +92,11 @@ export class PaymentsService {
         if (!['PENDING', 'ADDITIONAL_PAYMENT_REQUIRED'].includes(current.status)) {
           throw new ConflictException('Registration is already paid or is no longer payable');
         }
+        if (!current.billingName?.trim() || !current.billingAddress?.trim()) {
+          throw new UnprocessableEntityException(
+            'Enter your billing name and address before payment',
+          );
+        }
         const deadline = current.additionalGraceUntil ?? current.deadlineAt;
         if (new Date() > deadline || new Date() < current.windowOpensAt) {
           throw new ConflictException('Registration payment window is closed');

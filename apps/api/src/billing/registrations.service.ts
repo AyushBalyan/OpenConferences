@@ -92,6 +92,34 @@ export class RegistrationsService {
     );
 
     if (existing) {
+      if (existing.status === 'CANCELLED') {
+        // Preserve captures and locked quotes; never silently reopen a paid cancellation.
+        const payments = await withTenantContext(context, (tx) =>
+          tx.payment.count({
+            where: {
+              registrationId: existing.id,
+              status: { in: ['CAPTURED', 'REFUNDED', 'PARTIALLY_REFUNDED'] },
+            },
+          }),
+        );
+        if (payments || existing.lockedTiming) {
+          throw new ConflictException(
+            'Cancelled checkout requires organizer reconciliation before acceptance can be released',
+          );
+        }
+        await withTenantContext(context, (tx) =>
+          tx.registration.updateMany({
+            where: { id: existing.id, status: 'CANCELLED', version: existing.version },
+            data: {
+              status: 'PENDING',
+              windowOpensAt: new Date(),
+              deadlineAt,
+              version: { increment: 1 },
+            },
+          }),
+        );
+        return this.loadRegistration(actorUserId!, conferenceId, paperId);
+      }
       return existing;
     }
 

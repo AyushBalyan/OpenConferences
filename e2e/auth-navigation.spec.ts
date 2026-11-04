@@ -85,6 +85,7 @@ async function fixture(page: Page, mfa: boolean) {
 for (const mfa of [false, true]) {
   test(`registration email destination survives ${mfa ? 'two-factor' : 'password'} sign-in`, async ({
     page,
+    baseURL,
   }) => {
     const api = await fixture(page, mfa);
     await page.goto(destination);
@@ -101,7 +102,7 @@ for (const mfa of [false, true]) {
       await page.getByLabel('Verification code').fill('123456');
       await page.getByRole('button', { name: 'Verify', exact: true }).click();
     }
-    await expect(page).toHaveURL(`http://localhost:3007${destination}`);
+    await expect(page).toHaveURL(new URL(destination, baseURL).href);
     await expect(
       page.getByRole('heading', { name: 'Conference registration', exact: true }),
     ).toBeVisible();

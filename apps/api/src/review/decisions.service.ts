@@ -532,53 +532,79 @@ export class DecisionsService {
     const firstPaper = papers[0];
     if (!firstPaper || decisions.length === 0) return;
     const { conferenceId, organizationId } = firstPaper;
-    const rounds = await withTenantContext({ userId, conferenceId, organizationId }, async (tx) => {
-      const updated = await tx.decision.updateMany({
-        where: { id: { in: decisionIds }, conferenceId },
-        data: { notifiedAt: now },
-      });
-      if (updated.count !== decisionIds.length) {
-        throw new ConflictException('Could not release all decisions to authors');
-      }
-      return tx.reviewRound.findMany({
-        where: { id: { in: decisions.map((decision) => decision.roundId) }, conferenceId },
-        select: { id: true, revisionDueAt: true },
-      });
-    });
-    const revisionDueByRound = new Map(rounds.map((round) => [round.id, round.revisionDueAt]));
+    await withTenantContext(
+      { userId, conferenceId, organizationId },
+      async (tx) => {
+        for (const decision of decisions) {
+          const latest = await tx.decision.findFirst({
+            where: { paperId: decision.paperId, conferenceId },
+            orderBy: [{ round: { roundNumber: 'desc' } }, { createdAt: 'desc' }],
+          });
+          const currentPaper = await tx.paper.findFirst({
+            where: { id: decision.paperId, conferenceId },
+          });
+          if (
+            latest?.id !== decision.id ||
+            !currentPaper ||
+            ['WITHDRAWN', 'WITHDRAWN_NONPAYMENT'].includes(currentPaper.status)
+          ) {
+            throw new ConflictException(
+              'Only the current decision of an active paper can be released',
+            );
+          }
+        }
+        const updated = await tx.decision.updateMany({
+          where: { id: { in: decisionIds }, conferenceId },
+          data: { notifiedAt: now },
+        });
+        if (updated.count !== decisionIds.length) {
+          throw new ConflictException('Could not release all decisions to authors');
+        }
+        const rounds = await tx.reviewRound.findMany({
+          where: { id: { in: decisions.map((decision) => decision.roundId) }, conferenceId },
+          select: { id: true, revisionDueAt: true },
+        });
+        const revisionDueByRound = new Map(rounds.map((round) => [round.id, round.revisionDueAt]));
 
-    for (const decision of decisions) {
-      const paper = papers.find((p) => p.id === decision.paperId);
-      if (!paper) continue;
+        for (const decision of decisions) {
+          const paper = papers.find((p) => p.id === decision.paperId);
+          if (!paper) continue;
 
-      const corresponding =
-        paper.authorships.find((a) => a.isCorresponding) ?? paper.authorships[0];
-      if (!corresponding?.email) continue;
+          const corresponding =
+            paper.authorships.find((a) => a.isCorresponding) ?? paper.authorships[0];
+          if (!corresponding?.email)
+            throw new ConflictException('Paper has no corresponding author email');
 
-      const outcomeLabel = this.outcomeLabel(decision.outcome);
-      const title = paper.title;
+          const outcomeLabel = this.outcomeLabel(decision.outcome);
+          const title = paper.title;
 
-      await this.notifications.publishDecisionNotified({
-        to: corresponding.email,
-        conferenceId: paper.conferenceId,
-        organizationId: paper.organizationId,
-        paperTitle: title,
-        conferenceName,
-        authorName: corresponding.fullName,
-        submissionNumber: paper.submissionNumber || paper.id,
-        registrationUrl: `${getConfig().webUrl.replace(/\/$/, '')}/dashboard/conferences/${paper.conferenceId}/submissions/${paper.id}?section=registration`,
-        outcomeLabel,
-        rationaleBlock: decision.rationale?.trim()
-          ? `Committee note: ${decision.rationale.trim()}`
-          : '',
-        acceptBlock: this.decisionNextSteps(
-          decision.outcome,
-          revisionDueByRound.get(decision.roundId) ?? null,
-        ),
-        decisionId: decision.id,
-        idempotencyKey: `decision-${decision.paperId}-${decision.roundId}`,
-      });
-    }
+          await this.notifications.publishDecisionNotified(
+            {
+              to: corresponding.email,
+              conferenceId: paper.conferenceId,
+              organizationId: paper.organizationId,
+              paperTitle: title,
+              conferenceName,
+              authorName: corresponding.fullName,
+              submissionNumber: paper.submissionNumber || paper.id,
+              registrationUrl: `${getConfig().webUrl.replace(/\/$/, '')}/dashboard/conferences/${paper.conferenceId}/submissions/${paper.id}?section=registration`,
+              outcomeLabel,
+              rationaleBlock: decision.rationale?.trim()
+                ? `Committee note: ${decision.rationale.trim()}`
+                : '',
+              acceptBlock: this.decisionNextSteps(
+                decision.outcome,
+                revisionDueByRound.get(decision.roundId) ?? null,
+              ),
+              decisionId: decision.id,
+              idempotencyKey: `decision-${decision.paperId}-${decision.roundId}`,
+            },
+            tx,
+          );
+        }
+      },
+      { timeout: 30000 },
+    );
   }
 
   private decisionNextSteps(outcome: DecisionOutcome, revisionDueAt: Date | null): string {

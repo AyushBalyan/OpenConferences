@@ -19,6 +19,8 @@ async function mockAcceptedPaper(
     currency: 'USD',
     billingCountry: 'US',
     billingAffiliation: 'Test University',
+    billingName: 'Test Author',
+    billingAddress: '12 Research Road, Test City',
     paymentQuote: {
       amountMinor: 12500,
       regularAmountMinor: 12500,

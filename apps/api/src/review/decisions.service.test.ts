@@ -102,6 +102,7 @@ describe('author decision release', () => {
         ),
         to: 'author@example.test',
       }),
+      expect.anything(),
     );
     const visible = await decisions.getPaperDecision('author', 'conf', 'paper', ['AUTHOR']);
     expect(visible.outcome).toBe('ACCEPT');

@@ -1,3 +1,4 @@
+import type { Prisma } from '@openconferences/db';
 import { Injectable, Logger } from '@nestjs/common';
 import { getConfig } from '@openconferences/config/env';
 import {
@@ -245,13 +246,16 @@ export class NotificationPublisher {
     });
   }
 
-  async publishDecisionNotified(payload: DecisionNotifiedPayload): Promise<void> {
+  async publishDecisionNotified(
+    payload: DecisionNotifiedPayload,
+    transaction?: Prisma.TransactionClient,
+  ): Promise<void> {
     const accepted = payload.outcomeLabel === 'Accept';
     const templateKey = accepted ? 'decision.accepted' : 'decision.notified';
     if (accepted && !payload.registrationUrl) {
       throw new Error('Acceptance email requires the paper registration link');
     }
-    await this.notifications.enqueue({
+    const input = {
       templateKey,
       to: payload.to,
       context: {
@@ -271,7 +275,9 @@ export class NotificationPublisher {
       tags: [templateKey],
       relatedEntity: 'Decision',
       relatedEntityId: payload.decisionId,
-    });
+    };
+    if (transaction) await this.notifications.enqueue(input, transaction);
+    else await this.notifications.enqueue(input);
   }
 
   async publishRegistrationWindowOpen(payload: RegistrationWindowOpenPayload): Promise<void> {
