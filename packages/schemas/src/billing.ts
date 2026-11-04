@@ -58,6 +58,10 @@ export const registrationSchema = z.object({
   paperId: z.string().uuid(),
   userId: z.string().uuid().nullable(),
   billingCountry: billingCountrySchema.nullable().optional(),
+  billingName: z.string().nullable().optional(),
+  billingEmail: z.string().nullable().optional(),
+  billingAddress: z.string().nullable().optional(),
+  billingTaxId: z.string().nullable().optional(),
   billingAffiliation: z.string().nullable().optional(),
   isAdditionalPaper: z.boolean().optional(),
   audience: feeAudienceSchema,
@@ -74,6 +78,10 @@ export const registrationSchema = z.object({
 });
 
 export const createRegistrationSchema = z.object({
+  billingName: z.string().trim().min(1, 'Enter the billing name').max(150).optional(),
+  billingEmail: z.union([z.string().trim().email().max(254), z.literal('')]).optional(),
+  billingAddress: z.string().trim().min(1, 'Enter the billing address').max(400).optional(),
+  billingTaxId: z.string().trim().max(50).optional(),
   audience: feeAudienceSchema,
   billingCountry: billingCountrySchema.optional(),
   billingAffiliation: z

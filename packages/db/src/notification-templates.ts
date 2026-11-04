@@ -20,6 +20,7 @@ export type LayoutOptions = {
   details?: Array<{ label: string; value: string }>;
   cta?: { label: string; url: string };
   extraParagraphs?: string[];
+  afterCtaParagraphs?: string[];
   steps?: string[];
   otp?: { code: string; expiresLabel: string };
   secondaryNote?: string;
@@ -81,6 +82,7 @@ export function buildEmailHtml(options: LayoutOptions): string {
   const paragraphsHtml = options.paragraphs.map(p).join('\n');
   const detailsHtml = options.details?.length ? detailsBlock(options.details) : '';
   const extraHtml = (options.extraParagraphs ?? []).map(p).join('\n');
+  const afterCtaHtml = (options.afterCtaParagraphs ?? []).map(p).join('\n');
   const stepsHtml = options.steps?.length
     ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 20px;background:${SURFACE};border:1px solid ${LINE};border-radius:8px;">
 <tr><td style="padding:18px 20px;">
@@ -145,6 +147,7 @@ ${extraHtml}
 ${stepsHtml}
 ${otpHtml}
 ${ctaHtml}
+${afterCtaHtml}
 ${noteHtml}
 </td></tr>
 </table>
@@ -157,7 +160,10 @@ ${noteHtml}
 }
 
 function toPlainText(value: string): string {
-  return value.replace(/<a href="([^"]+)">([^<]*)<\/a>/g, '$2 <$1>').replace(/<\/?strong>/g, '');
+  return value
+    .replace(/<a href="([^"]+)">([^<]*)<\/a>/g, '$2 <$1>')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/?(?:strong|em)>/g, '');
 }
 
 function plainText(parts: LayoutOptions): string {
@@ -193,6 +199,9 @@ function plainText(parts: LayoutOptions): string {
   if (parts.cta) {
     lines.push(`${parts.cta.label}: ${parts.cta.url}`, '');
   }
+  for (const paragraph of parts.afterCtaParagraphs ?? []) {
+    lines.push(toPlainText(paragraph), '');
+  }
   if (parts.secondaryNote) {
     lines.push(parts.secondaryNote, '');
   }
@@ -212,6 +221,7 @@ function letter(input: LetterInput): PlatformNotificationTemplate {
     details: input.details,
     cta: input.cta,
     extraParagraphs: input.extraParagraphs,
+    afterCtaParagraphs: input.afterCtaParagraphs,
     steps: input.steps,
     otp: input.otp,
     secondaryNote: input.secondaryNote,
@@ -444,6 +454,40 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
       { label: 'Submission', value: '{{submissionNumber}}' },
     ],
     variables: ['reviewerName', 'paperTitle', 'conferenceName', 'submissionNumber'],
+  }),
+  letter({
+    key: 'decision.accepted',
+    subject: 'Paper accepted — {{submissionNumber}} | {{conferenceName}}',
+    headline: 'Manuscript accepted for presentation',
+    paragraphs: [
+      'Dear Dr {{authorName}},',
+      'We are pleased to inform you that your manuscript has been <strong>accepted for presentation</strong> at <em>{{conferenceName}}</em>, scheduled to be held online from <strong>15–17 December 2026</strong>.',
+    ],
+    details: [
+      { label: 'PaperID', value: '{{submissionNumber}}' },
+      { label: 'Paper Title', value: '{{paperTitle}}' },
+    ],
+    extraParagraphs: [
+      'Congratulations on this achievement!',
+      'For all accepted manuscripts, at least one author must register for the conference to present the paper and ensure its further consideration for inclusion in the conference proceedings.',
+      'For registration and further details, kindly log in to your account using the link provided below:',
+      '<strong>Login Link:</strong>',
+    ],
+    cta: { label: 'Login to registration', url: '{{registrationUrl}}' },
+    afterCtaParagraphs: [
+      'If the above link does not open directly, please copy and paste it into your web browser. Alternatively, you may access your account through the <strong>Registration</strong> tab on the conference website.',
+      'If you encounter any difficulty accessing your account or retrieving your details, please feel free to reply to this email. We will be happy to assist you.',
+      'Further details regarding the presentation schedule and other relevant instructions will be communicated to you in due course.',
+      'We look forward to your active participation in {{conferenceName}}.',
+      'Best regards,<br>Organizing Committee<br>{{conferenceName}}',
+    ],
+    variables: [
+      'authorName',
+      'conferenceName',
+      'submissionNumber',
+      'paperTitle',
+      'registrationUrl',
+    ],
   }),
   letter({
     key: 'decision.notified',

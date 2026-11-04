@@ -1,0 +1,44 @@
+{
+  "key": "decision.accepted",
+  "subject": "Paper accepted — {{submissionNumber}} | {{conferenceName}}",
+  "headline": "Manuscript accepted for presentation",
+  "paragraphs": [
+    "Dear Dr {{authorName}},",
+    "We are pleased to inform you that your manuscript has been <strong>accepted for presentation</strong> at <em>{{conferenceName}}</em>, scheduled to be held online from <strong>15–17 December 2026</strong>."
+  ],
+  "details": [
+    {
+      "label": "PaperID",
+      "value": "{{submissionNumber}}"
+    },
+    {
+      "label": "Paper Title",
+      "value": "{{paperTitle}}"
+    }
+  ],
+  "extraParagraphs": [
+    "Congratulations on this achievement!",
+    "For all accepted manuscripts, at least one author must register for the conference to present the paper and ensure its further consideration for inclusion in the conference proceedings.",
+    "For registration and further details, kindly log in to your account using the link provided below:",
+    "<strong>Login Link:</strong>"
+  ],
+  "cta": {
+    "label": "Login to registration",
+    "url": "{{registrationUrl}}"
+  },
+  "afterCtaParagraphs": [
+    "If the above link does not open directly, please copy and paste it into your web browser. Alternatively, you may access your account through the <strong>Registration</strong> tab on the conference website.",
+    "If you encounter any difficulty accessing your account or retrieving your details, please feel free to reply to this email. We will be happy to assist you.",
+    "Further details regarding the presentation schedule and other relevant instructions will be communicated to you in due course.",
+    "We look forward to your active participation in {{conferenceName}}.",
+    "Best regards,<br>Organizing Committee<br>{{conferenceName}}"
+  ],
+  "variables": [
+    "authorName",
+    "conferenceName",
+    "submissionNumber",
+    "paperTitle",
+    "registrationUrl"
+  ],
+  "kind": "conference"
+}

@@ -1235,7 +1235,7 @@ export async function fetchRegistration(conferenceId: string, paperId: string) {
 export async function createRegistration(
   conferenceId: string,
   paperId: string,
-  body: { audience: 'REGULAR' | 'STUDENT'; billingCountry?: string; billingAffiliation?: string },
+  body: import('@openconferences/schemas').CreateRegistrationInput,
 ) {
   const result = await apiClient.billing.createRegistration({
     params: { conferenceId, paperId },

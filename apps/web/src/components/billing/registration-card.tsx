@@ -71,6 +71,10 @@ export function RegistrationCard({ conferenceId, conferenceName, paperId }: Regi
   const [error, setError] = useState<string | null>(null);
   const [billingCountry, setBillingCountry] = useState('');
   const [billingAffiliation, setBillingAffiliation] = useState('');
+  const [billingName, setBillingName] = useState('');
+  const [billingEmail, setBillingEmail] = useState('');
+  const [billingAddress, setBillingAddress] = useState('');
+  const [billingTaxId, setBillingTaxId] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [audience, setAudience] = useState<'REGULAR' | 'STUDENT'>('REGULAR');
 
@@ -80,6 +84,10 @@ export function RegistrationCard({ conferenceId, conferenceName, paperId }: Regi
       setRegistration(data);
       setBillingCountry(data.billingCountry ?? '');
       setBillingAffiliation(data.billingAffiliation ?? '');
+      setBillingName(data.billingName ?? '');
+      setBillingEmail(data.billingEmail ?? '');
+      setBillingAddress(data.billingAddress ?? '');
+      setBillingTaxId(data.billingTaxId ?? '');
       if (data.audience) setAudience(data.audience);
       setError(null);
     } catch {
@@ -97,13 +105,20 @@ export function RegistrationCard({ conferenceId, conferenceName, paperId }: Regi
     setBusy(true);
     setError(null);
     try {
+      if (!billingName.trim() || !billingAddress.trim())
+        throw new Error('Enter the billing name and address for the invoice.');
       if (!billingAffiliation.trim()) throw new Error('Enter your affiliation for the invoice.');
       await createRegistration(conferenceId, paperId, {
         audience,
         billingCountry,
         billingAffiliation: billingAffiliation.trim(),
+        billingName: billingName.trim(),
+        billingEmail: billingEmail.trim(),
+        billingAddress: billingAddress.trim(),
+        billingTaxId: billingTaxId.trim(),
       });
       await load();
+      setMessage('Registration and billing details saved.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save audience');
     } finally {
@@ -219,6 +234,11 @@ export function RegistrationCard({ conferenceId, conferenceName, paperId }: Regi
     billingCountry === (registration.billingCountry ?? '') &&
     Boolean(billingAffiliation.trim()) &&
     billingAffiliation.trim() === (registration.billingAffiliation ?? '').trim() &&
+    Boolean(billingName.trim() && billingAddress.trim()) &&
+    billingName.trim() === (registration.billingName ?? '').trim() &&
+    billingEmail.trim() === (registration.billingEmail ?? '').trim() &&
+    billingAddress.trim() === (registration.billingAddress ?? '').trim() &&
+    billingTaxId.trim() === (registration.billingTaxId ?? '').trim() &&
     !registration.paymentQuoteError &&
     (Boolean(registration.lockedTiming) || Boolean(registration.paymentQuote)) &&
     (registration.status === 'PENDING' || registration.status === 'ADDITIONAL_PAYMENT_REQUIRED') &&
@@ -229,7 +249,9 @@ export function RegistrationCard({ conferenceId, conferenceName, paperId }: Regi
   const detailsLocked = registration.status !== 'PENDING' || Boolean(registration.lockedTiming);
   const showAudienceForm =
     !detailsLocked ||
-    (!registration.billingAffiliation &&
+    ((!registration.billingAffiliation ||
+      !registration.billingName ||
+      !registration.billingAddress) &&
       ['PENDING', 'ADDITIONAL_PAYMENT_REQUIRED'].includes(registration.status));
   const netPaid = (registration.payments ?? []).reduce((sum, payment) => {
     if (payment.kind === 'REFUND' && ['REFUNDED', 'PARTIALLY_REFUNDED'].includes(payment.status))
@@ -281,8 +303,116 @@ export function RegistrationCard({ conferenceId, conferenceName, paperId }: Regi
             </span>
           </div>
 
+          {detailsLocked ? (
+            <div className="space-y-3">
+              <h3 className="text-base font-medium text-slate-900">
+                Saved registration and billing details
+              </h3>
+              <dl
+                aria-label="Saved registration details"
+                className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2"
+              >
+                {[
+                  [
+                    'Registration category',
+                    registration.audience === 'STUDENT' ? 'Student author' : 'Regular author',
+                  ],
+                  ['Affiliation', registration.billingAffiliation || 'Not provided'],
+                  ['Billing name', registration.billingName || 'Not provided'],
+                  ['Billing email', registration.billingEmail || 'Not provided'],
+                  ['Billing address', registration.billingAddress || 'Not provided'],
+                  [
+                    'Billing country',
+                    registration.billingCountry
+                      ? (countryNames.of(registration.billingCountry) ??
+                        registration.billingCountry)
+                      : 'Not provided',
+                  ],
+                  ['Tax ID / GSTIN', registration.billingTaxId || 'Not provided'],
+                ].map(([label, value]) => (
+                  <div key={label} className="min-w-0">
+                    <dt className="text-slate-600">{label}</dt>
+                    <dd className="mt-1 whitespace-pre-wrap break-words font-medium text-slate-900">
+                      {value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              {registration.status === 'PENDING' ? (
+                <p className="text-sm text-slate-600">
+                  Your details are saved and locked for this checkout. Payment has not been
+                  completed. Use Pay now to resume checkout.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
           {showAudienceForm ? (
-            <div className="max-w-md space-y-3">
+            <form
+              className="max-w-md space-y-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void onChooseAudience();
+              }}
+            >
+              <h3 className="text-base font-medium text-slate-900">Billing information</h3>
+              <p className="text-sm text-slate-600">
+                These details will appear on your invoice. Save them before starting payment.
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="billing-name">Billing name (required)</Label>
+                <input
+                  id="billing-name"
+                  autoComplete="billing name"
+                  required
+                  maxLength={150}
+                  value={billingName}
+                  disabled={busy || (detailsLocked && Boolean(registration.billingName))}
+                  onChange={(event) => setBillingName(event.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="billing-email">Billing email (optional)</Label>
+                <input
+                  id="billing-email"
+                  type="email"
+                  autoComplete="billing email"
+                  maxLength={254}
+                  value={billingEmail}
+                  disabled={busy || (detailsLocked && Boolean(registration.billingEmail))}
+                  onChange={(event) => setBillingEmail(event.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="billing-address">Billing address (required)</Label>
+                <textarea
+                  id="billing-address"
+                  autoComplete="billing street-address"
+                  required
+                  maxLength={400}
+                  rows={3}
+                  value={billingAddress}
+                  disabled={busy || (detailsLocked && Boolean(registration.billingAddress))}
+                  onChange={(event) => setBillingAddress(event.target.value)}
+                  className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-base"
+                />
+                <p className="text-sm text-slate-600">
+                  Include city, state or region, and postal code.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="billing-tax-id">Tax ID / GSTIN (optional)</Label>
+                <input
+                  id="billing-tax-id"
+                  maxLength={50}
+                  value={billingTaxId}
+                  disabled={busy || (detailsLocked && Boolean(registration.billingTaxId))}
+                  onChange={(event) => setBillingTaxId(event.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base"
+                />
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="billing-affiliation">Affiliation (required)</Label>
                 <input
@@ -290,7 +420,7 @@ export function RegistrationCard({ conferenceId, conferenceName, paperId }: Regi
                   value={billingAffiliation}
                   maxLength={300}
                   required
-                  disabled={busy}
+                  disabled={busy || (detailsLocked && Boolean(registration.billingAffiliation))}
                   onChange={(event) => setBillingAffiliation(event.target.value)}
                   aria-describedby={
                     registration.billingAffiliation ? undefined : 'billing-affiliation-help'
@@ -345,12 +475,12 @@ export function RegistrationCard({ conferenceId, conferenceName, paperId }: Regi
               <Button
                 variant="outline"
                 className="shadow-none"
-                onClick={onChooseAudience}
+                type="submit"
                 disabled={busy || !billingCountry}
               >
                 Save registration details
               </Button>
-            </div>
+            </form>
           ) : null}
 
           {registration.audience === 'STUDENT' &&

@@ -10,6 +10,7 @@ import { AuthShell, AuthLink } from '@/components/auth/auth-shell';
 import { PasswordInput } from '@/components/auth/password-input';
 import { TurnstileField } from '@/components/auth/turnstile-field';
 import { isTurnstileEnabled, turnstileFetchOptions, withTurnstileBody } from '@/lib/turnstile';
+import { safeAuthNext } from '@/lib/auth-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,10 +23,15 @@ import { acceptPendingReviewerInvitations } from '@/lib/api-client';
 import { reviewerLandingPath } from '@/lib/reviewer-features';
 import type { TurnstileInstance } from '@marsidev/react-turnstile';
 
-function authRedirectQuery(reviewerInvite: string | null, authorJoin: string | null) {
+function authRedirectQuery(
+  reviewerInvite: string | null,
+  authorJoin: string | null,
+  nextPath: string | null,
+) {
   const params = new URLSearchParams();
   if (reviewerInvite) params.set('reviewerInvite', reviewerInvite);
   if (authorJoin) params.set('authorJoin', authorJoin);
+  if (nextPath) params.set('next', nextPath);
   const query = params.toString();
   return query ? `?${query}` : '';
 }
@@ -33,6 +39,7 @@ function authRedirectQuery(reviewerInvite: string | null, authorJoin: string | n
 function SignInContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const nextPath = safeAuthNext(searchParams.get('next'));
   const reviewerInvite = resolveReviewerInviteToken(searchParams.get('reviewerInvite'));
   const authorJoin = resolveAuthorJoinToken(searchParams.get('authorJoin'));
   const turnstileRef = useRef<TurnstileInstance | null>(null);
@@ -87,13 +94,18 @@ function SignInContent() {
     }
 
     if ('twoFactorRedirect' in result.data && result.data.twoFactorRedirect) {
-      router.push(`/mfa/challenge${authRedirectQuery(reviewerInvite, authorJoin)}`);
+      router.push(`/mfa/challenge${authRedirectQuery(reviewerInvite, authorJoin, nextPath)}`);
       return;
     }
 
     // Better Auth refreshes the session atom on a short delay after sign-in;
     // wait for the cookie-backed session before navigating into protected routes.
     await refreshSession();
+
+    if (nextPath) {
+      router.replace(nextPath);
+      return;
+    }
 
     if (authorJoin) {
       router.push(authorJoinPath(authorJoin));
@@ -120,7 +132,7 @@ function SignInContent() {
     router.push('/me/dashboard');
   });
 
-  const signUpHref = `/sign-up${authRedirectQuery(reviewerInvite, authorJoin)}`;
+  const signUpHref = `/sign-up${authRedirectQuery(reviewerInvite, authorJoin, nextPath)}`;
 
   return (
     <AuthShell

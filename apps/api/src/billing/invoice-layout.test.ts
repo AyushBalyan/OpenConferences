@@ -6,7 +6,7 @@ describe('invoice PDF output', () => {
   for (const long of [false, true]) {
     it(`keeps ${long ? 'long' : 'ordinary'} author and paper details on one A4 page without clipping`, async () => {
       const details: RegistrationInvoiceDetails = {
-        number: 'INV-2026-000001',
+        number: 'ICAMCDS-202611040001',
         issuedAt: new Date('2026-11-02'),
         conferenceName: 'Conference on Computing 2026',
         authorName: long ? 'Registered Author '.repeat(10) : 'Registered Author',
@@ -14,6 +14,14 @@ describe('invoice PDF output', () => {
           ? 'Department of Computing, International Research University '.repeat(6).slice(0, 300)
           : 'Research University',
         billingCountry: 'India',
+        billingName: long
+          ? 'University Finance Office '.repeat(6).slice(0, 150)
+          : 'University Finance Office',
+        billingEmail: long ? 'finance'.repeat(30) + '@example.test' : 'finance@example.test',
+        billingAddress: long
+          ? '12 Research Road, Department of Computing, New Delhi 110001 '.repeat(8).slice(0, 400)
+          : '12 Research Road, New Delhi 110001',
+        billingTaxId: long ? 'TEST'.repeat(12) : 'TEST-TAX-123',
         audience: 'Regular author',
         paperId: 'CONF-1234',
         paperTitle: long

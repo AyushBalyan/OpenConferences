@@ -44,7 +44,11 @@ const payment = {
 
 describe('registration invoice', () => {
   it('uses the registered account, public paper ID, and saved affiliation instead of the first coauthor', () => {
-    const details = registrationInvoiceDetails(payment, 'INV-2026-000001', new Date('2026-11-02'));
+    const details = registrationInvoiceDetails(
+      payment,
+      'ICAMCDS-202611040001',
+      new Date('2026-11-02'),
+    );
     expect(details).toMatchObject({
       authorName: 'Registered Author',
       affiliation: 'Saved Invoice University',
@@ -54,6 +58,20 @@ describe('registration invoice', () => {
       description: 'Additional paper registration',
     });
     expect(details).not.toHaveProperty('email');
+  });
+  it('uses saved invoice recipient details without replacing the registered author', () => {
+    const billing = {
+      billingName: 'University Finance Office',
+      billingEmail: 'finance@example.test',
+      billingAddress: '12 Research Road',
+      billingTaxId: 'TEST-TAX-123',
+    };
+    const details = registrationInvoiceDetails(
+      { ...payment, registration: { ...payment.registration, ...billing } },
+      'INV',
+      new Date(),
+    );
+    expect(details).toMatchObject({ ...billing, authorName: 'Registered Author' });
   });
   it('falls back to the matching paper author affiliation for legacy registrations', () => {
     const legacy = structuredClone(payment);
@@ -84,15 +102,22 @@ describe('registration invoice', () => {
       strings.push(text);
       return canvas;
     };
+    const billing = {
+      billingName: 'University Finance Office',
+      billingEmail: 'finance@example.test',
+      billingAddress: '12 Research Road',
+      billingTaxId: 'TEST-TAX-123',
+    };
     drawRegistrationInvoice(
       canvas as unknown as InvoiceCanvas,
-      registrationInvoiceDetails(payment, 'INV-2026-000001', new Date('2026-11-02')),
+      registrationInvoiceDetails(payment, 'ICAMCDS-202611040001', new Date('2026-11-02')),
     );
     const text = strings.join('\n');
     for (const value of [
       'Conference 2026',
       'Registered Author',
       'Saved Invoice University',
+      'REGISTERED AUTHOR',
       'CONF-1234',
       'An Accepted Paper',
       'INR 4,250.00',
@@ -103,5 +128,15 @@ describe('registration invoice', () => {
       expect(text).toContain(value);
     expect(text).not.toContain('@');
     expect(text).not.toContain('Wrong Institute');
+    strings.length = 0;
+    drawRegistrationInvoice(
+      canvas as unknown as InvoiceCanvas,
+      registrationInvoiceDetails(
+        { ...payment, registration: { ...payment.registration, ...billing } },
+        'INV',
+        new Date(),
+      ),
+    );
+    for (const value of Object.values(billing)) expect(strings.join('\n')).toContain(value);
   });
 });

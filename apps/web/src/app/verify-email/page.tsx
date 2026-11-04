@@ -11,29 +11,37 @@ import { authorJoinPath, resolveAuthorJoinToken } from '@/lib/author-join-pendin
 import { verifyEmailSchema, type VerifyEmailInput } from '@openconferences/schemas';
 import { authClient } from '@/lib/auth-client';
 import { AuthShell, AuthLink } from '@/components/auth/auth-shell';
+import { safeAuthNext } from '@/lib/auth-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 const RESEND_COOLDOWN_SEC = 60;
 
-function authRedirectQuery(reviewerInvite: string | null, authorJoin: string | null) {
+function authRedirectQuery(
+  reviewerInvite: string | null,
+  authorJoin: string | null,
+  nextPath: string | null,
+) {
   const params = new URLSearchParams();
   if (reviewerInvite) params.set('reviewerInvite', reviewerInvite);
   if (authorJoin) params.set('authorJoin', authorJoin);
+  if (nextPath) params.set('next', nextPath);
   const query = params.toString();
   return query ? `?${query}` : '';
 }
 
 function VerifyEmailContent() {
   const searchParams = useSearchParams();
+  const nextPath = safeAuthNext(searchParams.get('next'));
   const sent = searchParams.get('sent');
   const emailFromQuery = searchParams.get('email')?.trim() ?? '';
   const reviewerInvite = resolveReviewerInviteToken(searchParams.get('reviewerInvite'));
   const authorJoin = resolveAuthorJoinToken(searchParams.get('authorJoin'));
-  const signInHref = authorJoin
-    ? authorJoinPath(authorJoin)
-    : `/sign-in${authRedirectQuery(reviewerInvite, null)}`;
+  const signInHref =
+    !nextPath && authorJoin
+      ? authorJoinPath(authorJoin)
+      : `/sign-in${authRedirectQuery(reviewerInvite, null, nextPath)}`;
 
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(

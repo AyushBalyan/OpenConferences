@@ -10,6 +10,7 @@ async function fixture(
   mode: 'success' | 'cancel' | 'failure' | 'pending' | 'invalid' = 'success',
 ) {
   const verificationBodies: unknown[] = [];
+  const savedBodies: Record<string, unknown>[] = [];
   let orders = 0;
   const quote = {
     amountMinor: 5000,
@@ -26,6 +27,10 @@ async function fixture(
     audience: 'REGULAR',
     billingCountry: 'US',
     billingAffiliation: 'Test University',
+    billingName: 'Test Author',
+    billingEmail: 'billing@example.test',
+    billingAddress: '12 Research Road, Boston, MA 02110',
+    billingTaxId: 'TEST-TAX-123',
     status: 'PENDING',
     amountDueMinor: 0,
     currency: 'USD',
@@ -119,6 +124,7 @@ async function fixture(
     } else if (endpoint.endsWith('/registration')) {
       if (route.request().method() === 'POST') {
         const input = route.request().postDataJSON();
+        savedBodies.push(input);
         Object.assign(registration, input);
         status = 201;
         registration.paymentQuote = {
@@ -131,7 +137,7 @@ async function fixture(
     }
     await route.fulfill({ status, json: body });
   });
-  return { verificationBodies, orders: () => orders };
+  return { verificationBodies, savedBodies, registration, orders: () => orders };
 }
 
 test('verifies the checkout result before showing the paper as paid', async ({ page }) => {
@@ -264,4 +270,85 @@ test('organizers can configure fees and save the conversion rate and cutoff', as
     ).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`fee-settings-${width}.png`) });
   }
+});
+
+test('saved billing details and author category remain visible after canceled checkout and reload', async ({
+  page,
+}) => {
+  const api = await fixture(page, 'cancel');
+  await page.goto(path);
+  await page.getByLabel('Billing name (required)').fill('University Finance Office');
+  await page.getByLabel('Billing email (optional)').fill('finance@example.test');
+  await page.getByLabel('Billing address (required)').fill('12 Research Road\nNew Delhi 110001');
+  await page.getByLabel('Tax ID / GSTIN (optional)').fill('TEST-GST-123');
+  await page.getByLabel('Affiliation (required)').fill('Saved Research University');
+  await expect(page.getByRole('button', { name: 'Pay now', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Save registration details' }).click();
+  await page.getByRole('button', { name: 'Pay now', exact: true }).click();
+  await expect(page.getByText(/Checkout closed/)).toBeVisible();
+  await page.reload();
+  const details = page.getByLabel('Saved registration details');
+  for (const value of [
+    'Regular author',
+    'Saved Research University',
+    'University Finance Office',
+    'finance@example.test',
+    'New Delhi 110001',
+    'United States',
+    'TEST-GST-123',
+  ]) {
+    await expect(details).toContainText(value);
+  }
+  expect(api.savedBodies[0]).toMatchObject({
+    billingName: 'University Finance Office',
+    billingEmail: 'finance@example.test',
+    billingAddress: '12 Research Road\nNew Delhi 110001',
+    billingTaxId: 'TEST-GST-123',
+    audience: 'REGULAR',
+  });
+  await expect(page.getByRole('button', { name: 'Pay now', exact: true })).toBeEnabled();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await details.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `/tmp/registration-saved-${width}.png`, fullPage: true });
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+  }
+  await page.getByRole('button', { name: 'Pay now', exact: true }).click();
+  await expect(page.getByText(/Checkout closed/)).toBeVisible();
+  expect(api.orders()).toBe(2);
+});
+
+test('legacy unpaid checkout can supply missing billing information without changing fee details', async ({
+  page,
+}) => {
+  const api = await fixture(page, 'cancel');
+  Object.assign(api.registration, {
+    lockedTiming: 'EARLY',
+    billingName: '',
+    billingEmail: '',
+    billingAddress: '',
+    billingTaxId: '',
+  });
+  await page.goto(path);
+  await expect(page.getByLabel('Registration category')).toBeDisabled();
+  await expect(page.getByLabel('Billing country', { exact: true })).toBeDisabled();
+  await expect(page.getByLabel('Affiliation (required)')).toBeDisabled();
+  await page.getByLabel('Billing name (required)').fill('University Finance Office');
+  await page.getByLabel('Billing address (required)').fill('12 Research Road');
+  await page.getByRole('button', { name: 'Save registration details' }).click();
+  await expect(page.getByRole('button', { name: 'Pay now', exact: true })).toBeEnabled();
+  expect(api.registration.audience).toBe('REGULAR');
+  expect(api.registration.billingAffiliation).toBe('Test University');
+  await expect(page.getByLabel('Saved registration details')).toContainText('12 Research Road');
+});
+
+test('billing form validates the invoice recipient before saving', async ({ page }) => {
+  const api = await fixture(page);
+  await page.goto(path);
+  await page.getByLabel('Billing name (required)').fill('');
+  await page.getByRole('button', { name: 'Save registration details' }).click();
+  expect(api.savedBodies).toHaveLength(0);
+  await expect(page.getByLabel('Billing name (required)')).toBeFocused();
 });

@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   context: vi.fn(),
   update: vi.fn(),
   notify: vi.fn(),
+  openRegistration: vi.fn(),
   decision: null as Record<string, unknown> | null,
 }));
 
@@ -24,7 +25,10 @@ vi.mock('@openconferences/db', () => ({
         },
       },
       paper: { findFirst: async () => paper },
-      reviewRound: { findMany: async () => [{ id: 'round', revisionDueAt: null }] },
+      reviewRound: {
+        findMany: async () => [{ id: 'round', revisionDueAt: null }],
+        findFirst: async () => ({ id: 'round' }),
+      },
     });
   },
 }));
@@ -36,16 +40,26 @@ const paper = {
   organizationId: 'org',
   conferenceId: 'conf',
   title: 'Accepted paper',
+  status: 'UNDER_REVIEW',
+  version: 1,
+  submissionNumber: 'TEST-A1',
   submittedById: 'author',
-  authorships: [{ userId: 'author', email: 'author@example.test', isCorresponding: true }],
+  authorships: [
+    {
+      userId: 'author',
+      email: 'author@example.test',
+      fullName: 'Mira Sharma',
+      isCorresponding: true,
+    },
+  ],
 };
 const service = () =>
   new DecisionsService(
     { loadConference: async () => ({ organizationId: 'org', name: 'Test Conference' }) } as never,
     { loadRound: async () => ({ id: 'round' }) } as never,
-    {} as never,
+    { log: vi.fn() } as never,
     { publishDecisionNotified: mocks.notify } as never,
-    {} as never,
+    { openRegistration: mocks.openRegistration } as never,
   );
 
 beforeEach(() => {
@@ -76,10 +90,16 @@ describe('author decision release', () => {
       where: { id: { in: ['decision'] }, conferenceId: 'conf' },
       data: { notifiedAt: expect.any(Date) },
     });
+    expect(mocks.openRegistration).toHaveBeenCalledWith('org', 'conf', 'paper', 'chair');
     expect(mocks.notify).toHaveBeenCalledWith(
       expect.objectContaining({
         conferenceName: 'Test Conference',
         outcomeLabel: 'Accept',
+        authorName: 'Mira Sharma',
+        submissionNumber: 'TEST-A1',
+        registrationUrl: expect.stringContaining(
+          '/dashboard/conferences/conf/submissions/paper?section=registration',
+        ),
         to: 'author@example.test',
       }),
     );
@@ -100,4 +120,41 @@ describe('author decision release', () => {
       'Decision not found',
     );
   });
+});
+
+describe('acceptance email timing', () => {
+  for (const bulk of [false, true]) {
+    for (const notify of [false, true]) {
+      it(`${bulk ? 'bulk' : 'single'} acceptance ${notify ? 'sends one combined email after registration opens' : 'opens registration without emailing before release'}`, async () => {
+        const decisions = service();
+        vi.spyOn(
+          decisions as unknown as { applyDecisionInTransaction: () => Promise<unknown> },
+          'applyDecisionInTransaction',
+        ).mockResolvedValue({ paper, decision: mocks.decision, warnings: [] });
+        mocks.notify.mockImplementation(async () =>
+          expect(mocks.openRegistration).toHaveBeenCalledOnce(),
+        );
+        if (bulk) {
+          await decisions.bulkDecide(
+            'chair',
+            'conf',
+            'round',
+            { items: [{ paperId: 'paper', outcome: 'ACCEPT' }], notify },
+            ['CHAIR'],
+          );
+        } else {
+          await decisions.makeDecision(
+            'chair',
+            'conf',
+            'paper',
+            { roundId: 'round', outcome: 'ACCEPT', version: 1, notify },
+            ['CHAIR'],
+          );
+        }
+        expect(mocks.openRegistration).toHaveBeenCalledOnce();
+        expect(mocks.notify).toHaveBeenCalledTimes(notify ? 1 : 0);
+        expect(mocks.update).toHaveBeenCalledTimes(notify ? 1 : 0);
+      });
+    }
+  }
 });

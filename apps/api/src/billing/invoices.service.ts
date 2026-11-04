@@ -7,6 +7,7 @@ import {
   withTenantContext,
   drawRegistrationInvoice,
   registrationInvoiceDetails,
+  reserveRegistrationInvoiceNumber,
   type RegistrationInvoiceDetails,
 } from '@openconferences/db';
 import type { InvoiceGenerateJobPayload } from '@openconferences/schemas';
@@ -54,9 +55,18 @@ export class InvoicesService {
       throw new NotFoundException('Captured payment not found for invoice');
     }
 
-    const invoiceNumber = await this.nextInvoiceNumber(payload.organizationId);
+    const issuedAt = new Date();
+    const invoiceNumber = await withTenantContext(
+      { organizationId: payload.organizationId, conferenceId: payload.conferenceId },
+      (tx) =>
+        reserveRegistrationInvoiceNumber(tx, {
+          ...payload,
+          conferenceName: payment.registration.conference.name,
+          issuedAt,
+        }),
+    );
     const pdfBuffer = await this.renderInvoicePdf(
-      registrationInvoiceDetails(payment, invoiceNumber, new Date()),
+      registrationInvoiceDetails(payment, invoiceNumber, issuedAt),
     );
 
     const objectKey = `org/${payload.organizationId}/invoices/${payment.id}/${invoiceNumber}.pdf`;
@@ -95,6 +105,7 @@ export class InvoicesService {
           paymentId: payment.id,
           fileAssetId: fileAsset.id,
           number: invoiceNumber,
+          issuedAt,
         },
       });
     });
@@ -157,37 +168,6 @@ export class InvoicesService {
       downloadUrl: download.downloadUrl,
       expiresInSeconds: download.expiresInSeconds,
     };
-  }
-
-  private async nextInvoiceNumber(organizationId: string): Promise<string> {
-    const fiscalYear = new Date().getFullYear();
-
-    const counter = await withTenantContext({}, async (tx) => {
-      const existing = await tx.invoiceCounter.findUnique({
-        where: {
-          organizationId_fiscalYear: { organizationId, fiscalYear },
-        },
-      });
-
-      if (existing) {
-        return tx.invoiceCounter.update({
-          where: {
-            organizationId_fiscalYear: { organizationId, fiscalYear },
-          },
-          data: { lastNumber: { increment: 1 } },
-        });
-      }
-
-      return tx.invoiceCounter.create({
-        data: {
-          organizationId,
-          fiscalYear,
-          lastNumber: 1,
-        },
-      });
-    });
-
-    return `INV-${fiscalYear}-${String(counter.lastNumber).padStart(6, '0')}`;
   }
 
   private async renderInvoicePdf(input: RegistrationInvoiceDetails): Promise<Buffer> {

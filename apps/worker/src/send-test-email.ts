@@ -150,6 +150,13 @@ function buildSampleContext(templateKey: string, webUrl: string): Record<string,
       paperTitle: 'Deliverability Test Paper',
       dueAt: deadline,
     },
+    'decision.accepted': {
+      authorName: 'Ada Lovelace',
+      conferenceName: 'Example Conference',
+      submissionNumber: 'EXAMPLE-K7Q4',
+      paperTitle: 'Deliverability Test Paper',
+      registrationUrl: `${base}/dashboard/conferences/test-conference/submissions/test-paper?section=registration`,
+    },
     'decision.notified': {
       paperTitle: 'Deliverability Test Paper',
       outcomeLabel: 'Accept',

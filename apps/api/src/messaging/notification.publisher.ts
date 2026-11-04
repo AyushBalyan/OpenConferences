@@ -246,12 +246,20 @@ export class NotificationPublisher {
   }
 
   async publishDecisionNotified(payload: DecisionNotifiedPayload): Promise<void> {
+    const accepted = payload.outcomeLabel === 'Accept';
+    const templateKey = accepted ? 'decision.accepted' : 'decision.notified';
+    if (accepted && !payload.registrationUrl) {
+      throw new Error('Acceptance email requires the paper registration link');
+    }
     await this.notifications.enqueue({
-      templateKey: 'decision.notified',
+      templateKey,
       to: payload.to,
       context: {
         paperTitle: payload.paperTitle,
         conferenceName: payload.conferenceName,
+        authorName: (payload.authorName || 'Author').replace(/^(?:Dr\.?|Prof\.?)\s+/i, ''),
+        submissionNumber: payload.submissionNumber || '',
+        registrationUrl: payload.registrationUrl,
         outcomeLabel: payload.outcomeLabel,
         rationaleBlock: payload.rationaleBlock,
         acceptBlock: payload.acceptBlock,
@@ -259,7 +267,8 @@ export class NotificationPublisher {
       organizationId: payload.organizationId,
       conferenceId: payload.conferenceId,
       idempotencyKey: payload.idempotencyKey,
-      tags: ['decision.notified'],
+      replyTo: accepted ? 'icamcds2026@fresi.org' : undefined,
+      tags: [templateKey],
       relatedEntity: 'Decision',
       relatedEntityId: payload.decisionId,
     });

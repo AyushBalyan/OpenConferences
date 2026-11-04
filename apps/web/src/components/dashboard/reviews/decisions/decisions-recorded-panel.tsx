@@ -71,17 +71,23 @@ export function DecisionsRecordedPanel() {
   useEffect(() => {
     let cancelled = false;
     async function loadLogs() {
-      const rows: NotificationLogDto[] = [];
-      let cursor: string | undefined;
-      do {
-        const page = await fetchNotificationLogs(conferenceId, {
-          templateKey: 'decision.notified',
-          limit: 100,
-          cursor,
-        });
-        rows.push(...page.data);
-        cursor = page.nextCursor ?? undefined;
-      } while (cursor);
+      const batches = await Promise.all(
+        ['decision.notified', 'decision.accepted'].map(async (templateKey) => {
+          const rows: NotificationLogDto[] = [];
+          let cursor: string | undefined;
+          do {
+            const page = await fetchNotificationLogs(conferenceId, {
+              templateKey,
+              limit: 100,
+              cursor,
+            });
+            rows.push(...page.data);
+            cursor = page.nextCursor ?? undefined;
+          } while (cursor);
+          return rows;
+        }),
+      );
+      const rows = batches.flat();
       if (!cancelled) {
         setLogs(rows);
         setLogsReady(true);

@@ -398,7 +398,14 @@ describe('Billing integration (Phase 8)', () => {
     const saved = await request(app.getHttpServer())
       .post(base)
       .set('Cookie', authorRegularCookie)
-      .send({ audience: 'REGULAR', billingAffiliation: '  Entered Invoice University  ' })
+      .send({
+        audience: 'REGULAR',
+        billingAffiliation: '  Entered Invoice University  ',
+        billingName: 'University Finance Office',
+        billingEmail: 'finance@example.test',
+        billingAddress: '12 Research Road, New Delhi 110001',
+        billingTaxId: 'TEST-TAX-123',
+      })
       .expect(201);
     expect(saved.body.billingAffiliation).toBe('Entered Invoice University');
     await prisma.authorship.updateMany({
@@ -409,7 +416,13 @@ describe('Billing integration (Phase 8)', () => {
       .get(base)
       .set('Cookie', authorRegularCookie)
       .expect(200);
-    expect(result.body.billingAffiliation).toBe('Entered Invoice University');
+    expect(result.body).toMatchObject({
+      billingAffiliation: 'Entered Invoice University',
+      billingName: 'University Finance Office',
+      billingEmail: 'finance@example.test',
+      billingAddress: '12 Research Road, New Delhi 110001',
+      billingTaxId: 'TEST-TAX-123',
+    });
   });
 
   it('regular author completes early-bird payment', async () => {

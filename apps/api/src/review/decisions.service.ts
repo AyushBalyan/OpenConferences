@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { getConfig } from '@openconferences/config/env';
 import type {
   Decision,
   DecisionOutcome,
@@ -44,6 +45,7 @@ type PaperForDecision = {
   organizationId: string;
   conferenceId: string;
   title: string;
+  submissionNumber?: string | null;
   status: PaperStatus;
   version: number;
   authorships: Array<{
@@ -191,17 +193,6 @@ export class DecisionsService {
       },
     });
 
-    const shouldNotify = input.notify !== false;
-    if (shouldNotify) {
-      await this.notifyDecisionAuthors(
-        userId,
-        conference.name,
-        [result.paper],
-        [result.decision],
-        input.roundId,
-      );
-    }
-
     if (input.outcome === 'ACCEPT') {
       await this.registrations.openRegistration(
         conference.organizationId,
@@ -209,6 +200,9 @@ export class DecisionsService {
         paperId,
         userId,
       );
+    }
+    if (input.notify !== false) {
+      await this.notifyDecisionAuthors(userId, conference.name, [result.paper], [result.decision]);
     }
 
     return {
@@ -292,17 +286,6 @@ export class DecisionsService {
       });
     }
 
-    const firstSuccess = successes[0];
-    if (input.notify !== false && firstSuccess) {
-      await this.notifyDecisionAuthors(
-        userId,
-        conference.name,
-        successes.map((row) => row.paper),
-        successes.map((row) => row.decision),
-        firstSuccess.decision.roundId,
-      );
-    }
-
     for (const { decision, paper } of successes) {
       if (decision.outcome === 'ACCEPT') {
         await this.registrations.openRegistration(
@@ -312,6 +295,15 @@ export class DecisionsService {
           userId,
         );
       }
+    }
+
+    if (input.notify !== false && successes.length) {
+      await this.notifyDecisionAuthors(
+        userId,
+        conference.name,
+        successes.map((row) => row.paper),
+        successes.map((row) => row.decision),
+      );
     }
 
     return {
@@ -361,12 +353,22 @@ export class DecisionsService {
       throw new NotFoundException('No decisions found to notify');
     }
 
+    for (const decision of decisions) {
+      if (decision.outcome === 'ACCEPT') {
+        await this.registrations.openRegistration(
+          conference.organizationId,
+          conferenceId,
+          decision.paperId,
+          userId,
+        );
+      }
+    }
+
     await this.notifyDecisionAuthors(
       userId,
       conference.name,
       decisions.map((d) => d.paper),
       decisions,
-      roundId,
     );
 
     return {
@@ -523,7 +525,6 @@ export class DecisionsService {
     conferenceName: string,
     papers: Array<PaperForDecision>,
     decisions: Array<Pick<Decision, 'id' | 'paperId' | 'roundId' | 'outcome' | 'rationale'>>,
-    roundId: string,
   ) {
     const now = new Date();
     const decisionIds = decisions.map((d) => d.id);
@@ -563,6 +564,9 @@ export class DecisionsService {
         organizationId: paper.organizationId,
         paperTitle: title,
         conferenceName,
+        authorName: corresponding.fullName,
+        submissionNumber: paper.submissionNumber || paper.id,
+        registrationUrl: `${getConfig().webUrl.replace(/\/$/, '')}/dashboard/conferences/${paper.conferenceId}/submissions/${paper.id}?section=registration`,
         outcomeLabel,
         rationaleBlock: decision.rationale?.trim()
           ? `Committee note: ${decision.rationale.trim()}`
@@ -572,7 +576,7 @@ export class DecisionsService {
           revisionDueByRound.get(decision.roundId) ?? null,
         ),
         decisionId: decision.id,
-        idempotencyKey: `decision-${decision.paperId}-${roundId}`,
+        idempotencyKey: `decision-${decision.paperId}-${decision.roundId}`,
       });
     }
   }

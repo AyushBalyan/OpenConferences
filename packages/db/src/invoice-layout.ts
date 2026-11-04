@@ -27,6 +27,10 @@ export type RegistrationInvoiceDetails = {
   authorName: string;
   affiliation: string;
   billingCountry: string;
+  billingName?: string;
+  billingEmail?: string;
+  billingAddress?: string;
+  billingTaxId?: string;
   audience: string;
   paperId: string;
   paperTitle: string;
@@ -48,6 +52,10 @@ type InvoicePayment = {
   registration: {
     userId: string | null;
     billingAffiliation?: string | null;
+    billingName?: string | null;
+    billingEmail?: string | null;
+    billingAddress?: string | null;
+    billingTaxId?: string | null;
     billingCountry?: string | null;
     audience: string;
     isAdditionalPaper: boolean;
@@ -88,6 +96,10 @@ export function registrationInvoiceDetails(
     number,
     issuedAt,
     conferenceName: registration.conference.name,
+    billingName: registration.billingName?.trim() || undefined,
+    billingEmail: registration.billingEmail?.trim() || undefined,
+    billingAddress: registration.billingAddress?.trim() || undefined,
+    billingTaxId: registration.billingTaxId?.trim() || undefined,
     authorName: registration.payer?.name || author?.fullName || 'Registered author',
     affiliation:
       registration.billingAffiliation?.trim() || author?.affiliation?.trim() || 'Not provided',
@@ -181,22 +193,32 @@ export function drawRegistrationInvoice(
   if (input.demonstration)
     text('DEMONSTRATION ONLY / TEST PAYMENT', L, 141, 7, { gray: true, width: 265 });
   line(155);
-  label('BILLED TO / REGISTERED AUTHOR', L, 177);
-  fitted(input.authorName, L, 197, 300, 22, 16, true);
-  const affiliationHeight = fitted(`Affiliation: ${input.affiliation}`, L, 224, 300, 35, 11);
-  const countryY = Math.max(245, 224 + affiliationHeight + 7);
-  text(`Billing country: ${input.billingCountry}`, L, countryY, 10.5, { gray: true, width: 300 });
+  label(input.billingName ? 'BILLED TO' : 'BILLED TO / REGISTERED AUTHOR', L, 177);
+  fitted(input.billingName || input.authorName, L, 197, 300, 22, 16, true);
+  const billingLines = [
+    `Affiliation: ${input.affiliation}`,
+    ...(input.billingEmail ? [`Email: ${input.billingEmail}`] : []),
+    ...(input.billingAddress ? [`Address: ${input.billingAddress.replace(/\s+/g, ' ')}`] : []),
+  ];
+  const billingHeight = fitted(billingLines.join('\n'), L, 224, 300, 115, 10.5);
   label('PAYMENT STATUS', 413, 177, { width: R - 413, align: 'right' });
   text('PAID', 413, 195, 17, { bold: true, width: R - 413, align: 'right' });
   label('AUTHOR CATEGORY', 390, 225, { width: R - 390, align: 'right' });
   text(input.audience, 390, 245, 10.5, { width: R - 390, align: 'right' });
-  const divider = Math.max(273, countryY + 28);
+  fitted(`Billing country: ${input.billingCountry}`, 390, 267, R - 390, 26, 9.5, false, 'right');
+  if (input.billingTaxId) {
+    label('TAX ID / GSTIN', 390, 302, { width: R - 390, align: 'right' });
+    fitted(input.billingTaxId, 390, 318, R - 390, 25, 9.5, false, 'right');
+  }
+  const divider = Math.max(input.billingTaxId ? 355 : 302, 224 + billingHeight + 14);
   line(divider);
-  label('PAPER ID', L, divider + 21);
-  fitted(input.paperId, L, divider + 38, R - L, 20, 13.5, true);
-  label('PAPER TITLE', L, divider + 71);
-  const titleHeight = fitted(input.paperTitle, L, divider + 88, R - L, 45, 16, true);
-  const top = Math.max(421, divider + 88 + titleHeight + 24);
+  label('PAPER ID', L, divider + 15);
+  fitted(input.paperId, L, divider + 29, 190, 22, 13.5, true);
+  label('REGISTERED AUTHOR', 280, divider + 15);
+  fitted(input.authorName, 280, divider + 29, R - 280, 22, 13.5, true);
+  label('PAPER TITLE', L, divider + 55);
+  const titleHeight = fitted(input.paperTitle, L, divider + 69, R - L, 40, 16, true);
+  const top = Math.max(405, divider + 69 + titleHeight + 17);
   line(top, L, R, 1.2);
   text('DESCRIPTION', L + 5, top + 13, 10, { bold: true, width: 230 });
   text('PRICE', 305, top + 13, 10, { bold: true, width: 100, align: 'right' });
@@ -204,23 +226,23 @@ export function drawRegistrationInvoice(
   text('TOTAL', 453, top + 13, 10, { bold: true, width: R - 458, align: 'right' });
   line(top + 34, L, R, 1.2);
   fitted(input.description, L + 5, top + 51, 225, 26, 11.5);
-  text('One accepted paper', L + 5, top + 81, 9.5, { gray: true, width: 230 });
+  text('One accepted paper', L + 5, top + 74, 9.5, { gray: true, width: 230 });
   fitted(amount, 305, top + 54, 100, 18, 10.5, false, 'right');
   text('1', 415, top + 54, 10.5, { width: 38, align: 'center' });
   fitted(amount, 453, top + 54, R - 458, 18, 10.5, false, 'right');
-  line(top + 109);
-  text('Subtotal', 314, top + 124, 10.5, { width: 90, align: 'right' });
-  fitted(amount, 418, top + 124, R - 423, 18, 10.5, false, 'right');
-  line(top + 148, 312, R);
-  text('TOTAL PAID', 312, top + 162, 12, { bold: true, width: 95, align: 'right' });
-  fitted(amount, 414, top + 159, R - 419, 22, 15, true, 'right');
-  text('Balance due', 312, top + 190, 10, { gray: true, width: 95, align: 'right' });
-  text(`${input.currency} 0.00`, 418, top + 190, 10, {
+  line(top + 91);
+  text('Subtotal', 314, top + 98, 10.5, { width: 90, align: 'right' });
+  fitted(amount, 418, top + 98, R - 423, 18, 10.5, false, 'right');
+  line(top + 115, 312, R);
+  text('TOTAL PAID', 312, top + 129, 12, { bold: true, width: 95, align: 'right' });
+  fitted(amount, 414, top + 126, R - 419, 22, 15, true, 'right');
+  text('Balance due', 312, top + 153, 10, { gray: true, width: 95, align: 'right' });
+  text(`${input.currency} 0.00`, 418, top + 153, 10, {
     gray: true,
     width: R - 423,
     align: 'right',
   });
-  const footer = Math.max(638, top + 209);
+  const footer = Math.max(638, top + 174);
   line(footer);
   text('PAYMENT INFORMATION', L, footer + 16, 12, { bold: true, width: 285 });
   label('TRANSACTION ID', L, footer + 45);

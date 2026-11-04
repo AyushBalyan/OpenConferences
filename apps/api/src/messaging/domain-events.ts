@@ -118,6 +118,9 @@ export type DecisionNotifiedPayload = {
   organizationId: string;
   paperTitle: string;
   conferenceName?: string;
+  authorName?: string;
+  submissionNumber?: string;
+  registrationUrl?: string;
   outcomeLabel: string;
   rationaleBlock: string;
   acceptBlock: string;

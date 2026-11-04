@@ -12,15 +12,21 @@ import { TurnstileField } from '@/components/auth/turnstile-field';
 import { isTurnstileEnabled, turnstileFetchOptions, withTurnstileBody } from '@/lib/turnstile';
 import { resolveReviewerInviteToken } from '@/lib/reviewer-invite-pending';
 import { resolveAuthorJoinToken, storeAuthorAffiliation } from '@/lib/author-join-pending';
+import { safeAuthNext } from '@/lib/auth-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { TurnstileInstance } from '@marsidev/react-turnstile';
 
-function authRedirectQuery(reviewerInvite: string | null, authorJoin: string | null) {
+function authRedirectQuery(
+  reviewerInvite: string | null,
+  authorJoin: string | null,
+  nextPath: string | null,
+) {
   const params = new URLSearchParams();
   if (reviewerInvite) params.set('reviewerInvite', reviewerInvite);
   if (authorJoin) params.set('authorJoin', authorJoin);
+  if (nextPath) params.set('next', nextPath);
   const query = params.toString();
   return query ? `?${query}` : '';
 }
@@ -28,6 +34,7 @@ function authRedirectQuery(reviewerInvite: string | null, authorJoin: string | n
 function SignUpContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const nextPath = safeAuthNext(searchParams.get('next'));
   const reviewerInvite = resolveReviewerInviteToken(searchParams.get('reviewerInvite'));
   const authorJoin = resolveAuthorJoinToken(searchParams.get('authorJoin'));
   const invitedEmail = searchParams.get('email');
@@ -91,10 +98,11 @@ function SignUpContent() {
     if (authorJoin) {
       verifyParams.set('authorJoin', authorJoin);
     }
+    if (nextPath) verifyParams.set('next', nextPath);
     router.push(`/verify-email?${verifyParams.toString()}`);
   });
 
-  const signInHref = `/sign-in${authRedirectQuery(reviewerInvite, authorJoin)}`;
+  const signInHref = `/sign-in${authRedirectQuery(reviewerInvite, authorJoin, nextPath)}`;
 
   return (
     <AuthShell

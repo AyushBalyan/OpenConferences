@@ -6,33 +6,11 @@ import {
   withTenantContext,
   drawRegistrationInvoice,
   registrationInvoiceDetails,
+  reserveRegistrationInvoiceNumber,
   type RegistrationInvoiceDetails,
 } from '@openconferences/db';
 import type { InvoiceGenerateJobPayload } from '@openconferences/schemas';
 import { getS3Client, getS3Bucket } from './s3.client.js';
-
-async function nextInvoiceNumber(organizationId: string): Promise<string> {
-  const fiscalYear = new Date().getFullYear();
-
-  const counter = await withTenantContext({}, async (tx) => {
-    const existing = await tx.invoiceCounter.findUnique({
-      where: { organizationId_fiscalYear: { organizationId, fiscalYear } },
-    });
-
-    if (existing) {
-      return tx.invoiceCounter.update({
-        where: { organizationId_fiscalYear: { organizationId, fiscalYear } },
-        data: { lastNumber: { increment: 1 } },
-      });
-    }
-
-    return tx.invoiceCounter.create({
-      data: { organizationId, fiscalYear, lastNumber: 1 },
-    });
-  });
-
-  return `INV-${fiscalYear}-${String(counter.lastNumber).padStart(6, '0')}`;
-}
 
 async function renderInvoicePdf(input: RegistrationInvoiceDetails): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -74,9 +52,18 @@ export async function processInvoiceJob(payload: InvoiceGenerateJobPayload): Pro
     throw new Error(`Captured payment not found: ${payload.paymentId}`);
   }
 
-  const invoiceNumber = await nextInvoiceNumber(payload.organizationId);
+  const issuedAt = new Date();
+  const invoiceNumber = await withTenantContext(
+    { organizationId: payload.organizationId, conferenceId: payload.conferenceId },
+    (tx) =>
+      reserveRegistrationInvoiceNumber(tx, {
+        ...payload,
+        conferenceName: payment.registration.conference.name,
+        issuedAt,
+      }),
+  );
   const pdfBuffer = await renderInvoicePdf(
-    registrationInvoiceDetails(payment, invoiceNumber, new Date()),
+    registrationInvoiceDetails(payment, invoiceNumber, issuedAt),
   );
 
   const objectKey = `org/${payload.organizationId}/invoices/${payment.id}/${invoiceNumber}.pdf`;
@@ -115,6 +102,7 @@ export async function processInvoiceJob(payload: InvoiceGenerateJobPayload): Pro
         paymentId: payment.id,
         fileAssetId: fileAsset.id,
         number: invoiceNumber,
+        issuedAt,
       },
     });
   });

@@ -7,6 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { mfaVerifySchema, type MfaVerifyInput } from '@openconferences/schemas';
 import { authClient, refreshSession } from '@/lib/auth-client';
 import { AuthShell } from '@/components/auth/auth-shell';
+import { safeAuthNext } from '@/lib/auth-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,6 +19,7 @@ const RESEND_COOLDOWN_SEC = 60;
 function MfaChallengeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const nextPath = safeAuthNext(searchParams.get('next'));
   const authorJoin = resolveAuthorJoinToken(searchParams.get('authorJoin'));
   const reviewerInvite = resolveReviewerInviteToken(searchParams.get('reviewerInvite'));
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +86,11 @@ function MfaChallengeContent() {
     }
 
     await refreshSession();
+
+    if (nextPath) {
+      router.replace(nextPath);
+      return;
+    }
 
     router.push(
       authorJoin

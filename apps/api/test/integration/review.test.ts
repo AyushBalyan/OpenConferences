@@ -1477,7 +1477,7 @@ describe('Reviewer management & assignment integration', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.decision.outcome).toBe('ACCEPT');
-      expect(lastTestNotification?.templateKey).toBe('decision.notified');
+      expect(lastTestNotification?.templateKey).toBe('decision.accepted');
 
       const updated = await prisma.paper.findUnique({ where: { id: paperId } });
       expect(updated?.status).toBe('DECISION_MADE');

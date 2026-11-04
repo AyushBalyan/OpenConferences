@@ -198,6 +198,7 @@ enum OutreachRecipientStatus {
 }
 
 model Organization {
+  invoiceDailyCounters InvoiceDailyCounter[]
   apiIntegrations ApiIntegration[]
   conferenceUpdates ConferenceUpdate[]
   reviewerReminderDigests ReviewerReminderDigest[]
@@ -343,6 +344,7 @@ model TwoFactor {
 }
 
 model Conference {
+  invoiceDailyCounters InvoiceDailyCounter[]
   apiIntegrations ApiIntegration[]
   conferenceUpdates ConferenceUpdate[]
   reviewerReminderDigests ReviewerReminderDigest[]
@@ -775,6 +777,10 @@ model Registration {
   audience       FeeAudience
   lockedTiming   FeeTiming?
   billingCountry String?            @db.Char(2)
+  billingName String?
+  billingEmail String?
+  billingAddress String?
+  billingTaxId String?
   billingAffiliation String?
   isAdditionalPaper Boolean         @default(false)
   regularAmountDueMinor Int?
@@ -878,6 +884,19 @@ model InvoiceCounter {
 
   @@id([organizationId, fiscalYear])
   @@map("invoice_counters")
+}
+
+model InvoiceDailyCounter {
+  organizationId String @db.Uuid
+  conferenceId String @db.Uuid
+  issueDate String @db.VarChar(8)
+  lastNumber BigInt @default(0)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  conference Conference @relation(fields: [conferenceId], references: [id])
+
+  @@id([conferenceId, issueDate])
+  @@map("invoice_daily_counters")
 }
 
 model NotificationTemplate {

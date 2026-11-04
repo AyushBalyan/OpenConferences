@@ -243,3 +243,77 @@ describe('registration opening email', () => {
     );
   });
 });
+
+describe('combined acceptance email', () => {
+  const registrationUrl =
+    'https://example.test/dashboard/conferences/conf/submissions/paper?section=registration';
+  const payload = {
+    to: 'author@example.test',
+    conferenceId: 'conf',
+    organizationId: 'org',
+    paperTitle: 'Safe <Research>',
+    conferenceName: 'Example Research Conference',
+    authorName: 'Dr. Mira Sharma',
+    submissionNumber: 'CONF-A1',
+    registrationUrl,
+    outcomeLabel: 'Accept',
+    rationaleBlock: '',
+    acceptBlock: '',
+    decisionId: 'decision',
+    idempotencyKey: 'decision-paper-round',
+  };
+  it('sends one acceptance email with dynamic branding, personal paper details, and registration link', async () => {
+    const enqueue = vi.fn().mockResolvedValue('notification');
+    await new NotificationPublisher({ enqueue } as never).publishDecisionNotified(payload);
+    expect(enqueue).toHaveBeenCalledOnce();
+    const input = enqueue.mock.calls[0]![0];
+    expect(input).toMatchObject({
+      templateKey: 'decision.accepted',
+      relatedEntity: 'Decision',
+      replyTo: 'icamcds2026@fresi.org',
+    });
+    const template = PLATFORM_NOTIFICATION_TEMPLATES.find((t) => t.key === input.templateKey)!;
+    expect(renderTemplate(template.subject, input.context)).toBe(
+      'Paper accepted — CONF-A1 | Example Research Conference',
+    );
+    for (const body of [template.bodyHtml, template.bodyText]) {
+      const rendered = renderTemplate(body, input.context);
+      expect(rendered).toContain('Dear Dr Mira Sharma,');
+      expect(rendered).toContain('Safe &lt;Research&gt;');
+      expect(rendered).toContain('CONF-A1');
+      expect(rendered).toContain(registrationUrl);
+      expect(rendered).toContain('This message was sent by Example Research Conference.');
+      expect(rendered).toContain('15–17 December 2026');
+      expect(rendered).toContain('active participation in Example Research Conference.');
+      expect(rendered).not.toContain('ICAMCDS-2026');
+      expect(rendered).not.toContain('{{');
+      expect(rendered.indexOf(registrationUrl)).toBeLessThan(
+        rendered.indexOf('Further details regarding'),
+      );
+    }
+    expect(renderTemplate(template.bodyText, input.context)).not.toMatch(/<\/?(?:strong|em|br)/);
+  });
+  it.each(['Reject', 'Minor revision', 'Major revision'])(
+    'keeps the ordinary decision email for %s',
+    async (outcomeLabel) => {
+      const enqueue = vi.fn().mockResolvedValue('notification');
+      await new NotificationPublisher({ enqueue } as never).publishDecisionNotified({
+        ...payload,
+        outcomeLabel,
+      });
+      expect(enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ templateKey: 'decision.notified' }),
+      );
+    },
+  );
+  it('does not queue an acceptance with a missing registration link', async () => {
+    const enqueue = vi.fn();
+    await expect(
+      new NotificationPublisher({ enqueue } as never).publishDecisionNotified({
+        ...payload,
+        registrationUrl: undefined,
+      }),
+    ).rejects.toThrow('requires the paper registration link');
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+});

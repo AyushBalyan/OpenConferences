@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { signInWithNext } from '@/lib/auth-next';
 import { useSession } from '@/lib/auth-client';
 
 type ProtectedRouteProps = {
@@ -27,7 +28,11 @@ export function ProtectedRoute({
 
   useEffect(() => {
     if (!isPending && !session) {
-      router.replace(redirectTo);
+      router.replace(
+        redirectTo === '/sign-in'
+          ? signInWithNext(window.location.pathname + window.location.search + window.location.hash)
+          : redirectTo,
+      );
     }
   }, [isPending, session, router, redirectTo]);
 

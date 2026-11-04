@@ -5,7 +5,6 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { getConfig } from '@openconferences/config/env';
 import type { Registration, RoleKind } from '@openconferences/db';
 import { generateId, withTenantContext } from '@openconferences/db';
 import type {
@@ -21,7 +20,6 @@ import {
 } from '../common/pagination/cursor';
 import { assertScope } from '../common/scope/assert-scope';
 import { AuditService } from '../audit/audit.service';
-import { NotificationPublisher } from '../messaging/notification.publisher';
 import { ConferenceService } from '../tenancy/conference.service';
 import { canCoordinateReview } from '../tenancy/role-hierarchy';
 import { PapersService } from '../submission/papers.service';
@@ -67,7 +65,6 @@ export class RegistrationsService {
     private readonly conferences: ConferenceService,
     private readonly papers: PapersService,
     private readonly audit: AuditService,
-    private readonly notifications: NotificationPublisher,
   ) {}
 
   async openRegistration(
@@ -124,29 +121,6 @@ export class RegistrationsService {
       entityId: registration.id,
       diff: { paperId },
     });
-
-    const paper = await withTenantContext(context, async (tx) =>
-      tx.paper.findFirst({
-        where: { id: paperId },
-        include: { authorships: true },
-      }),
-    );
-
-    const corresponding =
-      paper?.authorships.find((a) => a.isCorresponding) ?? paper?.authorships[0];
-    if (corresponding?.email) {
-      await this.notifications.publishRegistrationWindowOpen({
-        to: corresponding.email,
-        conferenceId,
-        organizationId,
-        paperTitle: paper?.title ?? 'Your paper',
-        conferenceName: conference.name,
-        deadlineAt: deadlineAt.toISOString(),
-        registrationUrl: `${getConfig().webUrl.replace(/\/$/, '')}/dashboard/conferences/${conferenceId}/submissions/${paperId}?section=registration`,
-        registrationId: registration.id,
-        idempotencyKey: `registration-window-${registration.id}`,
-      });
-    }
 
     return registration;
   }
@@ -258,17 +232,32 @@ export class RegistrationsService {
 
     const registration = await this.loadRegistration(userId, conferenceId, paperId);
 
-    const affiliationOnly = (row: Registration) =>
+    const billingFields = [
+      'billingAffiliation',
+      'billingName',
+      'billingEmail',
+      'billingAddress',
+      'billingTaxId',
+    ] as const;
+    // Legacy checkouts may fill missing invoice details, but cannot overwrite
+    // the saved snapshot or change the category/country that determined the fee.
+    const missingBillingOnly = (row: Registration) =>
       ['PENDING', 'ADDITIONAL_PAYMENT_REQUIRED'].includes(row.status) &&
-      !row.billingAffiliation?.trim() &&
-      Boolean(input.billingAffiliation?.trim()) &&
+      (!row.userId || row.userId === userId) &&
+      billingFields.some((field) => !row[field]?.trim() && Boolean(input[field]?.trim())) &&
+      billingFields.every(
+        (field) =>
+          input[field] === undefined ||
+          !row[field]?.trim() ||
+          input[field]?.trim() === row[field]?.trim(),
+      ) &&
       input.audience === row.audience &&
       (!input.billingCountry || input.billingCountry === row.billingCountry);
     if (
       (registration.status !== 'PENDING' || registration.lockedTiming) &&
-      !affiliationOnly(registration)
+      !missingBillingOnly(registration)
     ) {
-      throw new ConflictException('Registration audience cannot be changed after payment begins');
+      throw new ConflictException('Registration details cannot be changed after checkout begins');
     }
 
     const billingAffiliation =
@@ -287,7 +276,7 @@ export class RegistrationsService {
           throw new NotFoundException('Registration not found');
         }
         const lockedDetails = current.status !== 'PENDING' || Boolean(current.lockedTiming);
-        if (lockedDetails && !affiliationOnly(current)) {
+        if (lockedDetails && !missingBillingOnly(current)) {
           throw new ConflictException(
             'Registration details cannot be changed after checkout begins',
           );
@@ -302,7 +291,18 @@ export class RegistrationsService {
                   ...(input.billingCountry ? { billingCountry: input.billingCountry } : {}),
                 }
               : {}),
-            billingAffiliation,
+            billingAffiliation:
+              lockedDetails && current.billingAffiliation?.trim()
+                ? current.billingAffiliation
+                : billingAffiliation,
+            ...(input.billingName !== undefined ? { billingName: input.billingName } : {}),
+            ...(input.billingEmail !== undefined
+              ? { billingEmail: input.billingEmail || null }
+              : {}),
+            ...(input.billingAddress !== undefined ? { billingAddress: input.billingAddress } : {}),
+            ...(input.billingTaxId !== undefined
+              ? { billingTaxId: input.billingTaxId || null }
+              : {}),
             version: { increment: 1 },
           },
         });

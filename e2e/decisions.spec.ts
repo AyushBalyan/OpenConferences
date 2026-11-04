@@ -192,7 +192,7 @@ async function mockApi(
           id: id(5000),
           relatedEntity: 'Decision',
           relatedEntityId: decision.id,
-          templateKey: 'decision.notified',
+          templateKey: decision.outcome === 'ACCEPT' ? 'decision.accepted' : 'decision.notified',
           toEmail: 'mira@example.test',
           status: 'QUEUED',
           queuedAt: new Date().toISOString(),
@@ -284,7 +284,11 @@ async function mockApi(
         nextCursor: null,
       };
     else if (endpoint.endsWith('/notification-logs')) {
-      body = { data: logs, nextCursor: null };
+      const requested = url.searchParams.get('templateKey');
+      body = {
+        data: logs.filter((log) => (log.templateKey ?? 'decision.notified') === requested),
+        nextCursor: null,
+      };
       if (options.failLogs) status = 500;
     } else if (endpoint.endsWith('/papers')) {
       const offset = Number(url.searchParams.get('cursor') ?? 0);
@@ -836,3 +840,24 @@ for (const additionalHidden of [false, true]) {
     }
   });
 }
+
+test('recorded decisions recognize the combined acceptance email delivery status', async ({
+  page,
+}) => {
+  const fixture = await mockApi(page);
+  fixture.logs.push({
+    id: id(5010),
+    templateKey: 'decision.accepted',
+    relatedEntity: 'Decision',
+    relatedEntityId: id(3000),
+    status: 'SENT',
+    queuedAt: '2026-11-04T10:00:00Z',
+    sentAt: '2026-11-04T10:01:00Z',
+  });
+  await page.goto(`${path}/recorded`);
+  const row = page
+    .getByRole('row')
+    .filter({ has: page.getByRole('link', { name: 'Recorded reliable systems', exact: true }) });
+  await expect(row.getByText('Sent', { exact: true })).toBeVisible();
+  await expect(row.getByRole('button', { name: 'Review and send' })).toHaveCount(0);
+});

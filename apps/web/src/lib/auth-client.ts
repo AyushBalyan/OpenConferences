@@ -75,9 +75,8 @@ export const authClient = createAuthClient({
   },
   plugins: [
     emailOTPClient(),
-    twoFactorClient({
-      twoFactorPage: '/mfa/challenge',
-    }),
+    // The sign-in page carries invitation and return URLs into the MFA route.
+    twoFactorClient(),
   ],
 });
 
