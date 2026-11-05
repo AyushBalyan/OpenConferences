@@ -1205,6 +1205,14 @@ function SubmissionDetail() {
                             : 'Uploaded. We’re checking your PDF.'}
                     </p>
                   </div>
+                  {(isAuthor || canDownloadPapers) && cameraReadyScanStatus === 'CLEAN' ? (
+                    <DownloadPaperButton
+                      conferenceId={conferenceId}
+                      paper={paper}
+                      versionKind="CAMERA_READY"
+                      label="Download camera-ready PDF"
+                    />
+                  ) : null}
                 </div>
               ) : (
                 <div className="border-b border-slate-200 pb-5">

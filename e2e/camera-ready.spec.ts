@@ -242,8 +242,11 @@ test('separates registration and shows upload, scanning and completion feedback'
   await expect(
     page.getByText('Uploaded · Checking your PDF. Status updates automatically.'),
   ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Download camera-ready PDF', exact: true }),
+  ).toHaveCount(0);
   api.finishScan();
-  await expect(page.getByText('Uploaded successfully.')).toBeVisible({
+  await expect(page.getByText('Uploaded successfully.', { exact: true })).toBeVisible({
     timeout: 10000,
   });
   await page.screenshot({ path: testInfo.outputPath('camera-ready-desktop.png'), fullPage: true });
@@ -291,4 +294,21 @@ test('labels replacement explicitly and keeps the selected file after failure', 
   await expect(
     page.getByText('Uploaded · Checking your PDF. Status updates automatically.'),
   ).toBeVisible();
+});
+
+test('downloads the camera-ready version rather than the current submission', async ({ page }) => {
+  await mockAcceptedPaper(page, true);
+  let requested = false;
+  await page.route('**/versions/camera-version/download*', async (route) => {
+    requested = true;
+    await route.fulfill({ json: { downloadUrl: 'http://localhost:3007/test-final.pdf' } });
+  });
+  await page.route('**/test-final.pdf', (route) =>
+    route.fulfill({ contentType: 'application/pdf', body: '%PDF-1.4 camera-ready test' }),
+  );
+  await page.goto(`${paperPath}?section=camera-ready`);
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download camera-ready PDF', exact: true }).click();
+  expect((await download).suggestedFilename()).toBe('original-final.pdf');
+  expect(requested).toBe(true);
 });

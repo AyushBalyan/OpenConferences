@@ -18,6 +18,7 @@ export function DownloadPaperButton({
   variant = 'outline',
   label = 'Download PDF',
   hideWhenUnavailable = false,
+  versionKind,
 }: {
   conferenceId: string;
   paper: PaperDto;
@@ -25,18 +26,24 @@ export function DownloadPaperButton({
   variant?: 'default' | 'outline' | 'ghost';
   label?: string;
   hideWhenUnavailable?: boolean;
+  versionKind?: 'CAMERA_READY';
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const versionId = paper.currentVersionId;
-  const available = paperHasCleanDownload(paper);
+  const selectedVersion =
+    versionKind === 'CAMERA_READY' ? paper.cameraReadyVersion : paper.currentVersion;
+  const versionId = versionKind === 'CAMERA_READY' ? selectedVersion?.id : paper.currentVersionId;
+  const available =
+    versionKind === 'CAMERA_READY'
+      ? Boolean(versionId) && selectedVersion?.fileAsset?.scanStatus === 'CLEAN'
+      : paperHasCleanDownload(paper);
 
   if (hideWhenUnavailable && !available && !error) {
     return null;
   }
 
   async function onDownload() {
-    if (!versionId) {
+    if (!versionId || !available) {
       setError('No clean PDF is available yet.');
       return;
     }
@@ -47,7 +54,7 @@ export function DownloadPaperButton({
       const { downloadUrl } = await downloadPaperVersion(conferenceId, paper.id, versionId);
       const filename = paperDownloadFilename(
         paper.submissionNumber,
-        paper.currentVersion?.fileAsset?.originalFilename,
+        selectedVersion?.fileAsset?.originalFilename,
       );
       await saveUrlAsFile(downloadUrl, filename);
     } catch (err) {
