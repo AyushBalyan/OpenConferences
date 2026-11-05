@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { enqueueRevisionNotifications } from '../../../worker/src/revision-notifications';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   generateId,
   prisma,
@@ -184,19 +185,53 @@ describe('RLS catalog and role policies', () => {
           versionNumber: 1,
         },
       });
+      await prisma.authorship.create({
+        data: {
+          id: generateId(),
+          paperId: paperAId,
+          userId: memberAId,
+          email: 'revision-author@example.test',
+          fullName: 'Revision Author',
+          order: 1,
+          isCorresponding: true,
+        },
+      });
+      const send = vi.fn().mockResolvedValue('test-job');
       const scan = (scanStatus: 'CLEAN' | 'INFECTED') =>
         withTenantContext({}, async (tx) => {
           await tx.$executeRawUnsafe('SET LOCAL ROLE openconferences_worker');
-          return applyScanResultInTransaction(tx, {
-            fileAssetId: assetId,
-            paperVersionId: versionId,
-            paperId: paperAId,
-            scanStatus,
-          });
+          return applyScanResultInTransaction(
+            tx,
+            {
+              fileAssetId: assetId,
+              paperVersionId: versionId,
+              paperId: paperAId,
+              scanStatus,
+            },
+            (tx) =>
+              enqueueRevisionNotifications(tx, { send } as never, paperAId, versionId, {
+                webUrl: 'https://app.example.test',
+                alertEmail: 'ops@example.test',
+              }),
+          );
         });
       try {
         expect((await scan('INFECTED')).openedRevisionCycle).toBe(false);
         expect(await prisma.reviewRound.count({ where: { paperId: paperAId } })).toBe(1);
+        send
+          .mockResolvedValueOnce('first-email-job')
+          .mockRejectedValueOnce(new Error('queue unavailable'));
+        await expect(scan('CLEAN')).rejects.toThrow('queue unavailable');
+        expect(await prisma.notificationLog.count({ where: { relatedEntityId: versionId } })).toBe(
+          0,
+        );
+        expect(
+          await prisma.conferenceUpdate.count({
+            where: { paperId: paperAId, kind: 'PAPER_REVISED' },
+          }),
+        ).toBe(0);
+        expect(await prisma.reviewRound.count({ where: { paperId: paperAId } })).toBe(1);
+        send.mockClear();
         expect((await scan('CLEAN')).openedRevisionCycle).toBe(true);
         expect((await scan('CLEAN')).openedRevisionCycle).toBe(false);
         expect(
@@ -206,6 +241,20 @@ describe('RLS catalog and role policies', () => {
           (await prisma.paper.findUniqueOrThrow({ where: { id: paperAId } })).currentVersionId,
         ).toBe(versionId);
         expect(await prisma.reviewRound.count({ where: { paperId: paperAId } })).toBe(2);
+        expect(send).toHaveBeenCalledTimes(2);
+        const logs = await prisma.notificationLog.findMany({
+          where: { relatedEntityId: versionId },
+        });
+        expect(logs.map((row) => row.templateKey).sort()).toEqual([
+          'revision.confirmed',
+          'revision.ops_alert',
+        ]);
+        expect(logs[0].renderedHtml).toContain('section=submission');
+        expect(
+          await prisma.conferenceUpdate.count({
+            where: { paperId: paperAId, kind: 'PAPER_REVISED' },
+          }),
+        ).toBe(1);
         await expect(
           withTenantContext({}, async (tx) => {
             await tx.$executeRawUnsafe('SET LOCAL ROLE openconferences_worker');
@@ -221,6 +270,11 @@ describe('RLS catalog and role policies', () => {
           }),
         ).rejects.toThrow();
       } finally {
+        await prisma.notificationLog.deleteMany({ where: { relatedEntityId: versionId } });
+        await prisma.conferenceUpdate.deleteMany({
+          where: { paperId: paperAId, kind: 'PAPER_REVISED' },
+        });
+        await prisma.authorship.deleteMany({ where: { paperId: paperAId } });
         await prisma.paper.update({ where: { id: paperAId }, data: { currentVersionId: null } });
         await prisma.decision.deleteMany({ where: { paperId: paperAId } });
         await prisma.reviewRound.deleteMany({ where: { paperId: paperAId } });

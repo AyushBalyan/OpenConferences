@@ -1,3 +1,5 @@
+import type PgBoss from 'pg-boss';
+import { enqueueRevisionNotifications } from './revision-notifications.js';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getConfig, resolveStorageBucket } from '@openconferences/config/env';
 import { applyScanResult, withTenantContext } from '@openconferences/db';
@@ -52,13 +54,23 @@ export async function runAvScan(payload: FileScanJobPayload): Promise<'CLEAN' | 
   return scanBufferWithClamAV(bytes, config.clamav.host, config.clamav.port);
 }
 
-export async function processFileScanJob(payload: FileScanJobPayload): Promise<void> {
+export async function processFileScanJob(
+  payload: FileScanJobPayload,
+  boss: Pick<PgBoss, 'send'>,
+): Promise<void> {
   const scanStatus = await runAvScan(payload);
 
-  await applyScanResult({
-    fileAssetId: payload.fileAssetId,
-    paperVersionId: payload.paperVersionId,
-    paperId: payload.paperId,
-    scanStatus,
-  });
+  await applyScanResult(
+    {
+      fileAssetId: payload.fileAssetId,
+      paperVersionId: payload.paperVersionId,
+      paperId: payload.paperId,
+      scanStatus,
+    },
+    (tx) =>
+      enqueueRevisionNotifications(tx, boss, payload.paperId, payload.paperVersionId, {
+        webUrl: getConfig().webUrl,
+        alertEmail: getConfig().mail.submissionAlertEmail,
+      }),
+  );
 }

@@ -303,7 +303,7 @@ async function startWorker(): Promise<void> {
         }
 
         try {
-          await processFileScanJob(parsed.data);
+          await processFileScanJob(parsed.data, boss!);
           logger.info(
             { jobId: job.id, fileAssetId: parsed.data.fileAssetId },
             'File scan completed',

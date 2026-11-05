@@ -327,6 +327,29 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
       'authorList',
     ],
   }),
+  ...(['confirmed', 'ops_alert'] as const).map((audience) =>
+    letter({
+      key: `revision.${audience}`,
+      subject:
+        audience === 'confirmed'
+          ? 'Revised manuscript received: {{submissionNumber}}'
+          : 'Revised manuscript submitted: {{submissionNumber}}',
+      headline:
+        audience === 'confirmed' ? 'Revised manuscript received' : 'Revised manuscript submitted',
+      paragraphs: [
+        audience === 'confirmed'
+          ? 'Your revised manuscript has passed the file check and has been submitted for the next review cycle at {{conferenceName}}.'
+          : 'A revised manuscript has passed the file check. Assign reviewers for the next review cycle.',
+      ],
+      details: [
+        { label: 'Paper ID', value: '{{submissionNumber}}' },
+        { label: 'Paper title', value: '{{paperTitle}}' },
+        { label: 'Corresponding author', value: '{{authorName}}' },
+      ],
+      cta: { label: 'View revised submission', url: '{{paperUrl}}' },
+      variables: ['conferenceName', 'submissionNumber', 'paperTitle', 'authorName', 'paperUrl'],
+    }),
+  ),
   letter({
     key: 'submission.ops_alert',
     subject: 'New submission: {{paperTitle}} ({{conferenceName}})',

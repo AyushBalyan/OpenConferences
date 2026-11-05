@@ -22,13 +22,15 @@ const REVISION_OUTCOMES = new Set(['MINOR_REVISION', 'MAJOR_REVISION']);
  */
 export async function applyScanResult(
   input: ApplyScanResultInput,
+  onRevision?: (tx: Prisma.TransactionClient) => Promise<void>,
 ): Promise<ApplyScanResultOutcome> {
-  return withTenantContext({}, (tx) => applyScanResultInTransaction(tx, input));
+  return withTenantContext({}, (tx) => applyScanResultInTransaction(tx, input, onRevision));
 }
 
 export async function applyScanResultInTransaction(
   tx: Prisma.TransactionClient,
   input: ApplyScanResultInput,
+  onRevision?: (tx: Prisma.TransactionClient) => Promise<void>,
 ): Promise<ApplyScanResultOutcome> {
   const version = await tx.paperVersion.findFirst({
     where: { id: input.paperVersionId },
@@ -68,6 +70,7 @@ export async function applyScanResultInTransaction(
 
   const openedRevisionCycle = isRevision ? await openRevisionCycle(tx, input.paperId) : false;
 
+  if (openedRevisionCycle && onRevision) await onRevision(tx);
   return { activatedCameraReady: isCameraReady, openedRevisionCycle };
 }
 

@@ -52,7 +52,7 @@ export class InboxService {
           subject: row.subject,
           eventType: row.kind,
           href: row.paperId
-            ? `/dashboard/conferences/${scope.conferenceId}/submissions/${row.paperId}${row.roundId ? `?section=reviews&round=${row.roundId}` : ''}`
+            ? `/dashboard/conferences/${scope.conferenceId}/submissions/${row.paperId}${row.kind === 'PAPER_REVISED' ? '?section=submission' : row.roundId ? `?section=reviews&round=${row.roundId}` : ''}`
             : `/dashboard/conferences/${scope.conferenceId}/reviews/reviewers`,
         }));
       }
