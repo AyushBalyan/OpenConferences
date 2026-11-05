@@ -52,8 +52,19 @@ export class StudentVerificationService {
     roles: RoleKind[],
   ) {
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-    await this.papers.loadPaper(userId, conferenceId, paperId, roles);
-    const registration = await this.registrations.loadRegistration(userId, conferenceId, paperId);
+    const registration = await this.registrations.loadRegistrationForPayment(
+      userId,
+      conferenceId,
+      paperId,
+      roles,
+    );
+    if (registration.userId && registration.userId !== userId)
+      throw new ForbiddenException('Only the registering author can upload student proof');
+    if (
+      registration.audience !== 'STUDENT' ||
+      !['PENDING', 'AWAITING_VERIFICATION'].includes(registration.status)
+    )
+      throw new ConflictException('Student proof cannot be uploaded for this registration');
 
     if (registration.audience !== 'STUDENT') {
       throw new UnprocessableEntityException(
@@ -83,8 +94,19 @@ export class StudentVerificationService {
     roles: RoleKind[],
   ) {
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-    await this.papers.loadPaper(userId, conferenceId, paperId, roles);
-    const registration = await this.registrations.loadRegistration(userId, conferenceId, paperId);
+    const registration = await this.registrations.loadRegistrationForPayment(
+      userId,
+      conferenceId,
+      paperId,
+      roles,
+    );
+    if (registration.userId && registration.userId !== userId)
+      throw new ForbiddenException('Only the registering author can upload student proof');
+    if (
+      registration.audience !== 'STUDENT' ||
+      !['PENDING', 'AWAITING_VERIFICATION'].includes(registration.status)
+    )
+      throw new ConflictException('Student proof cannot be uploaded for this registration');
 
     const fileAsset = await this.files.finalizeStudentVerificationUpload({
       organizationId: conference.organizationId,
@@ -97,8 +119,26 @@ export class StudentVerificationService {
 
     const verification = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
-      async (tx) =>
-        tx.studentVerification.create({
+      async (tx) => {
+        const current = await lockRegistrationForUpdate(tx, registration.id);
+        if (
+          !current ||
+          current.audience !== 'STUDENT' ||
+          !['PENDING', 'AWAITING_VERIFICATION'].includes(current.status)
+        )
+          throw new ConflictException('Registration is no longer eligible for student proof');
+        const existing = await tx.studentVerification.findFirst({
+          where: { fileAssetId: fileAsset.id, registrationId: registration.id },
+        });
+        if (existing) return existing;
+        await tx.studentVerification.updateMany({
+          where: {
+            registrationId: registration.id,
+            status: { in: ['PENDING', 'CLARIFICATION_REQUESTED'] },
+          },
+          data: { status: 'REJECTED', note: 'Replaced by a newer document' },
+        });
+        return tx.studentVerification.create({
           data: {
             id: generateId(),
             organizationId: conference.organizationId,
@@ -106,9 +146,16 @@ export class StudentVerificationService {
             fileAssetId: fileAsset.id,
             status: 'PENDING',
           },
-        }),
+        });
+      },
     );
 
+    await this.files.enqueueStudentDocumentScan(
+      fileAsset,
+      paperId,
+      conferenceId,
+      conference.organizationId,
+    );
     await this.audit.log({
       actorUserId: userId,
       organizationId: conference.organizationId,
@@ -141,10 +188,13 @@ export class StudentVerificationService {
         tx.studentVerification.findMany({
           where: {
             organizationId: conference.organizationId,
-            status: 'PENDING',
-            registration: { conferenceId },
+            registration: {
+              conferenceId,
+              status: { notIn: ['CANCELLED', 'REFUNDED', 'DISCARDED_NONPAYMENT'] },
+            },
           },
           include: {
+            fileAsset: true,
             registration: {
               include: { paper: { select: { title: true, submittedAt: true } } },
             },
@@ -162,9 +212,45 @@ export class StudentVerificationService {
         paperTitle: row.registration.paper.title,
         paperSubmittedAt: row.registration.paper.submittedAt?.toISOString() ?? null,
         registrationAudience: row.registration.audience,
+        scanStatus: row.fileAsset.scanStatus,
+        originalFilename: row.fileAsset.originalFilename,
       })),
       nextCursor: page.nextCursor,
     };
+  }
+
+  async downloadDocument(
+    userId: string,
+    conferenceId: string,
+    verificationId: string,
+    roles: RoleKind[],
+  ) {
+    if (!canCoordinateReview(roles))
+      throw new ForbiddenException('Only organizers and chairs can download student documents');
+    const conference = await this.conferences.loadConference(userId, conferenceId, roles);
+    const verification = await withTenantContext(
+      { userId, conferenceId, organizationId: conference.organizationId },
+      (tx) =>
+        tx.studentVerification.findFirst({
+          where: { id: verificationId, registration: { conferenceId } },
+          include: { fileAsset: true },
+        }),
+    );
+    if (!verification) throw new NotFoundException('Student verification not found');
+    const result = await this.files.presignDownload(
+      verification.fileAssetId,
+      userId,
+      conference.organizationId,
+    );
+    await this.audit.log({
+      actorUserId: userId,
+      organizationId: conference.organizationId,
+      conferenceId,
+      action: 'student_verification.downloaded',
+      entity: 'StudentVerification',
+      entityId: verificationId,
+    });
+    return result;
   }
 
   async review(
@@ -210,6 +296,23 @@ export class StudentVerificationService {
         if (['CANCELLED', 'DISCARDED_NONPAYMENT', 'REFUNDED'].includes(registration.status))
           throw new ConflictException('Registration is no longer eligible for verification');
 
+        // Serialize review decisions with checkout and other reviewers, then
+        // re-read the document to reject stale/replaced or already reviewed rows.
+        const latest = await tx.studentVerification.findFirst({
+          where: { registrationId: registration.id },
+          orderBy: [{ submittedAt: 'desc' }, { id: 'desc' }],
+          include: { fileAsset: true },
+        });
+        if (
+          !latest ||
+          latest.id !== verificationId ||
+          !['PENDING', 'CLARIFICATION_REQUESTED'].includes(latest.status)
+        )
+          throw new ConflictException('Verification was reviewed or replaced; refresh the list');
+        if (input.action === 'APPROVE' && latest.fileAsset.scanStatus !== 'CLEAN')
+          throw new ConflictException('Document must pass scanning before approval');
+        if (registration.userId === userId || latest.fileAsset.uploadedById === userId)
+          throw new ForbiddenException('You cannot review your own student document');
         const now = new Date();
 
         if (input.action === 'APPROVE') {
@@ -254,9 +357,19 @@ export class StudentVerificationService {
 
         const feeSchedule = parseFeeSchedule(conference.feeSchedule);
         if (!registration.lockedTiming) {
-          throw new ConflictException(
-            'Registration timing must be locked before rejection handling',
-          );
+          await tx.studentVerification.update({
+            where: { id: verificationId },
+            data: {
+              status: 'REJECTED',
+              reviewedById: userId,
+              reviewedAt: now,
+              note: input.note ?? 'Student verification rejected',
+            },
+          });
+          return tx.registration.update({
+            where: { id: registration.id },
+            data: { audience: 'REGULAR', version: { increment: 1 } },
+          });
         }
 
         const regularDue =
@@ -348,6 +461,12 @@ export class StudentVerificationService {
             ...base,
             note: input.note ?? '',
             idempotencyKey: `verification-clarify-${verificationId}`,
+          });
+        } else if (!reg.lockedTiming) {
+          await this.notifications.publishClarificationRequested({
+            ...base,
+            note: 'Your student proof was rejected. Your registration category is now Regular. Please review the updated fee before payment.',
+            idempotencyKey: `verification-reject-${verificationId}`,
           });
         } else {
           const amountFormatted = `${reg.amountDueMinor / 100} ${reg.currency}`;

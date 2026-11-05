@@ -184,6 +184,7 @@ export class RegistrationsService {
         });
 
         const verificationRows = await tx.studentVerification.findMany({
+          include: { fileAsset: true },
           where: { registrationId: registration.id },
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -220,6 +221,7 @@ export class RegistrationsService {
       latestVerification: verifications[0]
         ? {
             id: verifications[0].id,
+            scanStatus: verifications[0].fileAsset.scanStatus,
             organizationId: verifications[0].organizationId,
             registrationId: verifications[0].registrationId,
             fileAssetId: verifications[0].fileAssetId,

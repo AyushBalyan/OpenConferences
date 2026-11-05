@@ -1,3 +1,4 @@
+import { recoverStudentScans } from './student-scan-recovery.js';
 import { processReviewerDigestJob, recordDigestFailure } from './reviewer-digest.js';
 import os from 'node:os';
 import PgBoss from 'pg-boss';
@@ -33,9 +34,11 @@ import { processOutreachCampaignJob } from './outreach.js';
 import { processReminderSweepJob } from './reminder-sweep.js';
 
 export const NOOP_JOB_NAME = 'noop.smoke';
+const STUDENT_SCAN_RECOVERY_JOB_NAME = 'student.scan-recovery';
 const INTEGRATION_ACCESS_RETENTION_JOB_NAME = 'integration.access-retention';
 
 const WORKER_QUEUES = [
+  STUDENT_SCAN_RECOVERY_JOB_NAME,
   REVIEWER_DIGEST_JOB_NAME,
   NOOP_JOB_NAME,
   INTEGRATION_ACCESS_RETENTION_JOB_NAME,
@@ -50,6 +53,11 @@ const WORKER_QUEUES = [
 ] as const;
 
 const WORKER_SCHEDULES = [
+  {
+    name: STUDENT_SCAN_RECOVERY_JOB_NAME,
+    cron: '*/5 * * * *',
+    singletonKey: 'student-scan-recovery',
+  },
   {
     name: INTEGRATION_ACCESS_RETENTION_JOB_NAME,
     cron: '*/15 * * * *',
@@ -397,6 +405,13 @@ async function startWorker(): Promise<void> {
           throw err;
         }
       }
+    }),
+  );
+
+  await startupStep(`subscribe:${STUDENT_SCAN_RECOVERY_JOB_NAME}`, () =>
+    boss!.work(STUDENT_SCAN_RECOVERY_JOB_NAME, async () => {
+      const queued = await recoverStudentScans(boss!);
+      logger.info({ queued }, 'Student document scan recovery completed');
     }),
   );
 

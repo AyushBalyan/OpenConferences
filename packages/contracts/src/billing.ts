@@ -171,6 +171,17 @@ export const billingContract = c.router({
     },
     summary: 'List pending student verifications (organizer)',
   },
+  downloadStudentVerification: {
+    method: 'GET',
+    path: '/conferences/:conferenceId/student-verifications/:verificationId/download',
+    pathParams: verificationParams,
+    responses: {
+      200: z.object({ downloadUrl: z.string().url(), expiresInSeconds: z.number() }),
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+    },
+  },
   reviewStudentVerification: {
     method: 'POST',
     path: '/conferences/:conferenceId/student-verifications/:verificationId/review',

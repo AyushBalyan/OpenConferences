@@ -1621,3 +1621,13 @@ export async function sendReviewerDigest(
       : 'Could not request this reminder. Refresh and try again.',
   );
 }
+
+export async function downloadStudentVerification(conferenceId: string, verificationId: string) {
+  const result = await apiClient.billing.downloadStudentVerification({
+    params: { conferenceId, verificationId },
+  });
+  if (result.status === 200) return result.body.downloadUrl;
+  throw new Error(
+    'Document unavailable. It must pass scanning and you must have organizer or chair access.',
+  );
+}

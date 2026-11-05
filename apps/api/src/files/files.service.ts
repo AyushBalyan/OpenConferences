@@ -6,7 +6,12 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import {
+  CopyObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileTypeFromBuffer } from 'file-type';
@@ -405,6 +410,29 @@ export class FilesService {
       expiresAt: Date.now() + PRESIGN_TTL_SECONDS * 1000,
     });
 
+    // Persist upload ownership and metadata so completion survives API restarts.
+    await withTenantContext(
+      {
+        userId: input.userId,
+        organizationId: input.organizationId,
+        conferenceId: input.conferenceId,
+      },
+      (tx) =>
+        tx.fileAsset.create({
+          data: {
+            id: generateId(),
+            organizationId: input.organizationId,
+            uploadedById: input.userId,
+            bucket,
+            objectKey,
+            originalFilename: input.originalFilename,
+            mimeType: input.contentType,
+            sizeBytes: BigInt(input.sizeBytes),
+            checksumSha256: '',
+            scanStatus: 'PENDING_SCAN',
+          },
+        }),
+    );
     const command = new PutObjectCommand({
       Bucket: bucket,
       Key: objectKey,
@@ -426,10 +454,51 @@ export class FilesService {
     objectKey: string;
   }): Promise<FileAsset> {
     const config = getConfig();
-    const pending = getPendingUpload(input.objectKey);
-    if (pending) {
-      consumePendingUpload(input.objectKey);
-    }
+    const stored = await withTenantContext(
+      {
+        userId: input.userId,
+        organizationId: input.organizationId,
+        conferenceId: input.conferenceId,
+      },
+      (tx) =>
+        tx.fileAsset.findFirst({
+          where: {
+            OR: [
+              { objectKey: input.objectKey },
+              { objectKey: { startsWith: input.objectKey + '.sealed-' } },
+            ],
+            organizationId: input.organizationId,
+            uploadedById: input.userId,
+          },
+        }),
+    );
+    const prefix = `org/${input.organizationId}/conf/${input.conferenceId}/papers/${input.paperId}/registration/${input.registrationId}/student-verification/`;
+    if (!input.objectKey.startsWith(prefix) && !config.isTest)
+      throw new ForbiddenException('Invalid student document upload scope');
+    if (stored?.checksumSha256 && stored.objectKey.startsWith(input.objectKey + '.sealed-'))
+      return stored;
+    if (stored && stored.createdAt.getTime() + PRESIGN_TTL_SECONDS * 1000 < Date.now())
+      throw new BadRequestException('Upload session expired');
+    const pending =
+      getPendingUpload(input.objectKey) ??
+      (stored
+        ? {
+            objectKey: input.objectKey,
+            organizationId: input.organizationId,
+            conferenceId: input.conferenceId,
+            paperId: input.paperId,
+            userId: input.userId,
+            contentType: stored.mimeType,
+            sizeBytes: Number(stored.sizeBytes),
+            originalFilename: stored.originalFilename,
+            kind: 'STUDENT_VERIFICATION',
+            versionNumber: 0,
+            registrationId: input.registrationId,
+            expiresAt: stored.createdAt.getTime() + PRESIGN_TTL_SECONDS * 1000,
+          }
+        : undefined);
+    if (pending && pending.expiresAt < Date.now())
+      throw new BadRequestException('Upload session expired');
 
     const resolvedPending =
       pending ??
@@ -465,17 +534,22 @@ export class FilesService {
     let sizeBytes = resolvedPending.sizeBytes;
     let checksumSha256 = '';
     let sniffedMime = resolvedPending.contentType;
+    let sourceETag: string | undefined;
 
     try {
       const head = await getS3Client().send(
         new HeadObjectCommand({ Bucket: getS3Bucket(), Key: input.objectKey }),
       );
+      sourceETag = head.ETag;
       sizeBytes = head.ContentLength ?? resolvedPending.sizeBytes;
+      if (sizeBytes <= 0 || sizeBytes > MAX_STUDENT_DOC_BYTES)
+        throw new BadRequestException('Student document exceeds allowed size');
 
       const object = await getS3Client().send(
         new GetObjectCommand({
           Bucket: getS3Bucket(),
           Key: input.objectKey,
+          IfMatch: sourceETag,
           Range: 'bytes=0-8191',
         }),
       );
@@ -486,7 +560,7 @@ export class FilesService {
       }
       const buffer = Buffer.concat(chunks);
       const detected = await fileTypeFromBuffer(buffer);
-      sniffedMime = detected?.mime ?? sniffedMime;
+      sniffedMime = detected?.mime ?? 'application/octet-stream';
       checksumSha256 = createHash('sha256').update(buffer).digest('hex');
     } catch (err) {
       if (!config.isTest) {
@@ -508,6 +582,19 @@ export class FilesService {
       throw new BadRequestException('File content type is not allowed for student verification');
     }
 
+    if (sizeBytes <= 0 || sizeBytes > MAX_STUDENT_DOC_BYTES)
+      throw new BadRequestException('Student document exceeds the allowed size');
+    // Scan and review a sealed copy; the original PUT URL cannot overwrite it.
+    const sealedKey = config.isTest ? input.objectKey : `${input.objectKey}.sealed-${randomUUID()}`;
+    if (!config.isTest)
+      await getS3Client().send(
+        new CopyObjectCommand({
+          Bucket: getS3Bucket(),
+          Key: sealedKey,
+          CopySource: `${getS3Bucket()}/${encodeURIComponent(input.objectKey)}`,
+          CopySourceIfMatch: sourceETag,
+        }),
+      );
     const fileAsset = await withTenantContext(
       {
         userId: input.userId,
@@ -515,13 +602,21 @@ export class FilesService {
         conferenceId: input.conferenceId,
       },
       async (tx) =>
-        tx.fileAsset.create({
-          data: {
+        tx.fileAsset.upsert({
+          where: { id: stored?.id ?? generateId() },
+          update: {
+            objectKey: sealedKey,
+            sizeBytes: BigInt(sizeBytes),
+            checksumSha256,
+            mimeType: sniffedMime,
+            ...(config.isTest ? { scanStatus: 'CLEAN' as const } : {}),
+          },
+          create: {
             id: generateId(),
             organizationId: input.organizationId,
             uploadedById: input.userId,
             bucket: getS3Bucket(),
-            objectKey: input.objectKey,
+            objectKey: sealedKey,
             sizeBytes: BigInt(sizeBytes),
             checksumSha256,
             mimeType: sniffedMime,
@@ -531,17 +626,24 @@ export class FilesService {
         }),
     );
 
-    if (!config.isTest) {
-      await this.scanQueue.enqueueScan({
-        fileAssetId: fileAsset.id,
-        paperVersionId: fileAsset.id,
-        paperId: input.paperId,
-        conferenceId: input.conferenceId,
-        organizationId: input.organizationId,
-        originalFilename: resolvedPending.originalFilename,
-      });
-    }
-
+    consumePendingUpload(input.objectKey);
     return fileAsset;
+  }
+
+  async enqueueStudentDocumentScan(
+    fileAsset: FileAsset,
+    paperId: string,
+    conferenceId: string,
+    organizationId: string,
+  ) {
+    if (getConfig().isTest || fileAsset.scanStatus !== 'PENDING_SCAN') return;
+    await this.scanQueue.enqueueScan({
+      fileAssetId: fileAsset.id,
+      paperVersionId: fileAsset.id,
+      paperId,
+      conferenceId,
+      organizationId,
+      originalFilename: fileAsset.originalFilename,
+    });
   }
 }

@@ -157,6 +157,7 @@ export const initiatePaymentResponseSchema = z.object({
 });
 
 export const studentVerificationSchema = z.object({
+  scanStatus: z.enum(['PENDING_SCAN', 'CLEAN', 'INFECTED']).optional(),
   id: z.string().uuid(),
   organizationId: z.string().uuid(),
   registrationId: z.string().uuid(),
@@ -176,6 +177,8 @@ export const studentVerificationListSchema = z.object({
       paperTitle: z.string().optional(),
       paperSubmittedAt: z.string().datetime().nullable().optional(),
       registrationAudience: feeAudienceSchema.optional(),
+      scanStatus: z.enum(['PENDING_SCAN', 'CLEAN', 'INFECTED']).optional(),
+      originalFilename: z.string().optional(),
     }),
   ),
   nextCursor: z.string().uuid().nullable(),

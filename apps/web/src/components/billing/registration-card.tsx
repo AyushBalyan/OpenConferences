@@ -98,6 +98,16 @@ export function RegistrationCard({ conferenceId, conferenceName, paperId }: Regi
   }, [conferenceId, paperId]);
 
   useEffect(() => {
+    if (registration?.latestVerification?.scanStatus !== 'PENDING_SCAN') return;
+    const timer = window.setInterval(() => {
+      void fetchRegistration(conferenceId, paperId)
+        .then(setRegistration)
+        .catch(() => setError('Could not refresh document scan status. Please refresh the page.'));
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [registration?.latestVerification?.scanStatus, conferenceId, paperId]);
+
+  useEffect(() => {
     void load();
   }, [load]);
 
@@ -244,7 +254,8 @@ export function RegistrationCard({ conferenceId, conferenceName, paperId }: Regi
     (registration.status === 'PENDING' || registration.status === 'ADDITIONAL_PAYMENT_REQUIRED') &&
     (registration.audience !== 'STUDENT' ||
       registration.status === 'ADDITIONAL_PAYMENT_REQUIRED' ||
-      ['PENDING', 'APPROVED'].includes(registration.latestVerification?.status ?? ''));
+      (['PENDING', 'APPROVED'].includes(registration.latestVerification?.status ?? '') &&
+        !['PENDING_SCAN', 'INFECTED'].includes(registration.latestVerification?.scanStatus ?? '')));
 
   const detailsLocked = registration.status !== 'PENDING' || Boolean(registration.lockedTiming);
   const showAudienceForm =

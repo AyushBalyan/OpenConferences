@@ -5,7 +5,12 @@ import { INestApplication } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 import request from 'supertest';
 import { getConfig, resetConfig } from '@openconferences/config/env';
-import { prisma, generateId, withTenantContext } from '@openconferences/db';
+import {
+  prisma,
+  generateId,
+  withTenantContext,
+  applyScanResultInTransaction,
+} from '@openconferences/db';
 import * as db from '@openconferences/db';
 import { AppModule } from '../../src/app.module.ts';
 import { APP_FILTER } from '@nestjs/core';
@@ -631,6 +636,90 @@ describe('Billing integration (Phase 8)', () => {
       .set('Cookie', authorStudentCookie)
       .send({ objectKey: initiate.body.objectKey })
       .expect(201);
+
+    const proof = _completeRes.body;
+    const manuscript = await prisma.paper.findUniqueOrThrow({ where: { id: paperStudentId } });
+    await prisma.fileAsset.update({
+      where: { id: proof.fileAssetId },
+      data: { scanStatus: 'PENDING_SCAN' },
+    });
+    await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/student-verifications/${proof.id}/review`)
+      .set('Cookie', chairCookie)
+      .send({ action: 'APPROVE' })
+      .expect(409);
+    await withTenantContext({}, async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL ROLE openconferences_worker');
+      await applyScanResultInTransaction(tx, {
+        fileAssetId: proof.fileAssetId,
+        paperVersionId: proof.fileAssetId,
+        paperId: paperStudentId,
+        scanStatus: 'CLEAN',
+      });
+    });
+    expect(
+      (await prisma.paper.findUniqueOrThrow({ where: { id: paperStudentId } })).currentVersionId,
+    ).toBe(manuscript.currentVersionId);
+    await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/student-verifications/${proof.id}/download`)
+      .set('Cookie', authorStudentCookie)
+      .expect(403);
+    await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/student-verifications/${proof.id}/download`)
+      .set('Cookie', chairCookie)
+      .expect(200);
+    await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/student-verifications/${proof.id}/review`)
+      .set('Cookie', chairCookie)
+      .send({ action: 'CLARIFY', note: 'Please clarify enrollment dates' })
+      .expect(200);
+    const pendingProofs = await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/student-verifications`)
+      .set('Cookie', chairCookie)
+      .expect(200);
+    expect(pendingProofs.body.data.some((row: { id: string }) => row.id === proof.id)).toBe(true);
+    await prisma.studentVerification.update({
+      where: { id: proof.id },
+      data: { status: 'PENDING' },
+    });
+
+    await request(app.getHttpServer())
+      .post(
+        `/api/v1/conferences/${confId}/papers/${paperStudentId}/registration/student-verification/initiate`,
+      )
+      .set('Cookie', chairCookie)
+      .send({ originalFilename: 'id.pdf', contentType: 'application/pdf', sizeBytes: 100 })
+      .expect(403);
+    const reviewUrl = `/api/v1/conferences/${confId}/student-verifications/${proof.id}/review`;
+    const approvals = await Promise.all(
+      [1, 2].map(() =>
+        request(app.getHttpServer())
+          .post(reviewUrl)
+          .set('Cookie', chairCookie)
+          .send({ action: 'APPROVE' }),
+      ),
+    );
+    expect(approvals.map((result) => result.status).sort()).toEqual([200, 409]);
+    await prisma.studentVerification.update({
+      where: { id: proof.id },
+      data: { status: 'PENDING' },
+    });
+    const replacement = await prisma.studentVerification.create({
+      data: {
+        id: generateId(),
+        organizationId: orgId,
+        registrationId: proof.registrationId,
+        fileAssetId: proof.fileAssetId,
+        status: 'PENDING',
+        submittedAt: new Date(Date.now() + 1000),
+      },
+    });
+    await request(app.getHttpServer())
+      .post(reviewUrl)
+      .set('Cookie', chairCookie)
+      .send({ action: 'APPROVE' })
+      .expect(409);
+    await prisma.studentVerification.delete({ where: { id: replacement.id } });
 
     const payRes = await request(app.getHttpServer())
       .post(`/api/v1/conferences/${confId}/papers/${paperStudentId}/registration/payment`)

@@ -46,7 +46,16 @@ export async function applyScanResultInTransaction(
     return { activatedCameraReady: false, openedRevisionCycle: false };
   }
 
-  const isRevision = version?.kind === 'REVISION';
+  // Student proof is a standalone asset, not a manuscript version. Legacy
+  // queued jobs use the asset ID in paperVersionId. Never activate it as a PDF.
+  if (!version) {
+    const proof = await tx.studentVerification.findFirst({
+      where: { fileAssetId: input.fileAssetId, registration: { paperId: input.paperId } },
+    });
+    if (!proof) throw new Error('Scan job does not identify a manuscript or student document');
+    return { activatedCameraReady: false, openedRevisionCycle: false };
+  }
+  const isRevision = version.kind === 'REVISION';
   if (isRevision) {
     const latestRevision = await tx.paperVersion.findFirst({
       where: { paperId: input.paperId, kind: 'REVISION' },

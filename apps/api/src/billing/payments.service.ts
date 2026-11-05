@@ -115,7 +115,8 @@ export class PaymentsService {
           if (
             !verification ||
             !['PENDING', 'APPROVED'].includes(verification.status) ||
-            verification.fileAsset.scanStatus !== 'CLEAN'
+            verification.fileAsset.scanStatus !== 'CLEAN' ||
+            verification.fileAsset.uploadedById !== userId
           ) {
             throw new UnprocessableEntityException(
               'Upload a valid student verification document before payment',

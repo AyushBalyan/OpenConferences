@@ -165,6 +165,21 @@ export class BillingController {
     });
   }
 
+  @TsRestHandler(billingContract.downloadStudentVerification)
+  @RequireReviewCoordination()
+  @RequireMembership()
+  downloadStudentVerification(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(billingContract.downloadStudentVerification, async ({ params }) => ({
+      status: 200 as const,
+      body: await this.studentVerification.downloadDocument(
+        user.id,
+        params.conferenceId,
+        params.verificationId,
+        roles,
+      ),
+    }));
+  }
+
   @TsRestHandler(billingContract.reviewStudentVerification)
   @RequireReviewCoordination()
   @RequireMembership()

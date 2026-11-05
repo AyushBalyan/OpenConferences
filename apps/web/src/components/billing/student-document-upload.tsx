@@ -124,7 +124,8 @@ export function StudentDocumentUpload({
           role="status"
           className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4"
         >
-          {verification?.status === 'REJECTED' ||
+          {verification?.scanStatus === 'INFECTED' ||
+          verification?.status === 'REJECTED' ||
           verification?.status === 'CLARIFICATION_REQUESTED' ? (
             <FileText className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" aria-hidden />
           ) : (
@@ -144,7 +145,12 @@ export function StudentDocumentUpload({
               <p className="break-words text-sm text-slate-700">{uploadedFilename}</p>
             ) : null}
             <p className="text-sm leading-relaxed text-slate-600">
-              {verification?.note ||
+              {(verification?.scanStatus === 'INFECTED'
+                ? 'This document did not pass the file check. Upload a different document.'
+                : verification?.scanStatus === 'PENDING_SCAN'
+                  ? 'Your document was received and is being checked. Status updates automatically.'
+                  : null) ||
+                verification?.note ||
                 (verification?.status === 'PENDING' || !verification
                   ? 'Awaiting organizer review. You can continue to payment.'
                   : verification?.status === 'APPROVED'

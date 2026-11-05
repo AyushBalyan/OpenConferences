@@ -127,6 +127,9 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
 
     return this.boss.send(FILE_SCAN_JOB_NAME, input, {
       singletonKey: input.fileAssetId,
+      retryLimit: 5,
+      retryDelay: 30,
+      retryBackoff: true,
     });
   }
 
