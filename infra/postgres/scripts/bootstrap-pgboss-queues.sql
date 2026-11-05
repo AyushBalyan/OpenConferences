@@ -19,6 +19,7 @@ FROM unnest(
     'file.scan',
     'invoice.generate',
     'registration.discard_sweep',
+    'student.scan-recovery',
     'payment.reconcile',
     'outreach.campaign.send'
   ]
