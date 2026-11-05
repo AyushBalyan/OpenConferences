@@ -23,47 +23,52 @@ const REVISION_OUTCOMES = new Set(['MINOR_REVISION', 'MAJOR_REVISION']);
 export async function applyScanResult(
   input: ApplyScanResultInput,
 ): Promise<ApplyScanResultOutcome> {
-  return withTenantContext({}, async (tx) => {
-    const version = await tx.paperVersion.findFirst({
-      where: { id: input.paperVersionId },
-      select: { kind: true, versionNumber: true },
-    });
+  return withTenantContext({}, (tx) => applyScanResultInTransaction(tx, input));
+}
 
-    await tx.fileAsset.update({
-      where: { id: input.fileAssetId },
-      data: { scanStatus: input.scanStatus },
-    });
+export async function applyScanResultInTransaction(
+  tx: Prisma.TransactionClient,
+  input: ApplyScanResultInput,
+): Promise<ApplyScanResultOutcome> {
+  const version = await tx.paperVersion.findFirst({
+    where: { id: input.paperVersionId },
+    select: { kind: true, versionNumber: true },
+  });
 
-    if (input.scanStatus !== 'CLEAN') {
+  await tx.fileAsset.update({
+    where: { id: input.fileAssetId },
+    data: { scanStatus: input.scanStatus },
+  });
+
+  if (input.scanStatus !== 'CLEAN') {
+    return { activatedCameraReady: false, openedRevisionCycle: false };
+  }
+
+  const isRevision = version?.kind === 'REVISION';
+  if (isRevision) {
+    const latestRevision = await tx.paperVersion.findFirst({
+      where: { paperId: input.paperId, kind: 'REVISION' },
+      orderBy: [{ versionNumber: 'desc' }, { createdAt: 'desc' }],
+      select: { id: true },
+    });
+    if (!latestRevision || latestRevision.id !== input.paperVersionId) {
       return { activatedCameraReady: false, openedRevisionCycle: false };
     }
+  }
 
-    const isRevision = version?.kind === 'REVISION';
-    if (isRevision) {
-      const latestRevision = await tx.paperVersion.findFirst({
-        where: { paperId: input.paperId, kind: 'REVISION' },
-        orderBy: [{ versionNumber: 'desc' }, { createdAt: 'desc' }],
-        select: { id: true },
-      });
-      if (!latestRevision || latestRevision.id !== input.paperVersionId) {
-        return { activatedCameraReady: false, openedRevisionCycle: false };
-      }
-    }
+  const isCameraReady = version?.kind === 'CAMERA_READY';
 
-    const isCameraReady = version?.kind === 'CAMERA_READY';
-
-    await tx.paper.update({
-      where: { id: input.paperId },
-      data: {
-        currentVersionId: input.paperVersionId,
-        ...(isCameraReady ? { status: 'CAMERA_READY', version: { increment: 1 } } : {}),
-      },
-    });
-
-    const openedRevisionCycle = isRevision ? await openRevisionCycle(tx, input.paperId) : false;
-
-    return { activatedCameraReady: isCameraReady, openedRevisionCycle };
+  await tx.paper.update({
+    where: { id: input.paperId },
+    data: {
+      currentVersionId: input.paperVersionId,
+      ...(isCameraReady ? { status: 'CAMERA_READY', version: { increment: 1 } } : {}),
+    },
   });
+
+  const openedRevisionCycle = isRevision ? await openRevisionCycle(tx, input.paperId) : false;
+
+  return { activatedCameraReady: isCameraReady, openedRevisionCycle };
 }
 
 async function openRevisionCycle(tx: Prisma.TransactionClient, paperId: string): Promise<boolean> {

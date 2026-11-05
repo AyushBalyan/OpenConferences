@@ -120,7 +120,7 @@ export type { PlatformNotificationTemplate } from './notification-templates.js';
 export { syncPlatformOutreachTemplates } from './sync-outreach-templates.js';
 export { PLATFORM_OUTREACH_TEMPLATES } from './outreach-templates.js';
 export type { PlatformOutreachTemplate } from './outreach-templates.js';
-export { applyScanResult } from './scan.js';
+export { applyScanResult, applyScanResultInTransaction } from './scan.js';
 export { MAIL_DISCLAIMER, withMailDisclaimer } from './mail-disclaimer.js';
 export type { ApplyScanResultInput } from './scan.js';
 export type {

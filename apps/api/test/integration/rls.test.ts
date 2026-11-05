@@ -1,5 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { generateId, prisma, withTenantContext } from '@openconferences/db';
+import {
+  generateId,
+  prisma,
+  withTenantContext,
+  applyScanResultInTransaction,
+} from '@openconferences/db';
 
 /**
  * DB-level RLS regression suite.
@@ -126,6 +131,104 @@ describe('RLS catalog and role policies', () => {
       await tx.organization.deleteMany({ where: { id: { in: [orgAId, orgBId] } } });
     });
   });
+
+  it.each(['MINOR_REVISION', 'MAJOR_REVISION'] as const)(
+    'worker completes a %s scan and opens exactly one next cycle',
+    async (outcome) => {
+      const roundId = generateId();
+      const assetId = generateId();
+      const versionId = generateId();
+      await prisma.paper.update({ where: { id: paperAId }, data: { status: 'UNDER_REVIEW' } });
+      await prisma.reviewRound.create({
+        data: {
+          id: roundId,
+          organizationId: orgAId,
+          conferenceId: confAId,
+          paperId: paperAId,
+          roundNumber: 1,
+        },
+      });
+      await prisma.decision.create({
+        data: {
+          id: generateId(),
+          organizationId: orgAId,
+          conferenceId: confAId,
+          paperId: paperAId,
+          roundId,
+          decidedById: memberAId,
+          outcome,
+          notifiedAt: new Date(),
+        },
+      });
+      await prisma.fileAsset.create({
+        data: {
+          id: assetId,
+          organizationId: orgAId,
+          uploadedById: memberAId,
+          bucket: 'test',
+          objectKey: versionId,
+          originalFilename: 'revision.pdf',
+          mimeType: 'application/pdf',
+          sizeBytes: 10,
+          checksumSha256: 'a'.repeat(64),
+          scanStatus: 'PENDING_SCAN',
+        },
+      });
+      await prisma.paperVersion.create({
+        data: {
+          id: versionId,
+          paperId: paperAId,
+          fileAssetId: assetId,
+          uploadedById: memberAId,
+          kind: 'REVISION',
+          versionNumber: 1,
+        },
+      });
+      const scan = (scanStatus: 'CLEAN' | 'INFECTED') =>
+        withTenantContext({}, async (tx) => {
+          await tx.$executeRawUnsafe('SET LOCAL ROLE openconferences_worker');
+          return applyScanResultInTransaction(tx, {
+            fileAssetId: assetId,
+            paperVersionId: versionId,
+            paperId: paperAId,
+            scanStatus,
+          });
+        });
+      try {
+        expect((await scan('INFECTED')).openedRevisionCycle).toBe(false);
+        expect(await prisma.reviewRound.count({ where: { paperId: paperAId } })).toBe(1);
+        expect((await scan('CLEAN')).openedRevisionCycle).toBe(true);
+        expect((await scan('CLEAN')).openedRevisionCycle).toBe(false);
+        expect(
+          (await prisma.fileAsset.findUniqueOrThrow({ where: { id: assetId } })).scanStatus,
+        ).toBe('CLEAN');
+        expect(
+          (await prisma.paper.findUniqueOrThrow({ where: { id: paperAId } })).currentVersionId,
+        ).toBe(versionId);
+        expect(await prisma.reviewRound.count({ where: { paperId: paperAId } })).toBe(2);
+        await expect(
+          withTenantContext({}, async (tx) => {
+            await tx.$executeRawUnsafe('SET LOCAL ROLE openconferences_worker');
+            await tx.reviewRound.create({
+              data: {
+                id: generateId(),
+                organizationId: orgAId,
+                conferenceId: confAId,
+                paperId: paperAId,
+                roundNumber: 9,
+              },
+            });
+          }),
+        ).rejects.toThrow();
+      } finally {
+        await prisma.paper.update({ where: { id: paperAId }, data: { currentVersionId: null } });
+        await prisma.decision.deleteMany({ where: { paperId: paperAId } });
+        await prisma.reviewRound.deleteMany({ where: { paperId: paperAId } });
+        await prisma.paperVersion.deleteMany({ where: { paperId: paperAId } });
+        await prisma.fileAsset.delete({ where: { id: assetId } });
+      }
+    },
+  );
 
   it('enables FORCE RLS on tenant and auth tables', async () => {
     const rows = await prisma.$queryRaw<
