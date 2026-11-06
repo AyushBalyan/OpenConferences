@@ -198,6 +198,10 @@ export class PapersService {
             {
               OR: [
                 { title: { contains: search, mode: 'insensitive' as const } },
+                { submissionNumber: { contains: search, mode: 'insensitive' as const } },
+                ...(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search)
+                  ? [{ id: search }]
+                  : []),
                 {
                   authorships: {
                     some: { fullName: { contains: search, mode: 'insensitive' as const } },

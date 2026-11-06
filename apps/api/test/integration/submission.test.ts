@@ -688,6 +688,57 @@ describe('Paper submission integration', () => {
     expect(res.body.data.length).toBeGreaterThan(0);
   });
 
+  it('searches paper IDs while preserving status and ownership filters', async () => {
+    const created = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/papers`)
+      .set('Cookie', authorCookie)
+      .send({
+        trackId,
+        title: 'Identifier lookup fixture',
+        abstract: 'Search fixture.',
+        keywords: [],
+      });
+    expect(created.status).toBe(201);
+    const paperId = created.body.id as string;
+    const submissionNumber = 'SUBCONF-P7Q9';
+    await prisma.paper.update({ where: { id: paperId }, data: { submissionNumber } });
+
+    for (const q of [
+      submissionNumber,
+      'p7q9',
+      `  ${submissionNumber.toLowerCase()}  `,
+      paperId.toUpperCase(),
+    ]) {
+      const result = await request(app.getHttpServer())
+        .get(`/api/v1/conferences/${confId}/papers`)
+        .query({ q, limit: 1 })
+        .set('Cookie', organizerCookie);
+      expect(result.status).toBe(200);
+      expect(result.body.data.map((paper: { id: string }) => paper.id)).toEqual([paperId]);
+      expect(result.body.nextCursor).toBeNull();
+    }
+    const wrongStatus = await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/papers`)
+      .query({ q: submissionNumber, status: 'SUBMITTED' })
+      .set('Cookie', organizerCookie);
+    expect(wrongStatus.status).toBe(200);
+    expect(wrongStatus.body.data).toEqual([]);
+
+    const notOwned = await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/papers`)
+      .query({ q: submissionNumber, mine: true })
+      .set('Cookie', organizerCookie);
+    expect(notOwned.status).toBe(200);
+    expect(notOwned.body.data).toEqual([]);
+
+    const title = await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/papers`)
+      .query({ q: 'Identifier lookup fixture' })
+      .set('Cookie', organizerCookie);
+    expect(title.status).toBe(200);
+    expect(title.body.data.map((paper: { id: string }) => paper.id)).toEqual([paperId]);
+  });
+
   it('treats mine=false as all papers for privileged readers', async () => {
     const created = await request(app.getHttpServer())
       .post(`/api/v1/conferences/${confId}/papers`)
