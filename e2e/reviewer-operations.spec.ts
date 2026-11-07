@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 const token = '11111111-1111-4111-8111-111111111111.' + 'a'.repeat(64);
 test('decline is explicit, Go back leaves it unchanged, and tokens never reach tracking', async ({
   page,
-}) => {
+}, testInfo) => {
   const requests: string[] = [];
   let confirmations = 0;
   page.on('request', (request) => requests.push(request.url()));
@@ -38,9 +38,14 @@ test('decline is explicit, Go back leaves it unchanged, and tokens never reach t
   expect(requests.filter((url) => /umami|api\/auth/.test(url))).toEqual([]);
   expect(requests.filter((url) => url.includes(token))).toEqual([]);
   expect(await page.locator('meta[name="referrer"]').getAttribute('content')).toBe('no-referrer');
-  await page.screenshot({ path: '/private/tmp/reviewer-declined-desktop.png', fullPage: true });
+  await page.screenshot({
+    path: testInfo.outputPath('reviewer-declined-desktop.png'),
+    fullPage: true,
+  });
 });
-test('mobile confirmation remains readable and supports an optional reason', async ({ page }) => {
+test('mobile confirmation remains readable and supports an optional reason', async ({
+  page,
+}, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/v1/reviewer-invitations/public/**', async (route) => {
     const confirm = route.request().url().endsWith('/decline');
@@ -59,7 +64,10 @@ test('mobile confirmation remains readable and supports an optional reason', asy
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
-  await page.screenshot({ path: '/private/tmp/reviewer-decline-mobile.png', fullPage: true });
+  await page.screenshot({
+    path: testInfo.outputPath('reviewer-decline-mobile.png'),
+    fullPage: true,
+  });
   await page.getByRole('button', { name: 'Confirm decline', exact: true }).click();
   await expect(page.getByText('Thank you for your time', { exact: true })).toBeVisible();
 });
