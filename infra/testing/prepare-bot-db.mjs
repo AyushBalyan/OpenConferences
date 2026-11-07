@@ -1,6 +1,7 @@
 // This deliberately never loads repository .env files.
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { assertLocalDatabaseUrl } from './local-test-target.mjs';
 const require = createRequire(new URL('../../packages/db/package.json', import.meta.url));
 const urls = ['BOT_API_TEST_OWNER_URL', 'BOT_API_TEST_DATABASE_URL'].map((name) => {
@@ -32,11 +33,36 @@ try {
     throw new Error('Database belongs to another task');
   if (!existing.length)
     await owner.$executeRaw`INSERT INTO bot_test.bot_api_test_marker(id) VALUES (${marker})`;
-  // Match the normal deployment bootstrap: a fresh database needs pgboss
-  // before migrations grant permissions on it. Keep the SQL in one place.
+  // Install pg-boss as the owner BEFORE application migrations grant runtime
+  // table access. An empty schema alone leaves the first API startup trying
+  // to install pg-boss with a deliberately restricted role (SQLSTATE 42501).
+  const apiRequire = createRequire(new URL('../../apps/api/package.json', import.meta.url));
+  const PgBoss = apiRequire('pg-boss');
+  const boss = new PgBoss({
+    connectionString: urls[0].toString(),
+    schema: 'pgboss',
+    schedule: false,
+    supervise: false,
+  });
+  boss.on('error', () => {}); // start() rejects setup failures; avoid logging credentials.
+  try {
+    await boss.start();
+  } finally {
+    await boss.stop();
+  }
+  // Keep queue names and grants in the existing deployment bootstrap SQL.
+
   const steps = [
     ['db', 'execute', '--file', 'prisma/predeploy.sql', '--schema', 'prisma/schema.prisma'],
     ['migrate', 'deploy'],
+    [
+      'db',
+      'execute',
+      '--file',
+      fileURLToPath(new URL('../postgres/scripts/bootstrap-pgboss-queues.sql', import.meta.url)),
+      '--schema',
+      'prisma/schema.prisma',
+    ],
   ];
   for (const args of steps) {
     const result = spawnSync(
