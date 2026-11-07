@@ -1,22 +1,31 @@
 import { defineConfig } from 'vitest/config';
 import swc from 'unplugin-swc';
 import path from 'node:path';
-import { config as loadEnv } from 'dotenv';
+import {
+  assertLocalDatabaseUrl,
+  assertLocalRedisUrl,
+  assertTestMarker,
+} from '../../infra/testing/local-test-target.mjs';
 
-if (process.env.SKIP_ENV_FILE !== 'true') {
-  loadEnv({ path: path.resolve(__dirname, '../../.env') });
+// Destructive integration fixtures must never inherit a developer's shared DB.
+assertLocalDatabaseUrl(process.env.DATABASE_URL);
+assertLocalRedisUrl(process.env.REDIS_URL);
+assertTestMarker(process.env.LOCAL_TEST_DATABASE_MARKER);
+for (const name of [
+  'ANALYTICS_TEST_DATABASE_URL',
+  'IN_APP_UPDATES_TEST_DATABASE_URL',
+  'REVIEW_LOCK_TEST_DATABASE_URL',
+  'REVIEWER_OVERVIEW_TEST_DATABASE_URL',
+]) {
+  if (process.env[name]) assertLocalDatabaseUrl(process.env[name]);
 }
+
+process.env.SKIP_ENV_FILE = 'true';
 process.env.NODE_ENV = 'test';
 
-/**
- * Ensure required AppConfig keys exist for tests.
- * - Local: usually filled by ../../.env
- * - CI: job env should be passed through Turbo (globalPassThroughEnv); these
- *   defaults match .github/workflows/ci.yml if a key is still missing.
- */
+/** Other service defaults are synthetic; database/Redis targets and ownership
+ * are always explicit and validated before any test fixture is imported. */
 const testEnvDefaults: Record<string, string> = {
-  DATABASE_URL: 'postgresql://openconferences:openconferences@localhost:5432/openconferences_test',
-  REDIS_URL: 'redis://localhost:6379',
   S3_ENDPOINT: 'http://localhost:9000',
   S3_ACCESS_KEY: 'minioadmin',
   S3_SECRET_KEY: 'minioadmin',
@@ -63,7 +72,8 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['test/integration/**/*.test.ts', 'src/**/*.test.ts'],
-    exclude: ['src/integrations/integrations.integration.test.ts'],
+    exclude: ['src/integrations/**/*.integration.test.ts'],
+    globalSetup: ['./test/setup/local-database.ts'],
     testTimeout: 30000,
     hookTimeout: 30000,
     pool: 'forks',

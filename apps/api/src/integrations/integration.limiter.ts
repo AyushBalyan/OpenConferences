@@ -29,6 +29,14 @@ export class IntegrationLimiter {
     );
     if (Number(n) > 60) throw new HttpException('Too many requests', 429);
   }
+  async reviewerOperation(p: IntegrationPrincipal, kind: 'submit' | 'progress' | 'results') {
+    const limits = { submit: 5, progress: 60, results: 20 };
+    const n = await this.command(
+      this.redis.eval(RATE, 1, `bot:{${p.conferenceId}}:reviewer:${kind}:${p.keyId}`),
+    );
+    if (Number(n) > limits[kind])
+      throw new HttpException('Too many reviewer operation requests', 429);
+  }
   async acquire(p: IntegrationPrincipal) {
     const prefix = `bot:{${p.conferenceId}}`;
     const n = await this.command(this.redis.eval(RATE, 1, `${prefix}:rate:${p.keyId}`));

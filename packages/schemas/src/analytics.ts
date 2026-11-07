@@ -71,16 +71,39 @@ export const analyticsRegistrationsSchema = z.object({
   ),
 });
 
+export const analyticsRevenueReportSchema = z.object({
+  revenueMinor: z.number().int(),
+  revenueConversion: z
+    .object({
+      inrPerUsd: z.number().positive().nullable(),
+      capturedMinor: z.number().int().nonnegative(),
+      refundedMinor: z.number().int().nonnegative(),
+      byCurrency: z.array(
+        z.object({
+          currency: z.string().length(3),
+          capturedMinor: z.number().int().nonnegative(),
+          refundedMinor: z.number().int().nonnegative(),
+          netMinor: z.number().int(),
+          convertedMinor: z.number().int().nullable(),
+          paymentCount: z.number().int().nonnegative(),
+        }),
+      ),
+    })
+    .optional(),
+  excludedCurrencyPayments: z.number().int().nonnegative().default(0),
+  revenueByTiming: z.array(analyticsAmountSchema),
+  revenueByAudience: z.array(analyticsAmountSchema),
+  currency: z.string().length(3),
+});
+
 export const conferenceAnalyticsOverviewSchema = z.object({
   conferenceId: z.string().uuid(),
   submissions: analyticsSubmissionsSchema,
   reviews: analyticsReviewsSchema,
   decisions: analyticsDecisionsSchema,
   registrations: analyticsRegistrationsSchema,
-  revenueMinor: z.number().int(),
-  excludedCurrencyPayments: z.number().int().nonnegative().default(0),
-  revenueByTiming: z.array(analyticsAmountSchema),
-  revenueByAudience: z.array(analyticsAmountSchema),
+  ...analyticsRevenueReportSchema.shape,
+  currencyReports: z.array(analyticsRevenueReportSchema).optional(),
   unpaidAccepted: z.number().int().nonnegative(),
   authors: z.array(analyticsNamedCountSchema),
   institutions: z.array(analyticsNamedCountSchema),

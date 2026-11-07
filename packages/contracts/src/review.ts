@@ -1,5 +1,7 @@
 import { initContract } from '@ts-rest/core';
 import {
+  invitationOperationSchema,
+  reviewerInvitationSchema,
   reviewCoordinationSchema,
   reviewerOverviewQuerySchema,
   reviewerOverviewSchema,
@@ -241,6 +243,25 @@ export const reviewContract = c.router({
       409: problemEnvelopeSchema,
     },
     summary: 'Create a pending reviewer invitation, optionally sending an email',
+  },
+  invitationOperation: {
+    method: 'POST',
+    path: '/conferences/:conferenceId/reviewer-invitations/:invitationId/actions',
+    pathParams: invitationParams,
+    body: invitationOperationSchema,
+    responses: {
+      200: z.object({
+        invitation: reviewerInvitationSchema,
+        invitationUrl: z.string().url().optional(),
+        declineUrl: z.string().url().optional(),
+      }),
+      400: problemEnvelopeSchema,
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+      409: problemEnvelopeSchema,
+    },
+    summary: 'Extend, reissue, revoke or explicitly reinvite with version protection',
   },
   invitationLink: {
     method: 'GET',

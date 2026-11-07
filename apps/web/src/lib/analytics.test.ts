@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activitySeries, formatAnalyticsMoney } from './analytics';
+import { activitySeries, formatAnalyticsMoney, formatAnalyticsNumber } from './analytics';
 describe('analytics activity', () => {
   it('fills missing UTC days with zero and preserves cumulative totals', () => {
     const result = activitySeries([
@@ -33,4 +33,12 @@ describe('analytics activity', () => {
     expect(activitySeries([]).points).toEqual([]);
     expect(formatAnalyticsMoney(-12345, 'USD')).toContain('123.45');
   });
+});
+
+it('uses deterministic formatting for server-rendered currency, counts and rates', () => {
+  expect(formatAnalyticsMoney(302500, 'USD')).toBe('$3,025.00');
+  expect(formatAnalyticsMoney(25189175, 'INR')).toBe('₹251,891.75');
+  expect(formatAnalyticsMoney(-12345, 'USD')).toBe('-$123.45');
+  expect(formatAnalyticsNumber(1234567)).toBe('1,234,567');
+  expect(formatAnalyticsNumber(83.271234)).toBe('83.271234');
 });

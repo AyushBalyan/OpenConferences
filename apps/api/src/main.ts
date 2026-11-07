@@ -1,3 +1,4 @@
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 import helmet from 'helmet';
@@ -18,13 +19,20 @@ async function bootstrap(): Promise<void> {
   await assertSafeDatabaseRole();
   console.log('[boot] database role ok; creating Nest app (includes pg-boss start)');
 
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
     rawBody: true,
   });
 
+  app.useBodyParser('json', { limit: '2mb' });
+
   const logger = app.get(Logger);
   app.useLogger(logger);
+
+  const trustedProxies = process.env.API_TRUSTED_PROXY_CIDRS?.split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (trustedProxies?.length) app.set('trust proxy', trustedProxies);
 
   app.use(helmet());
   app.enableCors(apiCorsOptions(config.api.corsOrigins));

@@ -178,6 +178,23 @@ export class ReviewController {
     });
   }
 
+  @TsRestHandler(reviewContract.invitationOperation)
+  @Header('Cache-Control', 'no-store')
+  @RequireConferenceOrganizer()
+  @RequireMembership()
+  invitationOperation(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(reviewContract.invitationOperation, async ({ params, body }) => ({
+      status: 200 as const,
+      body: await this.invitations.operate(
+        user.id,
+        params.conferenceId,
+        params.invitationId,
+        body,
+        roles,
+      ),
+    }));
+  }
+
   @TsRestHandler(reviewContract.invitationLink)
   @Header('Cache-Control', 'no-store')
   @RequireConferenceOrganizer()

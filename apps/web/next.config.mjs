@@ -31,6 +31,8 @@ if (process.env.SKIP_ENV_FILE !== 'true') {
 const nextConfig = {
   distDir: process.env.NEXT_DIST_DIR ?? '.next',
   output: 'standalone',
+  // Invitation/authentication query strings can contain bearer credentials.
+  logging: { incomingRequests: false },
   outputFileTracingRoot: new URL('../../', import.meta.url).pathname,
 };
 

@@ -22,6 +22,7 @@ describe('chair assignment progress', () => {
         {} as never,
         {} as never,
         {} as never,
+        {} as never,
       );
       await expect(
         service.assign('chair', 'conf', 'paper', { reviewerUserId: 'reviewer', dueAt }, ['CHAIR']),
@@ -56,6 +57,7 @@ describe('chair assignment progress', () => {
         loadConference: async () => ({ organizationId: 'org', reviewDueAt: conferenceDue }),
       } as never,
       { loadRound: async () => ({ reviewDueAt: new Date('2026-10-01T12:00:00Z') }) } as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

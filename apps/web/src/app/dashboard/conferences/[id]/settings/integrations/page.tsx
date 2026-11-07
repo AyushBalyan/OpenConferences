@@ -24,6 +24,7 @@ const scopeNames: Record<IntegrationScope, string> = {
   'reviewers:contacts:read': 'Reviewer email addresses',
   'assignments:read': 'Assignments & deadlines',
   'assignments:write': 'Assign papers with a deadline',
+  'invitations:responses:read': 'Read private invitation decline reasons',
   'invitations:read': 'Read reviewer invitation links',
   'invitations:write': 'Generate and remove reviewer invitations',
   'analytics:read': 'Conference summary',

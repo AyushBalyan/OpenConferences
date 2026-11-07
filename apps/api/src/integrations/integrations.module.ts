@@ -1,3 +1,7 @@
+import { ReviewerOperationsController } from './reviewer-operations.controller';
+import { InvitationOperationsService } from './invitation-operations.service';
+import { InvitationBatchService } from './invitation-batch.service';
+import { ReviewerCoverageService } from './reviewer-coverage.service';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { TenancyModule } from '../tenancy/tenancy.module';
@@ -10,8 +14,11 @@ import { BotInvitationsService } from './bot-invitations.service';
 import { ReviewModule } from '../review/review.module';
 @Module({
   imports: [AuthModule, TenancyModule, ReviewModule],
-  controllers: [IntegrationManagementController, BotReadController],
+  controllers: [IntegrationManagementController, BotReadController, ReviewerOperationsController],
   providers: [
+    InvitationOperationsService,
+    InvitationBatchService,
+    ReviewerCoverageService,
     IntegrationStore,
     BotReadService,
     BotWriteService,

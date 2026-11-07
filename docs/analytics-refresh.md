@@ -27,7 +27,7 @@ Acceptance share uses accepted decisions divided by all latest-cycle decisions, 
 
 Unpaid registrations include pending payment, verification and additional-payment requests. Cancelled, refunded and discarded registrations do not count as unpaid. Past-deadline records and records due within the next seven days are separate; these dates refer to the saved registration deadline, not any additional-payment grace expiry.
 
-Financial totals remain a transaction ledger: captured non-refund payments less successful refund records, including transactions for subsequently withdrawn papers. Only the conference fee currency is summed; other-currency records are counted and flagged instead of silently added. Unspecified fee timing remains separate rather than being relabeled Regular. Revenue does not pretend to be a paper-conversion stage.
+Financial totals remain a transaction ledger: captured non-refund payments less successful refund records, including transactions for subsequently withdrawn papers. The November 2026 follow-up converts USD/INR using the current fee-schedule INR-per-USD rate; original amounts remain visible in a currency breakdown. Unsupported currencies or missing rates are flagged and excluded from the converted total. See `analytics-ui.md`. Unspecified fee timing remains separate rather than being relabeled Regular. Revenue does not pretend to be a paper-conversion stage.
 
 Paper activity is labeled as creation dates of currently included papers, in UTC. The schema has no first-submission timestamp; this release does not invent one or substitute an updated timestamp. Consequently this chart is not an immutable historical submission-event series.
 

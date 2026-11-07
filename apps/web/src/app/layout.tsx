@@ -1,3 +1,4 @@
+import { PrivacyAnalytics } from '@/components/layout/privacy-analytics';
 import type { Metadata } from 'next';
 import {
   Atkinson_Hyperlegible,
@@ -50,6 +51,7 @@ const barlowCondensed = Barlow_Condensed({
 
 export const metadata: Metadata = {
   title: 'FresiCMT',
+  referrer: 'no-referrer',
   description:
     'Academic conference management — submissions, peer review, decisions, and registration in one platform.',
 };
@@ -62,10 +64,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     >
       <body className={inter.className}>
         <Script
-          src="https://cloud.umami.is/script.js"
-          data-website-id="1923e42b-ae25-40f8-bf3a-dabe4cf20e4b"
-          strategy="afterInteractive"
-        />
+          id="analytics-privacy"
+          strategy="beforeInteractive"
+        >{`window.conferenceAnalyticsBeforeSend = function(type, payload) {
+          var excluded = /\\/(?:auth|sign-in|sign-up|join|reviewer-invite|reviewer-invitations)(?:\\/|$)/;
+          if (excluded.test(window.location.pathname)) return false;
+          if (payload && payload.url && excluded.test(new URL(payload.url, window.location.origin).pathname)) return false;
+          if (payload && payload.referrer) { try { var ref = new URL(payload.referrer, window.location.origin); payload.referrer = excluded.test(ref.pathname) ? '' : ref.origin + ref.pathname; } catch (_) { payload.referrer = ''; } }
+          return payload;
+        };`}</Script>
+        <PrivacyAnalytics />
         <ConditionalAppHeader />
         {children}
       </body>

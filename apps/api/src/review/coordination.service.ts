@@ -5,7 +5,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { generateId, withTenantContext, type RoleKind, type Prisma } from '@openconferences/db';
+import {
+  generateId,
+  withTenantContext,
+  type RoleKind,
+  type ReviewerAssignment,
+  type Prisma,
+} from '@openconferences/db';
 import {
   effectiveReviewDeadline,
   type AssignmentInterventionInput,
@@ -17,6 +23,20 @@ import { NotificationPublisher } from '../messaging/notification.publisher';
 import { deriveReviewStage, minimumReviewsFromConfig, reviewCountWarning } from './review-stage';
 import { lockReviewRound } from './rounds.service';
 import { CoiCheckService } from './coi-check.service';
+
+type InterventionOutcome = {
+  assignment: Prisma.ReviewerAssignmentGetPayload<{
+    include: {
+      review: { select: { submittedAt: true } };
+      reviewer: { select: { name: true; email: true } };
+      paper: { select: { title: true; status: true } };
+      round: true;
+    };
+  }>;
+  dueAt: Date;
+  newAssignment: ReviewerAssignment | null;
+  newReviewer: { name: string; email: string } | null;
+};
 
 @Injectable()
 export class ReviewCoordinationService {
@@ -75,7 +95,7 @@ export class ReviewCoordinationService {
       });
       const pendingInvitations = canManageConferenceReview(roles)
         ? await tx.reviewerInvitation.count({
-            where: { conferenceId, status: 'PENDING', expiresAt: { gt: now } },
+            where: { conferenceId, status: 'PENDING', revokedAt: null, expiresAt: { gt: now } },
           })
         : null;
       return { papers, pendingInvitations };
@@ -110,6 +130,7 @@ export class ReviewCoordinationService {
             paperId: a.paperId,
             reviewerUserId: a.reviewerUserId,
             status: a.status,
+            releasedAt: a.releasedAt?.toISOString() ?? null,
             version: a.version,
             createdAt: a.createdAt.toISOString(),
             updatedAt: a.updatedAt.toISOString(),
@@ -198,134 +219,79 @@ export class ReviewCoordinationService {
     this.assertChair(roles);
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
     const tenant = { userId, conferenceId, organizationId: conference.organizationId };
-    const outcome = await withTenantContext(tenant, async (tx) => {
-      // Read only the cycle ID before locking. Re-read assignment status after acquiring
-      // the same cycle lock that review submission and decision/release already use.
-      const initial = await tx.reviewerAssignment.findFirst({
-        where: { id: assignmentId, conferenceId },
-        select: { roundId: true },
-      });
-      if (!initial) throw new NotFoundException('Reviewer assignment not found');
-      await lockReviewRound(tx, conferenceId, initial.roundId);
-      const assignment = await tx.reviewerAssignment.findFirst({
-        where: { id: assignmentId, conferenceId },
-        include: {
-          review: { select: { submittedAt: true } },
-          reviewer: { select: { name: true, email: true } },
-          paper: { select: { title: true, status: true } },
-          round: true,
-        },
-      });
-      if (!assignment) throw new NotFoundException('Reviewer assignment not found');
-      if (assignment.version !== input.version)
-        throw new ConflictException('Assignment changed. Refresh the ledger and try again.');
-      if (!['ASSIGNED', 'ACCEPTED'].includes(assignment.status) || assignment.review?.submittedAt) {
-        throw new ConflictException(
-          'Only unfinished active assignments can be changed or reminded',
-        );
-      }
-      if (!['SUBMITTED', 'UNDER_REVIEW'].includes(assignment.paper.status))
-        throw new ConflictException('This paper is not open for review');
-      const closed =
-        assignment.round.reviewsReleasedAt ||
-        (await tx.decision.findFirst({
-          where: { conferenceId, roundId: assignment.roundId },
-          select: { id: true },
-        }));
-      const newerCycle = await tx.reviewRound.findFirst({
-        where: {
-          conferenceId,
-          paperId: assignment.paperId,
-          roundNumber: { gt: assignment.round.roundNumber },
-        },
+    const outcome = await withTenantContext(tenant, (tx) =>
+      this.applyIntervention(tx, userId, conferenceId, conference, assignmentId, input),
+    );
+    return this.notifyIntervention(userId, conferenceId, conference, assignmentId, input, outcome);
+  }
+
+  // Caller must authorize before entering; integration mutations call this in
+  // their credential/idempotency transaction. Notifications happen after commit.
+  async applyIntervention(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    conferenceId: string,
+    conference: { organizationId: string; reviewDueAt: Date | null },
+    assignmentId: string,
+    input: AssignmentInterventionInput,
+  ): Promise<InterventionOutcome> {
+    // Read only the cycle ID before locking. Re-read assignment status after acquiring
+    // the same cycle lock that review submission and decision/release already use.
+    const initial = await tx.reviewerAssignment.findFirst({
+      where: { id: assignmentId, conferenceId },
+      select: { roundId: true },
+    });
+    if (!initial) throw new NotFoundException('Reviewer assignment not found');
+    await lockReviewRound(tx, conferenceId, initial.roundId);
+    const assignment = await tx.reviewerAssignment.findFirst({
+      where: { id: assignmentId, conferenceId },
+      include: {
+        review: { select: { submittedAt: true } },
+        reviewer: { select: { name: true, email: true } },
+        paper: { select: { title: true, status: true } },
+        round: true,
+      },
+    });
+    if (!assignment) throw new NotFoundException('Reviewer assignment not found');
+    if (assignment.version !== input.version)
+      throw new ConflictException('Assignment changed. Refresh the ledger and try again.');
+    if (!['ASSIGNED', 'ACCEPTED'].includes(assignment.status) || assignment.review?.submittedAt) {
+      throw new ConflictException('Only unfinished active assignments can be changed or reminded');
+    }
+    if (!['SUBMITTED', 'UNDER_REVIEW'].includes(assignment.paper.status))
+      throw new ConflictException('This paper is not open for review');
+    const closed =
+      assignment.round.reviewsReleasedAt ||
+      (await tx.decision.findFirst({
+        where: { conferenceId, roundId: assignment.roundId },
         select: { id: true },
-      });
-      if (closed || newerCycle)
-        throw new ConflictException('This review cycle is closed. Refresh the ledger.');
-      const dueAt = effectiveReviewDeadline(
-        assignment,
-        assignment.round.reviewDueAt,
-        conference.reviewDueAt,
-      );
-      if (input.action === 'REMIND')
-        return { assignment, dueAt, newAssignment: null, newReviewer: null };
-      if (!input.reason?.trim()) throw new BadRequestException('A reason is required');
-      if (input.action === 'EXTEND') {
-        const extended = new Date(input.dueAt ?? '');
-        if (!Number.isFinite(extended.getTime()) || extended <= new Date() || extended <= dueAt) {
-          throw new BadRequestException('Choose a future deadline later than the current deadline');
-        }
-        await tx.reviewerAssignment.update({
-          where: { id: assignmentId },
-          data: { dueAt: extended, version: { increment: 1 } },
-        });
-        await this.audit(
-          tx,
-          userId,
-          conference.organizationId,
-          conferenceId,
-          assignmentId,
-          'reviewer.deadline_extended',
-          { from: dueAt.toISOString(), to: extended.toISOString(), reason: input.reason },
-        );
-        return { assignment, dueAt: extended, newAssignment: null, newReviewer: null };
-      }
-      if (!input.reviewerUserId || input.reviewerUserId === assignment.reviewerUserId)
-        throw new BadRequestException('Choose a different reviewer');
-      const member = await tx.membership.findFirst({
-        where: {
-          conferenceId,
-          scope: 'CONFERENCE',
-          userId: input.reviewerUserId,
-          roles: { some: { role: 'REVIEWER' } },
-        },
-        include: { user: { select: { name: true, email: true } } },
-      });
-      if (!member)
-        throw new NotFoundException('Replacement reviewer is not a reviewer in this conference');
-      const conflict = await this.coi.checkReviewerPaperConflict(
-        tx,
-        input.reviewerUserId,
-        assignment.paperId,
+      }));
+    const newerCycle = await tx.reviewRound.findFirst({
+      where: {
         conferenceId,
-      );
-      const bid = await tx.bid.findUnique({
-        where: {
-          paperId_reviewerUserId: {
-            paperId: assignment.paperId,
-            reviewerUserId: input.reviewerUserId,
-          },
-        },
-      });
-      if (conflict.hasConflict || bid?.value === 'CONFLICT')
-        throw new ConflictException('Replacement reviewer has a conflict of interest');
-      const replacementDueAt = input.dueAt ? new Date(input.dueAt) : dueAt;
-      if (!Number.isFinite(replacementDueAt.getTime()) || replacementDueAt <= new Date())
-        throw new BadRequestException('Choose a future deadline for the replacement reviewer');
-      const existing = await tx.reviewerAssignment.findFirst({
-        where: {
-          conferenceId,
-          roundId: assignment.roundId,
-          paperId: assignment.paperId,
-          reviewerUserId: input.reviewerUserId,
-        },
-      });
-      if (existing) throw new ConflictException('Reviewer already has an assignment in this cycle');
-      // Preserve the original record and draft; the replacement starts with a new identity.
+        paperId: assignment.paperId,
+        roundNumber: { gt: assignment.round.roundNumber },
+      },
+      select: { id: true },
+    });
+    if (closed || newerCycle)
+      throw new ConflictException('This review cycle is closed. Refresh the ledger.');
+    const dueAt = effectiveReviewDeadline(
+      assignment,
+      assignment.round.reviewDueAt,
+      conference.reviewDueAt,
+    );
+    if (input.action === 'REMIND')
+      return { assignment, dueAt, newAssignment: null, newReviewer: null };
+    if (!input.reason?.trim()) throw new BadRequestException('A reason is required');
+    if (input.action === 'RELEASE') {
       await tx.reviewerAssignment.update({
         where: { id: assignmentId },
-        data: { status: 'REPLACED', version: { increment: 1 } },
-      });
-      const newAssignment = await tx.reviewerAssignment.create({
         data: {
-          id: generateId(),
-          organizationId: conference.organizationId,
-          conferenceId,
-          roundId: assignment.roundId,
-          paperId: assignment.paperId,
-          reviewerUserId: input.reviewerUserId,
-          status: 'ASSIGNED',
-          dueAt: replacementDueAt,
+          status: 'REPLACED',
+          releasedAt: new Date(),
+          releaseReason: input.reason!,
+          version: { increment: 1 },
         },
       });
       await this.audit(
@@ -334,17 +300,122 @@ export class ReviewCoordinationService {
         conference.organizationId,
         conferenceId,
         assignmentId,
-        'reviewer.replaced',
-        {
-          previousReviewerUserId: assignment.reviewerUserId,
-          reviewerUserId: input.reviewerUserId,
-          replacementAssignmentId: newAssignment.id,
-          dueAt: replacementDueAt.toISOString(),
-          reason: input.reason,
-        },
+        'reviewer.released',
+        { reason: input.reason, paperId: assignment.paperId },
       );
-      return { assignment, dueAt: replacementDueAt, newAssignment, newReviewer: member.user };
+      return { assignment, dueAt, newAssignment: null, newReviewer: null };
+    }
+    if (input.action === 'EXTEND') {
+      const extended = new Date(input.dueAt ?? '');
+      if (!Number.isFinite(extended.getTime()) || extended <= new Date() || extended <= dueAt) {
+        throw new BadRequestException('Choose a future deadline later than the current deadline');
+      }
+      await tx.reviewerAssignment.update({
+        where: { id: assignmentId },
+        data: { dueAt: extended, version: { increment: 1 } },
+      });
+      await this.audit(
+        tx,
+        userId,
+        conference.organizationId,
+        conferenceId,
+        assignmentId,
+        'reviewer.deadline_extended',
+        { from: dueAt.toISOString(), to: extended.toISOString(), reason: input.reason },
+      );
+      return { assignment, dueAt: extended, newAssignment: null, newReviewer: null };
+    }
+    if (!input.reviewerUserId || input.reviewerUserId === assignment.reviewerUserId)
+      throw new BadRequestException('Choose a different reviewer');
+    const member = await tx.membership.findFirst({
+      where: {
+        conferenceId,
+        scope: 'CONFERENCE',
+        userId: input.reviewerUserId,
+        roles: { some: { role: 'REVIEWER' } },
+        user: { deletedAt: null },
+      },
+      include: { user: { select: { name: true, email: true } } },
     });
+    if (!member)
+      throw new NotFoundException('Replacement reviewer is not a reviewer in this conference');
+    const conflict = await this.coi.checkReviewerPaperConflict(
+      tx,
+      input.reviewerUserId,
+      assignment.paperId,
+      conferenceId,
+    );
+    const bid = await tx.bid.findUnique({
+      where: {
+        paperId_reviewerUserId: {
+          paperId: assignment.paperId,
+          reviewerUserId: input.reviewerUserId,
+        },
+      },
+    });
+    if (conflict.hasConflict || bid?.value === 'CONFLICT')
+      throw new ConflictException('Replacement reviewer has a conflict of interest');
+    const replacementDueAt = input.dueAt ? new Date(input.dueAt) : dueAt;
+    if (!Number.isFinite(replacementDueAt.getTime()) || replacementDueAt <= new Date())
+      throw new BadRequestException('Choose a future deadline for the replacement reviewer');
+    const existing = await tx.reviewerAssignment.findFirst({
+      where: {
+        conferenceId,
+        roundId: assignment.roundId,
+        paperId: assignment.paperId,
+        reviewerUserId: input.reviewerUserId,
+      },
+    });
+    if (existing) throw new ConflictException('Reviewer already has an assignment in this cycle');
+    // Preserve the original record and draft; the replacement starts with a new identity.
+    await tx.reviewerAssignment.update({
+      where: { id: assignmentId },
+      data: { status: 'REPLACED', version: { increment: 1 } },
+    });
+    const newAssignment = await tx.reviewerAssignment.create({
+      data: {
+        id: generateId(),
+        organizationId: conference.organizationId,
+        conferenceId,
+        roundId: assignment.roundId,
+        paperId: assignment.paperId,
+        reviewerUserId: input.reviewerUserId,
+        status: 'ASSIGNED',
+        dueAt: replacementDueAt,
+      },
+    });
+    await this.audit(
+      tx,
+      userId,
+      conference.organizationId,
+      conferenceId,
+      assignmentId,
+      'reviewer.replaced',
+      {
+        previousReviewerUserId: assignment.reviewerUserId,
+        reviewerUserId: input.reviewerUserId,
+        replacementAssignmentId: newAssignment.id,
+        dueAt: replacementDueAt.toISOString(),
+        reason: input.reason,
+      },
+    );
+    return { assignment, dueAt: replacementDueAt, newAssignment, newReviewer: member.user };
+  }
+
+  async notifyIntervention(
+    userId: string,
+    conferenceId: string,
+    conference: { organizationId: string; name: string },
+    assignmentId: string,
+    input: AssignmentInterventionInput,
+    outcome: Awaited<ReturnType<ReviewCoordinationService['applyIntervention']>>,
+  ) {
+    const tenant = { userId, conferenceId, organizationId: conference.organizationId };
+    if (input.action === 'RELEASE')
+      return {
+        assignmentId,
+        message: 'Assignment released. The original assignment and draft have been preserved.',
+      };
     if (input.action === 'EXTEND')
       return {
         assignmentId,

@@ -112,7 +112,11 @@ function fixture(): ConferenceAnalyticsOverview {
     ],
   };
 }
-async function mockApi(page: Page, mode: 'normal' | 'empty' | 'error' = 'normal') {
+async function mockApi(
+  page: Page,
+  mode: 'normal' | 'empty' | 'error' = 'normal',
+  analytics = fixture(),
+) {
   let calls = 0,
     failNext = false;
   await page.route('**/api/v1/**', async (route) => {
@@ -166,7 +170,7 @@ async function mockApi(page: Page, mode: 'normal' | 'empty' | 'error' = 'normal'
           authors: [],
           institutions: [],
         };
-      else body = fixture();
+      else body = analytics;
     } else if (endpoint === `/conferences/${id}`) body = conference;
     else if (endpoint === '/conferences') body = { data: [conference], nextCursor: null };
     else if (endpoint === '/auth/me')
@@ -214,12 +218,12 @@ test('analytics charts render on desktop and mobile', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Analytics', exact: true })).toBeVisible();
   await expect(page.getByText('Submissions by status', { exact: true })).toBeVisible();
   await page.locator('.recharts-surface').first().waitFor();
-  mkdirSync('.impeccable/review/analytics', { recursive: true });
+  mkdirSync('.taste-skill/analytics-captures', { recursive: true });
   const prefix = process.env.ANALYTICS_CAPTURE_BASELINE ? 'before-' : '';
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await capture(page, `.impeccable/review/analytics/${prefix}desktop.png`);
+  await capture(page, `.taste-skill/analytics-captures/${prefix}desktop.png`);
   await page.setViewportSize({ width: 390, height: 844 });
-  await capture(page, `.impeccable/review/analytics/${prefix}mobile.png`);
+  await capture(page, `.taste-skill/analytics-captures/${prefix}mobile.png`);
   if (!prefix) {
     for (const [section, name] of [
       ['#review-health', 'review'],
@@ -228,14 +232,14 @@ test('analytics charts render on desktop and mobile', async ({ page }) => {
       ['#registration-finance', 'finance'],
     ]) {
       await page.locator(section!).evaluate((el) => el.scrollIntoView({ block: 'start' }));
-      await page.screenshot({ path: `.impeccable/review/analytics/mobile-${name}.png` });
+      await page.screenshot({ path: `.taste-skill/analytics-captures/mobile-${name}.png` });
     }
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.evaluate(() => {
       document.querySelector('main')!.scrollTo(0, 0);
       window.scrollTo(0, 0);
     });
-    await page.screenshot({ path: '.impeccable/review/analytics/desktop-first.png' });
+    await page.screenshot({ path: '.taste-skill/analytics-captures/desktop-first.png' });
   }
 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
@@ -311,3 +315,215 @@ test('failed loads do not fabricate counts, and refresh failures retain a labele
   ).toContainText('Showing the previous snapshot');
   await expect(page.getByText('96 included papers.', { exact: true })).toBeVisible();
 });
+
+test('activity range filters, cumulative baseline and CSV export agree', async ({ page }) => {
+  await mockApi(page);
+  await page.goto(path);
+  await page.getByLabel('Paper activity date range').selectOption('7');
+  await expect(page.getByText('papers in range')).toContainText('39');
+  await page.getByRole('button', { name: 'Cumulative', exact: true }).click();
+  await page.getByText('View activity data', { exact: true }).click();
+  const table = page.getByRole('table', { name: 'Included papers by creation period, UTC' });
+  await expect(table.getByRole('row').last()).toContainText('96');
+  await expect(table.getByRole('row')).toHaveCount(8);
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export CSV' }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('paper-activity-2026-09-14-2026-09-20.csv');
+  const stream = await download.createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
+  const csv = Buffer.concat(chunks).toString('utf8');
+  expect(csv.split('\r\n')).toHaveLength(8);
+  expect(csv).toContain('2026-09-20,9,96');
+  await page.getByLabel('Paper activity date range').selectOption('all');
+  await expect(page.getByText('papers in range')).toContainText('96');
+});
+
+test('custom dates retain zero days and category shares use their own denominator', async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto(path);
+  await page.getByLabel('Paper activity date range').selectOption('custom');
+  await page.getByLabel('Activity start date').fill('2026-09-04');
+  await page.getByLabel('Activity end date').fill('2026-09-04');
+  await expect(page.getByText('papers in range')).toContainText('0');
+  const status = page
+    .locator('section')
+    .filter({ has: page.getByRole('heading', { name: 'Submissions by status', exact: true }) })
+    .last();
+  await status.getByRole('button', { name: 'Share', exact: true }).click();
+  await expect(status.getByText('57.3%')).toBeVisible();
+  await status.getByRole('button', { name: 'Count', exact: true }).click();
+  await expect(status.getByRole('listitem').filter({ hasText: 'Under review' })).toContainText(
+    '55',
+  );
+  const workload = page
+    .locator('section')
+    .filter({
+      has: page.getByRole('heading', { name: 'Outstanding reviewer workload', exact: true }),
+    })
+    .last();
+  await expect(workload.getByRole('listitem')).toHaveCount(6);
+  await workload.getByRole('button', { name: 'Show all 12' }).click();
+  await expect(workload.getByRole('listitem')).toHaveCount(12);
+});
+
+test('development preview renders without hydration errors at all screen sizes', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/dev/analytics');
+  await expect(page.getByText('papers in range')).toContainText('96');
+  for (const width of [1440, 768, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(page.getByRole('button', { name: 'Export CSV' })).toBeVisible();
+    const currencyPanel = page
+      .locator('section')
+      .filter({
+        has: page.getByRole('heading', { name: 'Payments across currencies', exact: true }),
+      })
+      .last();
+    mkdirSync('.taste-skill/analytics-captures', { recursive: true });
+    await currencyPanel.screenshot({
+      path: `.taste-skill/analytics-captures/currency-${width}.png`,
+    });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  }
+  expect(errors).toEqual([]);
+});
+
+test('long histories retain the final partial bucket when changing ranges', async ({ page }) => {
+  const data = fixture();
+  data.submissions.byDay = [
+    { date: '2026-01-01', count: 2 },
+    { date: '2026-09-20', count: 9 },
+  ];
+  data.submissions.total = 11;
+  await mockApi(page, 'normal', data);
+  await page.goto(path);
+  await expect(page.getByText('papers in range')).toContainText('11');
+  await page.getByLabel('Paper activity date range').selectOption('7');
+  await expect(page.getByText('papers in range')).toContainText('9');
+  await page.getByText('View activity data', { exact: true }).click();
+  const table = page.getByRole('table', { name: 'Included papers by creation period, UTC' });
+  await expect(table.getByRole('row')).toHaveCount(8);
+  await expect(table.getByRole('row').last()).toContainText('Sep 20, 2026');
+  await expect(table.getByRole('row').last()).toContainText('11');
+});
+
+test('currency conversion shows original receipts, refunds and converted totals', async ({
+  page,
+}) => {
+  const data = fixture();
+  data.currency = 'USD';
+  data.revenueMinor = 26500;
+  data.revenueConversion = {
+    inrPerUsd: 83.27,
+    capturedMinor: 30000,
+    refundedMinor: 3500,
+    byCurrency: [
+      {
+        currency: 'INR',
+        capturedMinor: 832700,
+        refundedMinor: 83270,
+        netMinor: 749430,
+        convertedMinor: 9000,
+        paymentCount: 2,
+      },
+      {
+        currency: 'USD',
+        capturedMinor: 20000,
+        refundedMinor: 2500,
+        netMinor: 17500,
+        convertedMinor: 17500,
+        paymentCount: 2,
+      },
+      {
+        currency: 'EUR',
+        capturedMinor: 10000,
+        refundedMinor: 0,
+        netMinor: 10000,
+        convertedMinor: null,
+        paymentCount: 1,
+      },
+    ],
+  };
+  data.excludedCurrencyPayments = 1;
+  await mockApi(page, 'normal', data);
+  await page.goto(path);
+  const panel = page
+    .locator('section')
+    .filter({ has: page.getByRole('heading', { name: 'Payments across currencies', exact: true }) })
+    .last();
+  await expect(panel).toContainText('1 USD = 83.27 INR');
+  const table = page.getByRole('table', {
+    name: 'Captured payments and refunds by original currency',
+  });
+  await expect(table.getByRole('row').filter({ hasText: 'INR' })).toContainText('90.00');
+  await expect(table.getByRole('row').filter({ hasText: 'USD' }).last()).toContainText('175.00');
+  await expect(table.getByRole('row').filter({ hasText: 'EUR' })).toContainText('Rate unavailable');
+  await expect(page.getByText('visible in the currency breakdown', { exact: false })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('reporting currency switches all revenue views while retaining original amounts', async ({
+  page,
+}) => {
+  await page.goto('/dev/analytics');
+  const selector = page.getByRole('combobox', { name: 'Reporting currency' });
+  await expect(selector).toHaveValue('USD');
+  await selector.selectOption('INR');
+  const panel = page
+    .locator('section')
+    .filter({ has: page.getByRole('heading', { name: 'Payments across currencies', exact: true }) })
+    .last();
+  await expect(panel.getByText('Net receipts · INR', { exact: true })).toBeVisible();
+  await expect(panel).toContainText('251,891.75');
+  const table = page.getByRole('table', {
+    name: 'Captured payments and refunds by original currency',
+  });
+  await expect(table.getByRole('columnheader', { name: 'Net in INR' })).toBeVisible();
+  await expect(table.getByRole('row').filter({ hasText: 'USD' })).toContainText('$2,275.00');
+  await expect(
+    page.getByText('The same INR receipts, grouped by registration audience.'),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Refresh analytics' }).click();
+  await expect(selector).toHaveValue('INR');
+  await selector.selectOption('USD');
+  await expect(panel).toContainText('$3,025.00');
+  await expect(table.getByRole('columnheader', { name: 'Net in USD' })).toBeVisible();
+});
+
+for (const locale of ['en-IN', 'en-GB', 'de-DE']) {
+  test(`analytics hydrates with a ${locale} browser locale`, async ({ browser }) => {
+    const context = await browser.newContext({ locale });
+    try {
+      const page = await context.newPage();
+      const errors: string[] = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      page.on('console', (message) => {
+        if (
+          message.type() === 'error' &&
+          /hydrat|server rendered|didn't match/i.test(message.text())
+        )
+          errors.push(message.text());
+      });
+      await page.goto('http://localhost:3000/dev/analytics');
+      const selector = page.getByRole('combobox', { name: 'Reporting currency' });
+      await expect(selector).toHaveValue('USD');
+      await selector.selectOption('INR');
+      await expect(
+        page.getByText('The same INR receipts, grouped by registration audience.'),
+      ).toBeVisible();
+      expect(errors).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  });
+}

@@ -86,6 +86,12 @@ Package-level DB helpers (from `packages/db`, or via `pnpm --filter @openconfere
 | `pnpm mail:test`    | Send a test email via the worker      |
 | `pnpm easydmrctest` | Run the EasyDMARC-related worker test |
 
+### Local integration-test isolation
+
+API integration tests require an explicit loopback PostgreSQL database whose name ends in `_test`, a local `REDIS_URL`, and `LOCAL_TEST_DATABASE_MARKER`. They do not load the shared `.env`. Create and migrate a disposable database first. With its URL and a task-specific marker exported, run `LOCAL_TEST_ALLOW_SETUP=true node infra/testing/prepare-local-test-db.mjs` once to establish ownership, then `pnpm --filter @openconferences/api test`. The runner checks the marker before loading fixture cleanup hooks. Optional analytics, inbox, review-lock and reviewer-overview test databases need the same marker and their documented test-specific URLs. Never mark a shared development database as disposable.
+
+Bot tests use their separate `BOT_API_TEST_*` setup; see the [Bot API guide](docs/api/bot-endpoints.md). The latest reviewer security findings and remaining gaps are recorded in the [implementation notes](docs/reviewer-platform-v31-implementation.md#local-database-security-audit--6-november-2026).
+
 ### Architecture
 
 See [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) and [docs/IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md).

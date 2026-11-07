@@ -12,6 +12,8 @@ concurrency:
 
 env:
   NODE_ENV: test
+  SKIP_ENV_FILE: 'true'
+  LOCAL_TEST_DATABASE_MARKER: github-ci-application-test
   DATABASE_URL: postgresql://openconferences:openconferences@localhost:5432/openconferences_test
   REDIS_URL: redis://localhost:6379
   S3_ENDPOINT: http://localhost:9000
@@ -97,6 +99,11 @@ jobs:
 
       - name: Run migrations
         run: pnpm db:migrate:deploy
+
+      - name: Verify disposable application test database ownership
+        env:
+          LOCAL_TEST_ALLOW_SETUP: 'true'
+        run: node infra/testing/prepare-local-test-db.mjs
 
       - name: Lint
         run: pnpm lint

@@ -1,23 +1,21 @@
 import { defineConfig } from 'vitest/config';
 import swc from 'unplugin-swc';
 import path from 'node:path';
+import {
+  assertLocalDatabaseUrl,
+  assertLocalRedisUrl,
+} from '../../infra/testing/local-test-target.mjs';
 function local(name: string) {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required; bot DB tests must not silently skip`);
-  const url = new URL(value);
-  if (
-    !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) ||
-    !url.pathname.startsWith('/bot_api_test_')
-  )
-    throw new Error('Only an isolated local bot_api_test_ database is permitted');
+  assertLocalDatabaseUrl(value, { prefix: 'bot_api_test_' });
   return value;
 }
 const database = local('BOT_API_TEST_DATABASE_URL');
 local('BOT_API_TEST_OWNER_URL');
 if (!process.env.BOT_API_TEST_MARKER) throw new Error('Task-owned cluster marker required');
 const redis = process.env.BOT_API_TEST_REDIS_URL;
-if (!redis || !['127.0.0.1', 'localhost', '[::1]'].includes(new URL(redis).hostname))
-  throw new Error('Isolated local Redis required');
+assertLocalRedisUrl(redis);
 Object.assign(process.env, {
   SKIP_ENV_FILE: 'true',
   SKIP_DB_ROLE_CHECK: 'false',

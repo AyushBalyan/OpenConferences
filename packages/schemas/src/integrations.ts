@@ -10,6 +10,7 @@ export const INTEGRATION_SCOPES = [
   'assignments:write',
   'invitations:read',
   'invitations:write',
+  'invitations:responses:read',
   'analytics:read',
 ] as const;
 export type IntegrationScope = (typeof INTEGRATION_SCOPES)[number];
@@ -21,6 +22,7 @@ export const SCOPE_DEPENDENCIES: Partial<Record<IntegrationScope, IntegrationSco
   'assignments:read': ['papers:read', 'reviewers:read'],
   'assignments:write': ['assignments:read', 'papers:read', 'reviewers:read'],
   'invitations:read': ['reviewers:read', 'reviewers:identity:read', 'reviewers:contacts:read'],
+  'invitations:responses:read': ['invitations:read'],
   'invitations:write': [
     'invitations:read',
     'reviewers:read',
@@ -189,6 +191,8 @@ export const botAssignmentSchema = z.object({
   retired: z.boolean(),
 });
 export const botReviewerInvitationSchema = z.object({
+  lifecycleStatus: z.string().optional(),
+  sentAt: date.nullable().optional(),
   id: uuid,
   status: z.enum(['PENDING', 'ACCEPTED', 'DECLINED', 'EXPIRED']),
   reviewerId: uuid.nullable(),
@@ -222,6 +226,9 @@ export const botInvitationLinkSchema = z.object({
   email: z.string().email(),
   status: z.enum(['PENDING', 'ACCEPTED', 'DECLINED', 'EXPIRED', 'REMOVED']),
   invitationUrl: z.string().url().nullable(),
+  declineUrl: z.string().url().nullable().optional(),
+  lifecycleStatus: z.string().optional(),
+  sentAt: date.nullable().optional(),
   expiresAt: date.nullable(),
 });
 export const botGenerateInvitationsResponseSchema = z.object({
@@ -263,6 +270,15 @@ export const botCapabilitiesSchema = z.object({
     requestsPerKeyPerMinute: z.number(),
     requestsPerConferencePerMinute: z.number(),
   }),
+  reviewerOperations: z
+    .object({
+      basePath: z.string(),
+      maxBatchRows: z.literal(1000),
+      maxExtensionOperations: z.literal(100),
+      resultRetentionDays: z.literal(7),
+      publicDecline: z.literal(true),
+    })
+    .optional(),
   observedAt: date,
 });
 export const botSummarySchema = z.object({

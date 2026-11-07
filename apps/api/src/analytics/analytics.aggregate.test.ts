@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   aggregatePaperAnalytics,
+  aggregateRevenue,
+  aggregateRevenueReports,
   aggregateRegistrations,
   paymentContribution,
   submissionsByDay,
@@ -171,5 +173,153 @@ describe('analytics aggregates', () => {
       { date: '2026-09-01', count: 2 },
       { date: '2026-09-02', count: 1 },
     ]);
+  });
+});
+
+describe('fee-schedule revenue conversion', () => {
+  const receipt = (
+    currency: string,
+    amountMinor: number,
+    kind = 'INITIAL',
+    status = 'CAPTURED',
+    audience = 'REGULAR',
+    lockedTiming: string | null = 'EARLY',
+  ) => ({ currency, amountMinor, kind, status, registration: { audience, lockedTiming } });
+  it('includes USD and INR receipts and refunds using the configured rate and reconciles every breakdown', () => {
+    const data = aggregateRevenue(
+      [
+        receipt('USD', 20000),
+        receipt('INR', 832700, 'INITIAL', 'CAPTURED', 'STUDENT', 'REGULAR'),
+        receipt('INR', 83270, 'REFUND', 'PARTIALLY_REFUNDED', 'STUDENT', 'REGULAR'),
+        receipt('USD', 2500, 'REFUND', 'REFUNDED'),
+        receipt('USD', 99999, 'INITIAL', 'FAILED'),
+        receipt('USD', 99999, 'REFUND', 'CREATED'),
+      ],
+      { currency: 'USD', domesticInrPerUsd: 83.27 },
+    );
+    expect(data.revenueMinor).toBe(26500);
+    expect(data.excludedCurrencyPayments).toBe(0);
+    expect(data.revenueConversion).toMatchObject({
+      capturedMinor: 30000,
+      refundedMinor: 3500,
+      inrPerUsd: 83.27,
+    });
+    expect(data.revenueConversion.byCurrency).toEqual([
+      {
+        currency: 'INR',
+        capturedMinor: 832700,
+        refundedMinor: 83270,
+        netMinor: 749430,
+        convertedMinor: 9000,
+        paymentCount: 2,
+      },
+      {
+        currency: 'USD',
+        capturedMinor: 20000,
+        refundedMinor: 2500,
+        netMinor: 17500,
+        convertedMinor: 17500,
+        paymentCount: 2,
+      },
+    ]);
+    expect(data.revenueByTiming.reduce((sum, row) => sum + row.amountMinor, 0)).toBe(
+      data.revenueMinor,
+    );
+    expect(data.revenueByAudience.reduce((sum, row) => sum + row.amountMinor, 0)).toBe(
+      data.revenueMinor,
+    );
+    expect(
+      data.revenueConversion.byCurrency.reduce((sum, row) => sum + (row.convertedMinor ?? 0), 0),
+    ).toBe(data.revenueMinor);
+  });
+  it('supports reporting in INR without changing native receipts', () => {
+    const data = aggregateRevenue([receipt('USD', 10000), receipt('INR', 100)], {
+      currency: 'INR',
+      domesticInrPerUsd: 83.27,
+    });
+    expect(data.revenueMinor).toBe(832800);
+    expect(data.revenueConversion.capturedMinor).toBe(832800);
+  });
+  it('rounds each ledger amount once and reverses half-unit refunds symmetrically', () => {
+    const payments = [receipt('USD', 100), receipt('USD', 100, 'REFUND', 'REFUNDED')];
+    const data = aggregateRevenue(payments, { currency: 'INR', domesticInrPerUsd: 1.005 });
+    expect(data.revenueConversion).toMatchObject({ capturedMinor: 101, refundedMinor: 101 });
+    expect(data.revenueMinor).toBe(0);
+    const inverse = aggregateRevenue([receipt('INR', 1), receipt('INR', 1, 'REFUND', 'REFUNDED')], {
+      currency: 'USD',
+      domesticInrPerUsd: 2,
+    });
+    expect(inverse.revenueConversion).toMatchObject({ capturedMinor: 1, refundedMinor: 1 });
+    expect(inverse.revenueMinor).toBe(0);
+  });
+  it.each([undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, 1001])(
+    'retains original foreign amounts when the rate is invalid: %s',
+    (rate) => {
+      const data = aggregateRevenue(
+        [receipt('USD', 100), receipt('INR', 100), receipt('EUR', 100)],
+        { currency: 'USD', domesticInrPerUsd: rate },
+      );
+      expect(data.revenueMinor).toBe(100);
+      expect(data.excludedCurrencyPayments).toBe(2);
+      expect(data.revenueConversion.inrPerUsd).toBeNull();
+      expect(
+        data.revenueConversion.byCurrency
+          .filter((row) => row.currency !== 'USD')
+          .every((row) => row.capturedMinor === 100 && row.convertedMinor === null),
+      ).toBe(true);
+    },
+  );
+  it('keeps unsupported currencies visible even when USD/INR conversion is configured', () => {
+    const data = aggregateRevenue([receipt('EUR', 500, 'REFUND', 'REFUNDED')], {
+      currency: 'USD',
+      domesticInrPerUsd: 83.27,
+    });
+    expect(data.revenueMinor).toBe(0);
+    expect(data.excludedCurrencyPayments).toBe(1);
+    expect(data.revenueConversion.byCurrency[0]).toMatchObject({
+      currency: 'EUR',
+      refundedMinor: 500,
+      netMinor: -500,
+      convertedMinor: null,
+    });
+  });
+});
+
+describe('selectable reporting currencies', () => {
+  it('builds each currency from the original ledger, avoiding a rounded conversion round trip', () => {
+    const data = aggregateRevenueReports(
+      [
+        {
+          currency: 'INR',
+          amountMinor: 1,
+          status: 'CAPTURED',
+          kind: 'INITIAL',
+          registration: { audience: 'REGULAR', lockedTiming: 'EARLY' },
+        },
+      ],
+      { currency: 'USD', domesticInrPerUsd: 2 },
+    );
+    expect(data.currencyReports.map((report) => [report.currency, report.revenueMinor])).toEqual([
+      ['USD', 1],
+      ['INR', 1],
+    ]);
+    for (const report of data.currencyReports) {
+      expect(report.revenueByTiming.reduce((sum, row) => sum + row.amountMinor, 0)).toBe(
+        report.revenueMinor,
+      );
+    }
+  });
+  it('only offers the native report when there is no applicable rate', () => {
+    expect(
+      aggregateRevenueReports([], { currency: 'USD' }).currencyReports.map(
+        (report) => report.currency,
+      ),
+    ).toEqual(['USD']);
+    expect(
+      aggregateRevenueReports([], {
+        currency: 'EUR',
+        domesticInrPerUsd: 83.27,
+      }).currencyReports.map((report) => report.currency),
+    ).toEqual(['EUR']);
   });
 });

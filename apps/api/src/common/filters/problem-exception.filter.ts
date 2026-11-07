@@ -1,4 +1,8 @@
-import { isIntegrationUrl, integrationLogUrl } from '../../integrations/integration.http';
+import {
+  isIntegrationUrl,
+  integrationLogUrl,
+  isSensitiveUrl,
+} from '../../integrations/integration.http';
 import {
   ArgumentsHost,
   Catch,
@@ -21,12 +25,14 @@ export class ProblemExceptionFilter implements ExceptionFilter {
 
     const { status, envelope } = this.toProblemEnvelope(
       exception,
-      isIntegrationUrl(request.url) ? integrationLogUrl(request.url) : request.url,
+      isIntegrationUrl(request.url) || isSensitiveUrl(request.url)
+        ? integrationLogUrl(request.url)
+        : request.url,
     );
 
     if (status >= 500) {
       this.logger.error(
-        isIntegrationUrl(request.url)
+        isIntegrationUrl(request.url) || isSensitiveUrl(request.url)
           ? { status, requestId: request.id }
           : { err: exception, requestId: request.id },
         envelope.detail ?? envelope.title,

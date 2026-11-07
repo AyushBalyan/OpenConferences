@@ -474,6 +474,14 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
         >
           Extend selected
         </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy || !selectedAssignments.length}
+          onClick={() => void openAction('RELEASE')}
+        >
+          Release selected
+        </Button>
         {selectedAssignments.length ? (
           <Button
             size="sm"
@@ -503,14 +511,18 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
               ? 'Preview reminders'
               : action === 'EXTEND'
                 ? 'Extend review deadlines'
-                : 'Replace reviewer'}
+                : action === 'RELEASE'
+                  ? 'Release reviewer assignments'
+                  : 'Replace reviewer'}
           </h2>
           <p className="max-w-3xl text-sm text-slate-600">
             {action === 'REMIND'
               ? 'Each recipient receives the review reminder with their current deadline and review link. Repeated requests on the same day are deduplicated.'
               : action === 'EXTEND'
                 ? 'The new date must be later than every selected deadline. It overrides the normal conference deadline for these assignments.'
-                : 'The original assignment and private draft are preserved. The new reviewer receives a fresh assignment with the deadline you choose below.'}
+                : action === 'RELEASE'
+                  ? 'These assignments leave the active workload. Their history and private drafts are preserved. Papers return to the pool for reassignment.'
+                  : 'The original assignment and private draft are preserved. The new reviewer receives a fresh assignment with the deadline you choose below.'}
           </p>
           <ul className="max-h-48 space-y-2 overflow-auto text-sm">
             {selectedAssignments.map((a) => (
@@ -600,7 +612,9 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
                   ? `Queue ${selectedAssignments.length} reminder${selectedAssignments.length === 1 ? '' : 's'}`
                   : action === 'EXTEND'
                     ? `Extend ${selectedAssignments.length} deadline${selectedAssignments.length === 1 ? '' : 's'}`
-                    : 'Confirm replacement'}
+                    : action === 'RELEASE'
+                      ? 'Confirm release'
+                      : 'Confirm replacement'}
             </Button>
             <Button variant="outline" type="button" disabled={busy} onClick={() => setAction(null)}>
               Cancel
@@ -795,15 +809,17 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
                                         {a.reviewerName}{' '}
                                         <span className="font-normal text-slate-600">
                                           ·{' '}
-                                          {a.status === 'REPLACED'
-                                            ? 'Replaced · retained for history'
-                                            : a.status === 'DECLINED'
-                                              ? 'Declined'
-                                              : a.reviewProgress === 'NOT_STARTED'
-                                                ? 'Not started'
-                                                : a.reviewProgress === 'DRAFT'
-                                                  ? 'Draft saved'
-                                                  : 'Submitted'}
+                                          {a.releasedAt
+                                            ? 'Released'
+                                            : a.status === 'REPLACED'
+                                              ? 'Replaced · retained for history'
+                                              : a.status === 'DECLINED'
+                                                ? 'Declined'
+                                                : a.reviewProgress === 'NOT_STARTED'
+                                                  ? 'Not started'
+                                                  : a.reviewProgress === 'DRAFT'
+                                                    ? 'Draft saved'
+                                                    : 'Submitted'}
                                         </span>
                                       </p>
                                       <p
@@ -839,6 +855,14 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
                                         onClick={() => void openAction('REPLACE', a)}
                                       >
                                         Replace reviewer
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        disabled={busy}
+                                        onClick={() => void openAction('RELEASE', a)}
+                                      >
+                                        Release assignment
                                       </Button>
                                     </div>
                                   ) : null}

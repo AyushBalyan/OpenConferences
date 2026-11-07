@@ -5,6 +5,7 @@ import { AppHeader } from '@/components/layout/app-header';
 
 const HIDDEN_PREFIXES = [
   '/dashboard',
+  '/dev/analytics',
   '/me',
   '/sign-in',
   '/sign-up',

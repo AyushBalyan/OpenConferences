@@ -104,6 +104,7 @@ export const updateConferenceSchema = z.object({
 
 export const updateConferenceSettingsSchema = z
   .object({
+    invitationLifetimeDays: z.number().int().min(1).max(30).optional(),
     blindingMode: blindingModeSchema.optional(),
     reviewConfig: reviewConfigSchema.optional(),
     feeSchedule: feeScheduleSchema.optional(),
@@ -116,6 +117,7 @@ export const conferenceSchema = z.object({
   slug: z.string(),
   name: z.string(),
   status: conferenceStatusSchema,
+  invitationLifetimeDays: z.number().int().min(1).max(30).optional(),
   blindingMode: blindingModeSchema,
   cfpOpensAt: z.string().datetime().nullable(),
   cfpClosesAt: z.string().datetime().nullable(),

@@ -1,4 +1,10 @@
-import { withMailDisclaimer, withTenantContext } from '@openconferences/db';
+import { getConfig } from '@openconferences/config/env';
+import {
+  openInvitationMail,
+  isProtectedInvitationMail,
+  withMailDisclaimer,
+  withTenantContext,
+} from '@openconferences/db';
 import type { NotificationJobPayload } from '@openconferences/schemas';
 import { formatMailError } from './mail-error.js';
 import { createMailerAdapter } from './mailer.js';
@@ -10,8 +16,10 @@ export async function processNotificationJob(payload: NotificationJobPayload): P
     const result = await mailer.send({
       to: payload.to,
       subject: payload.subject,
-      html: withMailDisclaimer(payload.html, 'html'),
-      text: payload.text ? withMailDisclaimer(payload.text, 'text') : undefined,
+      html: withMailDisclaimer(openInvitationMail(payload.html, getConfig().auth.secret), 'html'),
+      text: payload.text
+        ? withMailDisclaimer(openInvitationMail(payload.text, getConfig().auth.secret), 'text')
+        : undefined,
       replyTo: payload.replyTo,
       tags: payload.tags,
     });
@@ -28,7 +36,8 @@ export async function processNotificationJob(payload: NotificationJobPayload): P
       }),
     );
   } catch (err) {
-    const message = formatMailError(err);
+    const protectedMail = isProtectedInvitationMail(payload.html);
+    const message = protectedMail ? 'Invitation email delivery failed' : formatMailError(err);
 
     await withTenantContext({}, async (tx) =>
       tx.notificationLog.update({
@@ -40,6 +49,7 @@ export async function processNotificationJob(payload: NotificationJobPayload): P
       }),
     );
 
+    if (protectedMail) throw new Error(message);
     throw err;
   }
 }

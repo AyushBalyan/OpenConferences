@@ -428,8 +428,9 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
     ],
     details: [{ label: 'Expires', value: '{{expiresAt}}' }],
     cta: { label: 'Accept invitation', url: '{{signupUrl}}' },
-    secondaryNote: 'If you were not expecting this invitation, you may safely ignore this email.',
-    variables: ['conferenceName', 'signupUrl', 'expiresAt'],
+    secondaryNote:
+      'To decline this invitation, open {{declineUrl}}. You will be asked to confirm; no login is needed.',
+    variables: ['conferenceName', 'signupUrl', 'declineUrl', 'expiresAt'],
   }),
   letter({
     key: 'assignment.notified',

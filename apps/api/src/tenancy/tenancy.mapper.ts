@@ -71,6 +71,7 @@ export function mapConference(
     slug: conference.slug,
     name: conference.name,
     status: deriveStatusFromWindows(conference) as SchemaConferenceStatus,
+    invitationLifetimeDays: conference.invitationLifetimeDays,
     blindingMode: conference.blindingMode as SchemaBlindingMode,
     cfpOpensAt: toIso(conference.cfpOpensAt),
     cfpClosesAt: toIso(conference.cfpClosesAt),

@@ -193,3 +193,21 @@ export {
   invoiceConferencePrefix,
   invoiceIssueDate,
 } from './invoice-number.js';
+export {
+  sealInvitationMail,
+  openInvitationMail,
+  isProtectedInvitationMail,
+  INVITATION_BATCH_JOB,
+  invitationTokenHash,
+  invitationTokenMatches,
+  sealInvitationData,
+  openInvitationData,
+  newInvitationSecret,
+  recoverInvitationToken,
+  declineInvitationToken,
+  validDeclineToken,
+  invitationLifecycle,
+  recordInvitationChange,
+} from './reviewer-invitations.js';
+export { processInvitationBatchChunk } from './reviewer-invitation-batches.js';
+export type { InvitationBatchResult } from './reviewer-invitation-batches.js';

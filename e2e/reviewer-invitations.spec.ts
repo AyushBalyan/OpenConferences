@@ -6,12 +6,14 @@ const conferenceId = id(1);
 const path = `/dashboard/conferences/${conferenceId}/reviews/assignments/invites`;
 const base = `/conferences/${conferenceId}/reviewer-invitations`;
 const invitationUrl = `http://localhost:3007/sign-in?reviewerInvite=${'a'.repeat(64)}`;
-const captures = '.impeccable/review/reviewer-invitations';
+const declineUrl = `http://localhost:3008/reviewer-invite/decline#token=synthetic-decline-token`;
+const captures = '.impeccable/review/reviewer-invitations-v31';
 
 async function fixture(page: Page) {
   const invitations: Array<Record<string, unknown>> = [];
   const deliveries: string[] = [];
   const sends: string[] = [];
+  const actions: string[] = [];
   const conference = {
     id: conferenceId,
     organizationId: conferenceId,
@@ -72,6 +74,9 @@ async function fixture(page: Page) {
           email: input.email,
           invitedUserId: null,
           status: 'PENDING',
+          lifecycleStatus: 'SENT',
+          version: 0,
+          sentAt: '2026-11-06T10:00:00.000Z',
           roleNote: null,
           expiresAt: '2099-01-01T00:00:00.000Z',
           createdAt: '2026-10-12T10:00:00.000Z',
@@ -79,10 +84,28 @@ async function fixture(page: Page) {
         };
         invitations.push(row);
         status = 201;
-        body = { ...row, invitationUrl };
+        body = { ...row, invitationUrl, declineUrl };
       }
+    } else if (endpoint.startsWith(`${base}/`) && endpoint.endsWith('/actions')) {
+      const input = req.postDataJSON();
+      actions.push(input.action);
+      const invitation = invitations[0]!;
+      invitation.version = Number(invitation.version) + 1;
+      body = {
+        invitation,
+        invitationUrl:
+          input.action === 'REISSUE'
+            ? invitationUrl.replace('a'.repeat(64), 'b'.repeat(64))
+            : invitationUrl,
+        declineUrl: input.action === 'REISSUE' ? declineUrl + '-new' : declineUrl,
+      };
     } else if (endpoint.startsWith(`${base}/`) && endpoint.endsWith('/link')) {
-      body = { invitationUrl, email: invitations[0]?.email, expiresAt: '2099-01-01T00:00:00.000Z' };
+      body = {
+        invitationUrl,
+        declineUrl,
+        email: invitations[0]?.email,
+        expiresAt: '2099-01-01T00:00:00.000Z',
+      };
     } else if (endpoint.startsWith(`${base}/`) && endpoint.endsWith('/resend')) {
       sends.push(endpoint);
       body = { invitation: invitations[0], message: 'Reviewer invitation email resent' };
@@ -94,7 +117,7 @@ async function fixture(page: Page) {
     await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   });
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-  return { deliveries, sends };
+  return { deliveries, sends, actions };
 }
 
 test('generates a pending invitation without email and can copy after reload or send later', async ({
@@ -104,14 +127,15 @@ test('generates a pending invitation without email and can copy after reload or 
   await page.goto(path);
   await page.getByLabel('Email', { exact: true }).fill('reviewer@example.test');
   await page.getByRole('button', { name: 'Generate link', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('No email was sent');
+  await expect(page.getByRole('status')).toContainText('Invitation marked Sent');
   await expect(page.getByLabel('Invitation link for reviewer@example.test')).toHaveValue(
     invitationUrl,
   );
+  await expect(page.getByLabel('Decline link — no sign-in needed')).toHaveValue(declineUrl);
   expect(state.deliveries).toEqual(['LINK_ONLY']);
   expect(state.sends).toHaveLength(0);
   await expect(page.getByRole('row').filter({ hasText: 'reviewer@example.test' })).toContainText(
-    'PENDING',
+    'SENT',
   );
   await page.reload();
   await page.getByRole('button', { name: 'Copy link', exact: true }).click();
@@ -119,7 +143,7 @@ test('generates a pending invitation without email and can copy after reload or 
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(invitationUrl);
   await page.getByRole('button', { name: 'Send email', exact: true }).click();
   expect(state.sends).toHaveLength(1);
-  await page.getByRole('button', { name: 'Remove', exact: true }).click();
+  await page.getByRole('button', { name: 'Revoke', exact: true }).click();
   await expect(page.getByText('No reviewer invitations yet.')).toBeVisible();
   await expect(page.getByLabel('Invitation link for reviewer@example.test')).toHaveCount(0);
 });
@@ -190,4 +214,27 @@ test('shows a selectable link if clipboard access fails and fits desktop and mob
   await page.getByRole('button', { name: 'Send email', exact: true }).scrollIntoViewIfNeeded();
   await expect(page.getByRole('button', { name: 'Send email', exact: true })).toBeVisible();
   await page.screenshot({ path: `${captures}/mobile-actions.png`, fullPage: true });
+});
+
+test('extends without changing links and explicitly reissues replacements without sending email', async ({
+  page,
+}) => {
+  const state = await fixture(page);
+  await page.goto(path);
+  await page.getByLabel('Email', { exact: true }).fill('reviewer@example.test');
+  await page.getByRole('button', { name: 'Generate link', exact: true }).click();
+  await page.getByRole('button', { name: 'Extend', exact: true }).click();
+  await page.getByLabel('Days from today (1–30)').fill('14');
+  await page.getByRole('button', { name: 'Confirm update' }).click();
+  await expect(page.getByLabel('Invitation link for reviewer@example.test')).toHaveValue(
+    invitationUrl,
+  );
+  await page.getByRole('button', { name: 'Reissue', exact: true }).click();
+  await expect(page.getByText('Both old links will stop working.', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Confirm update' }).click();
+  await expect(page.getByLabel('Invitation link for reviewer@example.test')).toHaveValue(
+    invitationUrl.replace('a'.repeat(64), 'b'.repeat(64)),
+  );
+  expect(state.actions).toEqual(['EXTEND', 'REISSUE']);
+  expect(state.sends).toHaveLength(0);
 });

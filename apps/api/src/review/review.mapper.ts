@@ -1,3 +1,4 @@
+import { invitationLifecycle } from '@openconferences/db';
 import type {
   Bid,
   BlindingMode,
@@ -53,11 +54,44 @@ export function mapReviewerInvitation(invitation: ReviewerInvitation): ReviewerI
     conferenceId: invitation.conferenceId,
     email: invitation.email,
     invitedUserId: invitation.invitedUserId,
-    status: invitation.status,
+    status:
+      invitation.status === 'PENDING' && invitation.expiresAt <= new Date()
+        ? 'EXPIRED'
+        : invitation.status,
+    lifecycleStatus: invitationLifecycle(invitation),
+    version: invitation.version,
+    sentAt: invitation.sentAt?.toISOString() ?? null,
+    acceptedAt: invitation.acceptedAt?.toISOString() ?? null,
+    declinedAt: invitation.declinedAt?.toISOString() ?? null,
+    revokedAt: invitation.revokedAt?.toISOString() ?? null,
+    name: invitation.displayName,
+    affiliation: invitation.affiliation,
+    researchFields: invitation.researchFields,
     expiresAt: invitation.expiresAt.toISOString(),
     roleNote: invitation.roleNote,
     createdAt: invitation.createdAt.toISOString(),
     updatedAt: invitation.updatedAt.toISOString(),
+  };
+}
+
+/** Operational integration responses omit internal account identifiers and chair notes. */
+export function mapOperationalInvitation(
+  invitation: ReviewerInvitation,
+  now = new Date(),
+): Omit<ReviewerInvitationDto, 'invitedUserId' | 'organizationId' | 'roleNote'> {
+  const {
+    invitedUserId: _user,
+    organizationId: _org,
+    roleNote: _note,
+    ...operational
+  } = mapReviewerInvitation(invitation);
+  return {
+    ...operational,
+    lifecycleStatus: invitationLifecycle(invitation, now),
+    status:
+      invitation.status === 'PENDING' && invitation.expiresAt <= now
+        ? ('EXPIRED' as const)
+        : invitation.status,
   };
 }
 
@@ -99,6 +133,7 @@ export function mapReviewerAssignment(assignment: ReviewerAssignment): ReviewerA
     paperId: assignment.paperId,
     reviewerUserId: assignment.reviewerUserId,
     status: assignment.status,
+    releasedAt: assignment.releasedAt?.toISOString() ?? null,
     dueAt: assignment.dueAt?.toISOString() ?? null,
     version: assignment.version,
     createdAt: assignment.createdAt.toISOString(),

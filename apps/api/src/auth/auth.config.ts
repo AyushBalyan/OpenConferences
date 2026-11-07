@@ -24,6 +24,7 @@ import {
 export type ReviewerInvitationMagicLinkMetadata = {
   reviewerInvitationId: string;
   invitationToken: string;
+  declineUrl?: string;
   conferenceId: string;
   organizationId: string;
   conferenceName: string;
@@ -264,6 +265,7 @@ export function createAuthInstance(deps: AuthDependencies): AuthInstance {
             organizationId: metadata.organizationId,
             conferenceName: metadata.conferenceName,
             signupUrl,
+            declineUrl: metadata.declineUrl,
             expiresAt: formatEmailDate(new Date(metadata.expiresAt)),
             invitationId: metadata.reviewerInvitationId,
             idempotencyKey: `reviewer-invite-magic-${metadata.reviewerInvitationId}:${Date.now()}`,

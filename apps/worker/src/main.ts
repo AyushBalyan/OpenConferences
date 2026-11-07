@@ -1,3 +1,5 @@
+import { INVITATION_BATCH_JOB, withTenantContext } from '@openconferences/db';
+import { processInvitationBatchJob, sweepInvitationLifecycle } from './invitation-batches.js';
 import { recoverStudentScans } from './student-scan-recovery.js';
 import { processReviewerDigestJob, recordDigestFailure } from './reviewer-digest.js';
 import os from 'node:os';
@@ -38,6 +40,7 @@ const STUDENT_SCAN_RECOVERY_JOB_NAME = 'student.scan-recovery';
 const INTEGRATION_ACCESS_RETENTION_JOB_NAME = 'integration.access-retention';
 
 const WORKER_QUEUES = [
+  INVITATION_BATCH_JOB,
   STUDENT_SCAN_RECOVERY_JOB_NAME,
   REVIEWER_DIGEST_JOB_NAME,
   NOOP_JOB_NAME,
@@ -53,6 +56,7 @@ const WORKER_QUEUES = [
 ] as const;
 
 const WORKER_SCHEDULES = [
+  { name: INVITATION_BATCH_JOB, cron: '* * * * *', singletonKey: 'invitation-lifecycle-sweep' },
   {
     name: STUDENT_SCAN_RECOVERY_JOB_NAME,
     cron: '*/5 * * * *',
@@ -196,6 +200,36 @@ async function startWorker(): Promise<void> {
   for (const queue of WORKER_QUEUES) {
     await startupStep(`create-queue:${queue}`, () => boss!.createQueue(queue));
   }
+
+  await startupStep(`subscribe:${INVITATION_BATCH_JOB}`, () =>
+    boss!.work(INVITATION_BATCH_JOB, { includeMetadata: true }, async (jobs) => {
+      for (const job of jobs) {
+        const batchId =
+          job.data && typeof job.data === 'object' && 'batchId' in job.data
+            ? job.data.batchId
+            : undefined;
+        if (batchId === undefined) {
+          await sweepInvitationLifecycle();
+          continue;
+        }
+        if (typeof batchId !== 'string' || !/^[0-9a-f-]{36}$/i.test(batchId))
+          throw new Error('Invalid invitation batch job');
+        try {
+          await processInvitationBatchJob(batchId);
+        } catch {
+          if (job.retryCount >= job.retryLimit)
+            await withTenantContext({}, (tx) =>
+              tx.reviewerInvitationBatch.updateMany({
+                where: { id: batchId, status: { in: ['QUEUED', 'RUNNING'] } },
+                data: { status: 'FAILED' },
+              }),
+            );
+          logger.error({ jobId: job.id, batchId }, 'Invitation batch processing failed');
+          throw new Error('Invitation batch processing failed');
+        }
+      }
+    }),
+  );
 
   await startupStep(`subscribe:${INTEGRATION_ACCESS_RETENTION_JOB_NAME}`, () =>
     boss!.work(INTEGRATION_ACCESS_RETENTION_JOB_NAME, async (jobs) => {

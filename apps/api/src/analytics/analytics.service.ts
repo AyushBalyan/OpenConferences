@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import type { Prisma, RoleKind } from '@openconferences/db';
-import { withTenantContext } from '@openconferences/db';
+import type { RoleKind } from '@openconferences/db';
+import { Prisma, withTenantContext } from '@openconferences/db';
 import type { ConferenceAnalyticsOverview } from '@openconferences/schemas';
 import { effectiveReviewDeadline } from '@openconferences/schemas';
 import { ConferenceService } from '../tenancy/conference.service';
@@ -238,6 +238,114 @@ export function paymentContribution(payment: {
   return payment.status === 'CAPTURED' ? payment.amountMinor : 0;
 }
 
+// This is reporting conversion at the current fee-schedule rate, not payment repricing.
+// Both USD and INR have 100 minor units. Round each positive ledger amount once,
+// then apply its sign, so a refund reverses the same rounded conversion as a receipt.
+export function aggregateRevenue(
+  payments: {
+    status: string;
+    kind: string;
+    amountMinor: number;
+    currency: string;
+    registration: { audience: string; lockedTiming: string | null };
+  }[],
+  schedule: { currency?: string; domesticInrPerUsd?: number },
+) {
+  const currency = schedule.currency ?? 'INR';
+  const rate = schedule.domesticInrPerUsd;
+  const inrPerUsd =
+    typeof rate === 'number' && Number.isFinite(rate) && rate > 0 && rate <= 1000 ? rate : null;
+  const timing = new Map<string, number>(),
+    audience = new Map<string, number>();
+  const sources = new Map<
+    string,
+    NonNullable<ConferenceAnalyticsOverview['revenueConversion']>['byCurrency'][number]
+  >();
+  let revenueMinor = 0,
+    excludedCurrencyPayments = 0,
+    capturedMinor = 0,
+    refundedMinor = 0;
+  for (const payment of payments) {
+    const original = paymentContribution(payment);
+    if (!original) continue;
+    const factor =
+      payment.currency === currency
+        ? new Prisma.Decimal(1)
+        : inrPerUsd && currency === 'USD' && payment.currency === 'INR'
+          ? new Prisma.Decimal(1).div(inrPerUsd)
+          : inrPerUsd && currency === 'INR' && payment.currency === 'USD'
+            ? new Prisma.Decimal(inrPerUsd)
+            : null;
+    const converted = factor
+      ? new Prisma.Decimal(Math.abs(original))
+          .mul(factor)
+          .toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP)
+          .toNumber() * Math.sign(original)
+      : null;
+    const source = sources.get(payment.currency) ?? {
+      currency: payment.currency,
+      capturedMinor: 0,
+      refundedMinor: 0,
+      netMinor: 0,
+      convertedMinor: factor ? 0 : null,
+      paymentCount: 0,
+    };
+    source.capturedMinor += original > 0 ? original : 0;
+    source.refundedMinor += original < 0 ? -original : 0;
+    source.netMinor += original;
+    source.paymentCount++;
+    if (converted !== null) source.convertedMinor = (source.convertedMinor ?? 0) + converted;
+    sources.set(payment.currency, source);
+    if (converted === null) {
+      excludedCurrencyPayments++;
+      continue;
+    }
+    capturedMinor += original > 0 ? converted : 0;
+    refundedMinor += original < 0 ? -converted : 0;
+    revenueMinor += converted;
+    const timingKey = payment.registration.lockedTiming ?? 'UNSPECIFIED';
+    timing.set(timingKey, (timing.get(timingKey) ?? 0) + converted);
+    audience.set(
+      payment.registration.audience,
+      (audience.get(payment.registration.audience) ?? 0) + converted,
+    );
+  }
+  const amounts = (values: Map<string, number>) =>
+    [...values]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, amountMinor]) => ({ name, amountMinor }));
+  return {
+    currency,
+    revenueMinor,
+    excludedCurrencyPayments,
+    revenueByTiming: amounts(timing),
+    revenueByAudience: amounts(audience),
+    revenueConversion: {
+      inrPerUsd,
+      capturedMinor,
+      refundedMinor,
+      byCurrency: [...sources.values()].sort((a, b) => a.currency.localeCompare(b.currency)),
+    },
+  };
+}
+
+export function aggregateRevenueReports(
+  payments: Parameters<typeof aggregateRevenue>[0],
+  schedule: Parameters<typeof aggregateRevenue>[1],
+) {
+  const report = aggregateRevenue(payments, schedule);
+  const currencyReports = [report];
+  if (report.revenueConversion.inrPerUsd && ['USD', 'INR'].includes(report.currency)) {
+    currencyReports.push(
+      aggregateRevenue(payments, {
+        ...schedule,
+        currency: report.currency === 'USD' ? 'INR' : 'USD',
+      }),
+    );
+  }
+  return { ...report, currencyReports };
+}
+
 @Injectable()
 export class AnalyticsService {
   constructor(private readonly conferences: ConferenceService) {}
@@ -249,7 +357,10 @@ export class AnalyticsService {
     if (!canCoordinateReview(roles))
       throw new ForbiddenException('Insufficient permissions to view analytics');
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-    const currency = (conference.feeSchedule as { currency?: string })?.currency ?? 'INR';
+    const feeSchedule = (conference.feeSchedule ?? {}) as {
+      currency?: string;
+      domesticInrPerUsd?: number;
+    };
     const tenant = { userId, conferenceId, organizationId: conference.organizationId };
     return withTenantContext(
       tenant,
@@ -284,39 +395,12 @@ export class AnalyticsService {
           acceptedPaperIds,
           now,
         );
-        const timing = new Map<string, number>(),
-          audience = new Map<string, number>();
-        let revenueMinor = 0,
-          excludedCurrencyPayments = 0;
-        for (const payment of payments) {
-          const amount = paymentContribution(payment);
-          if (!amount) continue;
-          if (payment.currency !== currency) {
-            excludedCurrencyPayments++;
-            continue;
-          }
-          revenueMinor += amount;
-          const timingKey = payment.registration.lockedTiming ?? 'UNSPECIFIED';
-          timing.set(timingKey, (timing.get(timingKey) ?? 0) + amount);
-          audience.set(
-            payment.registration.audience,
-            (audience.get(payment.registration.audience) ?? 0) + amount,
-          );
-        }
-        const amounts = (values: Map<string, number>) =>
-          [...values]
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([name, amountMinor]) => ({ name, amountMinor }));
         return {
           conferenceId,
           ...paperMetrics,
           registrations: registrationMetrics as ConferenceAnalyticsOverview['registrations'],
           unpaidAccepted,
-          revenueMinor,
-          revenueByTiming: amounts(timing),
-          revenueByAudience: amounts(audience),
-          excludedCurrencyPayments,
-          currency,
+          ...aggregateRevenueReports(payments, feeSchedule),
           computedAt: now.toISOString(),
         };
       },

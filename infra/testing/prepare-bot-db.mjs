@@ -1,16 +1,12 @@
 // This deliberately never loads repository .env files.
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
+import { assertLocalDatabaseUrl } from './local-test-target.mjs';
 const require = createRequire(new URL('../../packages/db/package.json', import.meta.url));
 const urls = ['BOT_API_TEST_OWNER_URL', 'BOT_API_TEST_DATABASE_URL'].map((name) => {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required`);
-  const url = new URL(value);
-  if (
-    !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) ||
-    !url.pathname.startsWith('/bot_api_test_')
-  )
-    throw new Error('Only task-owned local bot_api_test_ databases are permitted');
+  const url = assertLocalDatabaseUrl(value, { prefix: 'bot_api_test_' });
   return url;
 });
 if (

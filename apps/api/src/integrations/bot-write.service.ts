@@ -1,3 +1,6 @@
+import { ReviewCoordinationService } from '../review/coordination.service';
+import type { z } from 'zod';
+import { botAssignmentInterventionSchema } from '@openconferences/schemas';
 import {
   BadRequestException,
   ConflictException,
@@ -11,7 +14,7 @@ import { botAssignmentSchema, type BotCreateAssignment } from '@openconferences/
 import { NotificationPublisher } from '../messaging/notification.publisher';
 import { CoiCheckService } from '../review/coi-check.service';
 import { RoundsService, lockReviewRound } from '../review/rounds.service';
-import { IntegrationStore } from './integration.store';
+import { IntegrationStore, type IntegrationAudit } from './integration.store';
 import type { IntegrationPrincipal } from './integration.security';
 
 export const BOT_ASSIGNMENT_ROUTE = '/integrations/v1/conferences/:conferenceId/assignments';
@@ -23,6 +26,7 @@ export class BotWriteService {
     private readonly rounds: RoundsService,
     private readonly coi: CoiCheckService,
     private readonly notifications: NotificationPublisher,
+    private readonly coordination: ReviewCoordinationService,
   ) {}
 
   private async authorize(tx: Prisma.TransactionClient, p: IntegrationPrincipal) {
@@ -32,6 +36,110 @@ export class BotWriteService {
       'papers:read',
       'reviewers:read',
     ]);
+  }
+
+  async intervene(
+    p: IntegrationPrincipal,
+    id: string,
+    input: z.infer<typeof botAssignmentInterventionSchema>,
+    recordAccess?: IntegrationAudit,
+  ) {
+    const hash = createHash('sha256')
+      .update(
+        JSON.stringify({
+          operation: 'assignment.intervention',
+          id,
+          ...input,
+          requestId: undefined,
+        }),
+      )
+      .digest('hex');
+    const result = await withTenantContext(
+      p,
+      async (tx) => {
+        const conference = await this.authorize(tx, p);
+        const prior = await tx.apiIntegrationMutation.findUnique({
+          where: {
+            integrationId_requestId: { integrationId: p.integrationId, requestId: input.requestId },
+          },
+        });
+        if (prior) {
+          if (prior.payloadHash !== hash)
+            throw new ConflictException(
+              'requestId was already used with different operation details',
+            );
+          await recordAccess?.(tx);
+          return {
+            data: prior.response as { assignmentId: string; message: string },
+            replayed: true as const,
+            conference,
+          };
+        }
+        let reviewerUserId: string | undefined;
+        if (input.reviewerId) {
+          const reference = await tx.apiIntegrationReviewerReference.findFirst({
+            where: {
+              id: input.reviewerId,
+              integrationId: p.integrationId,
+              conferenceId: p.conferenceId,
+            },
+            select: { reviewerUserId: true },
+          });
+          if (!reference) throw new NotFoundException('Resource not found');
+          reviewerUserId = reference.reviewerUserId;
+        }
+        const operation = {
+          action: input.action,
+          version: input.version,
+          reason: input.reason,
+          dueAt: input.dueAt,
+          reviewerUserId,
+        };
+        const outcome = await this.coordination.applyIntervention(
+          tx,
+          p.userId,
+          p.conferenceId,
+          { ...conference, organizationId: p.organizationId },
+          id,
+          operation,
+        );
+        const data = {
+          assignmentId: outcome.newAssignment?.id ?? id,
+          message:
+            input.action === 'RELEASE'
+              ? 'Assignment released; history preserved.'
+              : input.action === 'EXTEND'
+                ? 'Deadline extended.'
+                : 'Reviewer replaced; history preserved.',
+        };
+        await tx.apiIntegrationMutation.create({
+          data: {
+            id: randomUUID(),
+            integrationId: p.integrationId,
+            organizationId: p.organizationId,
+            conferenceId: p.conferenceId,
+            requestId: input.requestId,
+            payloadHash: hash,
+            response: data,
+          },
+        });
+        await recordAccess?.(tx);
+        return { data, replayed: false as const, conference, operation, outcome };
+      },
+      { timeout: 10000 },
+    );
+    if (!result.replayed && 'outcome' in result) {
+      const notification = await this.coordination.notifyIntervention(
+        p.userId,
+        p.conferenceId,
+        { ...result.conference, organizationId: p.organizationId },
+        id,
+        result.operation,
+        result.outcome,
+      );
+      return { ...notification, replayed: false };
+    }
+    return { ...result.data, replayed: true };
   }
 
   async assign(

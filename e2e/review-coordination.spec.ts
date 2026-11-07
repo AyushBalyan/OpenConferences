@@ -220,7 +220,9 @@ async function mockApi(
               ? 'Deadline extended.'
               : input.action === 'REPLACE'
                 ? 'Reviewer replaced. Original draft preserved.'
-                : 'Reminder queued.',
+                : input.action === 'RELEASE'
+                  ? 'Assignment released. Draft preserved.'
+                  : 'Reminder queued.',
         };
         if (input.action === 'EXTEND') {
           data.data[0]!.assignments[0]!.dueAt = input.dueAt;
@@ -516,4 +518,24 @@ test('paper search survives typing and links retain the URL filter', async ({ pa
   await expect(page.getByLabel('Find a paper')).toHaveValue('SYS-001');
   await expect(page).toHaveURL(/search=SYS-001/);
   await expect(page.getByText('Reliable conference review systems', { exact: true })).toBeVisible();
+});
+
+test('release requires a reason and explicitly confirms history preservation', async ({ page }) => {
+  const { actions } = await mockApi(page);
+  await page.goto(path);
+  await page.getByRole('button', { name: 'Reviewers (1)', exact: true }).click();
+  await page.getByRole('button', { name: 'Release assignment', exact: true }).first().click();
+  await expect(page.getByRole('heading', { name: 'Release reviewer assignments' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Confirm release', exact: true })).toBeDisabled();
+  await page
+    .getByLabel('Reason (recorded in the audit log)')
+    .fill('Reviewer cannot complete this assignment');
+  await page.getByRole('button', { name: 'Confirm release', exact: true }).click();
+  await expect(
+    page.getByRole('listitem').filter({ hasText: 'Assignment released. Draft preserved.' }),
+  ).toBeVisible();
+  expect(actions[0]).toMatchObject({
+    action: 'RELEASE',
+    reason: 'Reviewer cannot complete this assignment',
+  });
 });

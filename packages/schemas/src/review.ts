@@ -102,6 +102,17 @@ export const reviewerInvitationSchema = z.object({
   email: z.string().email(),
   invitedUserId: z.string().uuid().nullable(),
   status: invitationStatusSchema,
+  lifecycleStatus: z
+    .enum(['PENDING', 'SENT', 'ACCEPTED', 'DECLINED', 'EXPIRED', 'REVOKED'])
+    .optional(),
+  version: z.number().int().optional(),
+  sentAt: z.string().datetime().nullable().optional(),
+  acceptedAt: z.string().datetime().nullable().optional(),
+  declinedAt: z.string().datetime().nullable().optional(),
+  revokedAt: z.string().datetime().nullable().optional(),
+  name: z.string().nullable().optional(),
+  affiliation: z.string().nullable().optional(),
+  researchFields: z.array(z.string()).optional(),
   expiresAt: z.string().datetime(),
   roleNote: z.string().nullable(),
   createdAt: z.string().datetime(),
@@ -115,23 +126,28 @@ export const reviewerInvitationListSchema = z.object({
   nextCursor: z.string().uuid().nullable(),
 });
 
-export const reviewerInvitationListQuerySchema = cursorPaginationQuerySchema;
+export const reviewerInvitationListQuerySchema = cursorPaginationQuerySchema.extend({
+  includeHistory: z.enum(['true', 'false']).optional(),
+});
 
 export const issueReviewerInvitationSchema = z.object({
   email: z.string().email(),
   roleNote: z.string().max(500).optional(),
   delivery: z.enum(['EMAIL', 'LINK_ONLY']).optional(),
+  lifetimeDays: z.number().int().min(1).max(30).optional(),
 });
 
 export type IssueReviewerInvitationInput = z.infer<typeof issueReviewerInvitationSchema>;
 
 export const reviewerInvitationLinkSchema = z.object({
+  declineUrl: z.string().url().optional(),
   invitationUrl: z.string().url(),
   email: z.string().email(),
   expiresAt: z.string().datetime(),
 });
 
 export const issuedReviewerInvitationSchema = reviewerInvitationSchema.extend({
+  declineUrl: z.string().url().optional(),
   invitationUrl: z.string().url(),
 });
 
@@ -291,6 +307,7 @@ export const reviewerAssignmentSchema = z.object({
   paperId: z.string().uuid(),
   reviewerUserId: z.string().uuid(),
   status: assignmentStatusSchema,
+  releasedAt: z.string().datetime().nullable().optional(),
   dueAt: z.string().datetime().nullable(),
   version: z.number().int(),
   createdAt: z.string().datetime(),
@@ -670,7 +687,7 @@ export type CoordinationAssignmentDto = z.infer<typeof coordinationAssignmentSch
 
 export const assignmentInterventionSchema = z
   .object({
-    action: z.enum(['REMIND', 'EXTEND', 'REPLACE']),
+    action: z.enum(['REMIND', 'EXTEND', 'REPLACE', 'RELEASE']),
     version: z.number().int().nonnegative(),
     reason: z.string().trim().min(1).max(1000).optional(),
     dueAt: z.string().datetime().optional(),

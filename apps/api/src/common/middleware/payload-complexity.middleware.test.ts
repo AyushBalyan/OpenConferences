@@ -24,3 +24,17 @@ it('accepts the supported 500 recipient upload shape', () => {
     }),
   ).not.toThrow();
 });
+
+it('allows the bounded 1,000-row reviewer job budget without weakening other requests', () => {
+  const input = {
+    rows: Array.from({ length: 1000 }, () => ({
+      name: 'Synthetic researcher',
+      email: 'researcher@example.test',
+      affiliation: 'Institute',
+      researchFields: Array(30).fill('field'),
+      rowId: 'row',
+    })),
+  };
+  expect(() => assertPayloadComplexity(input)).toThrow('too complex');
+  expect(() => assertPayloadComplexity(input, 45000)).not.toThrow();
+});

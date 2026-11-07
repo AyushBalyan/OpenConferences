@@ -23,6 +23,7 @@ import {
 import { ConferenceService } from '../tenancy/conference.service';
 import { canCoordinateReview } from '../tenancy/role-hierarchy';
 type Tx = Prisma.TransactionClient;
+export type IntegrationAudit = (tx: Tx) => Promise<void>;
 export const keySelect = {
   id: true,
   label: true,

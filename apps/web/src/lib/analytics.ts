@@ -1,3 +1,9 @@
+// Explicit locale keeps server markup and the browser's first render identical.
+const ANALYTICS_LOCALE = 'en-US';
+export function formatAnalyticsNumber(value: number) {
+  return new Intl.NumberFormat(ANALYTICS_LOCALE, { maximumFractionDigits: 20 }).format(value);
+}
+
 export type ActivityPoint = {
   date: string;
   label: string;
@@ -36,7 +42,7 @@ export function activitySeries(rows: { date: string; count: number }[]): {
     const date = cursor.toISOString().slice(0, 10),
       count = counts.get(date) ?? 0;
     cumulative += count;
-    const long = new Intl.DateTimeFormat('en', {
+    const long = new Intl.DateTimeFormat(ANALYTICS_LOCALE, {
       timeZone: 'UTC',
       day: 'numeric',
       month: 'short',
@@ -46,7 +52,7 @@ export function activitySeries(rows: { date: string; count: number }[]): {
       date,
       label:
         kind === 'month'
-          ? new Intl.DateTimeFormat('en', {
+          ? new Intl.DateTimeFormat(ANALYTICS_LOCALE, {
               timeZone: 'UTC',
               month: 'long',
               year: 'numeric',
@@ -54,7 +60,7 @@ export function activitySeries(rows: { date: string; count: number }[]): {
           : kind === 'week'
             ? `Week of ${long}`
             : long,
-      shortLabel: new Intl.DateTimeFormat('en', {
+      shortLabel: new Intl.DateTimeFormat(ANALYTICS_LOCALE, {
         timeZone: 'UTC',
         ...(kind === 'month'
           ? { month: 'short', year: '2-digit' }
@@ -70,12 +76,12 @@ export function activitySeries(rows: { date: string; count: number }[]): {
 }
 export function formatAnalyticsMoney(minor: number, currency: string) {
   try {
-    return new Intl.NumberFormat(undefined, {
+    return new Intl.NumberFormat(ANALYTICS_LOCALE, {
       style: 'currency',
       currency,
       maximumFractionDigits: 2,
     }).format(minor / 100);
   } catch {
-    return `${(minor / 100).toLocaleString()} ${currency}`;
+    return `${formatAnalyticsNumber(minor / 100)} ${currency}`;
   }
 }

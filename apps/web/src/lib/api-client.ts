@@ -805,11 +805,11 @@ export async function updateReviewRound(
   throw new Error('Failed to update review round');
 }
 
-export async function fetchReviewerInvitations(conferenceId: string) {
+export async function fetchReviewerInvitations(conferenceId: string, includeHistory = false) {
   return fetchAllPages(async (query) => {
     const result = await apiClient.review.listInvitations({
       params: { conferenceId },
-      query,
+      query: { ...query, ...(includeHistory ? { includeHistory: 'true' as const } : {}) },
     });
     if (result.status !== 200) throw new Error('Failed to load invitations');
     return result.body;
@@ -818,12 +818,34 @@ export async function fetchReviewerInvitations(conferenceId: string) {
 
 export async function issueReviewerInvitation(
   conferenceId: string,
-  body: { email: string; roleNote?: string; delivery?: 'EMAIL' | 'LINK_ONLY' },
+  body: {
+    email: string;
+    roleNote?: string;
+    delivery?: 'EMAIL' | 'LINK_ONLY';
+    lifetimeDays?: number;
+  },
 ) {
   const result = await apiClient.review.issueInvitation({ params: { conferenceId }, body });
   if (result.status === 201) return result.body;
   if (result.status === 409) throw new Error(result.body.detail ?? 'Invitation exists');
   throw new Error('Failed to issue invitation');
+}
+
+export async function operateReviewerInvitation(
+  conferenceId: string,
+  invitationId: string,
+  body: {
+    action: 'EXTEND' | 'REISSUE' | 'REVOKE' | 'REINVITE';
+    version: number;
+    lifetimeDays?: number;
+  },
+) {
+  const result = await apiClient.review.invitationOperation({
+    params: { conferenceId, invitationId },
+    body: { ...body, requestId: crypto.randomUUID() },
+  });
+  if (result.status === 200) return result.body;
+  throw new Error('Could not update invitation. Refresh the list and try again.');
 }
 
 export async function fetchReviewerInvitationLink(conferenceId: string, invitationId: string) {

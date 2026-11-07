@@ -12,6 +12,7 @@ FROM unnest(
   ARRAY[
     'noop.smoke',
     'reviewer.reminder_digest.prepare',
+    'reviewer.invitation_batch',
     'integration.access-retention',
     'email.send',
     'notification.send',

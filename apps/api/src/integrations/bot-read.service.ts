@@ -436,6 +436,7 @@ export class BotReadService {
       const invitations = await tx.reviewerInvitation.findMany({
         where: {
           conferenceId: p.conferenceId,
+          revokedAt: null,
           ...status,
           ...(cursor ? { id: { gt: cursor } } : {}),
           ...(q.email ? { email: { contains: q.email, mode: 'insensitive' } } : {}),
@@ -447,6 +448,7 @@ export class BotReadService {
           invitedUserId: true,
           createdAt: true,
           expiresAt: true,
+          sentAt: true,
           invitedUser: { select: { name: true, deletedAt: true } },
         },
         orderBy: { id: 'asc' },
@@ -487,6 +489,13 @@ export class BotReadService {
           : {}),
         createdAt: i.createdAt.toISOString(),
         expiresAt: i.expiresAt.toISOString(),
+        sentAt: i.sentAt?.toISOString() ?? null,
+        lifecycleStatus:
+          i.status === 'PENDING' && i.expiresAt > now && i.sentAt
+            ? 'SENT'
+            : i.status === 'PENDING' && i.expiresAt <= now
+              ? 'EXPIRED'
+              : i.status,
       })),
       nextCursor:
         rows.length > q.limit
@@ -559,6 +568,13 @@ export class BotReadService {
       conference: { id: p.conferenceId, name: p.conferenceName, timezone: 'UTC' as const },
       scopes: p.scopes,
       expiresAt: p.expiresAt.toISOString(),
+      reviewerOperations: {
+        basePath: `/integrations/v1/conferences/${p.conferenceId}/reviewer-operations`,
+        maxBatchRows: 1000 as const,
+        maxExtensionOperations: 100 as const,
+        resultRetentionDays: 7 as const,
+        publicDecline: true as const,
+      },
       limits: {
         defaultPageSize: 25,
         maxPageSize: 100,

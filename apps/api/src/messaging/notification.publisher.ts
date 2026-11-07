@@ -151,6 +151,7 @@ export class NotificationPublisher {
       context: {
         conferenceName: payload.conferenceName,
         signupUrl: payload.signupUrl,
+        declineUrl: payload.declineUrl ?? '',
         expiresAt: payload.expiresAt,
       },
       organizationId: payload.organizationId,

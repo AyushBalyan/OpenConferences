@@ -11,6 +11,7 @@ import {
   withTenantContext,
   assertSafeDatabaseRole,
   pruneIntegrationAccessLogs,
+  invitationTokenHash,
 } from '@openconferences/db';
 import { INTEGRATION_SCOPES, effectiveReviewDeadline } from '@openconferences/schemas';
 import { AuthService } from '../auth/auth.service';
@@ -24,6 +25,7 @@ import { BotReadService } from './bot-read.service';
 import { BotWriteService } from './bot-write.service';
 import { BotInvitationsService } from './bot-invitations.service';
 import { InvitationsService } from '../review/invitations.service';
+import { ReviewCoordinationService } from '../review/coordination.service';
 import { CoiCheckService } from '../review/coi-check.service';
 import { RoundsService } from '../review/rounds.service';
 import { AuditService } from '../audit/audit.service';
@@ -353,6 +355,7 @@ describe('Bot API HTTP + actual PostgreSQL RLS + Redis', () => {
         BotInvitationsService,
         InvitationsService,
         CoiCheckService,
+        ReviewCoordinationService,
         RoundsService,
         { provide: AuditService, useValue: { log: vi.fn() } },
         { provide: NotificationPublisher, useValue: { publishReviewerAssigned: assignmentEmail } },
@@ -798,7 +801,9 @@ describe('Bot API HTTP + actual PostgreSQL RLS + Redis', () => {
       expect(
         await owner.apiIntegrationAccessLog.findUnique({ where: { id: fresh } }),
       ).not.toBeNull();
-      await expect(worker.apiIntegrationKey.count()).rejects.toThrow();
+      await expect(
+        worker.apiIntegrationKey.findMany({ select: { secretHash: true } }),
+      ).rejects.toThrow();
       expect(await worker.apiIntegrationAccessLog.deleteMany({ where: { id: fresh } })).toEqual({
         count: 0,
       });
@@ -1293,7 +1298,9 @@ describe('Bot API HTTP + actual PostgreSQL RLS + Redis', () => {
       where: { id: invitation.id },
     });
     expect(saved.invitedUserId).toBe(author);
-    expect(saved.token).toBe(link.searchParams.get('reviewerInvite'));
+    expect(saved.token).toBe(invitationTokenHash(link.searchParams.get('reviewerInvite')!));
+    expect(invitation.lifecycleStatus).toBe('SENT');
+    expect(saved.sentAt).toBeTruthy();
     expect(saved.expiresAt.getTime() - saved.createdAt.getTime()).toBeGreaterThan(6.99 * 86400000);
     expect(
       await owner.membership.count({
@@ -1384,7 +1391,9 @@ describe('Bot API HTTP + actual PostgreSQL RLS + Redis', () => {
       replayed: true,
       data: [{ id: row.id, status: 'REMOVED', invitationUrl: null }],
     });
-    expect(await owner.reviewerInvitation.count({ where: { id: row.id } })).toBe(0);
+    expect(
+      await owner.reviewerInvitation.count({ where: { id: row.id, revokedAt: { not: null } } }),
+    ).toBe(1);
     expect((await invite({ requestId, emails: body.emails })).status).toBe(409);
     const replacement = (await invite({ ...body, requestId: id() })).body.data[0];
     expect(replacement.id).not.toBe(row.id);

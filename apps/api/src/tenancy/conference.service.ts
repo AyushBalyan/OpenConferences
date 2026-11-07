@@ -324,6 +324,9 @@ export class ConferenceService {
         tx.conference.update({
           where: { id: conferenceId },
           data: {
+            ...(input.invitationLifetimeDays !== undefined
+              ? { invitationLifetimeDays: input.invitationLifetimeDays }
+              : {}),
             ...(input.blindingMode !== undefined ? { blindingMode: input.blindingMode } : {}),
             ...(input.reviewConfig !== undefined ? { reviewConfig: input.reviewConfig } : {}),
             ...(input.feeSchedule !== undefined ? { feeSchedule: input.feeSchedule } : {}),

@@ -1,3 +1,4 @@
+import { ReviewCoordinationService } from './coordination.service';
 import {
   BadRequestException,
   ConflictException,
@@ -19,7 +20,6 @@ import {
   resolveLimit,
   type CursorPaginationOptions,
 } from '../common/pagination/cursor';
-import { assertScope } from '../common/scope/assert-scope';
 import { AuditService } from '../audit/audit.service';
 import { NotificationPublisher } from '../messaging/notification.publisher';
 import { ConferenceService } from '../tenancy/conference.service';
@@ -42,6 +42,7 @@ export class AssignmentsService {
     private readonly coiCheck: CoiCheckService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationPublisher,
+    private readonly coordination: ReviewCoordinationService,
   ) {}
 
   async list(
@@ -368,36 +369,26 @@ export class AssignmentsService {
   }
 
   async unassign(userId: string, conferenceId: string, assignmentId: string, roles: RoleKind[]) {
-    if (!canCoordinateReview(roles)) {
+    if (!canCoordinateReview(roles))
       throw new ForbiddenException('Insufficient permissions to remove assignments');
-    }
-
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-
-    const assignment = await withTenantContext({ userId, conferenceId }, async (tx) =>
-      tx.reviewerAssignment.findFirst({ where: { id: assignmentId } }),
-    );
-
-    if (!assignment) {
-      throw new NotFoundException('Assignment not found');
-    }
-
-    assertScope(assignment, { conferenceId });
-
-    await withTenantContext(
+    const row = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
-      async (tx) => tx.reviewerAssignment.delete({ where: { id: assignmentId } }),
+      (tx) => tx.reviewerAssignment.findFirst({ where: { id: assignmentId, conferenceId } }),
     );
-
-    await this.audit.log({
-      actorUserId: userId,
-      organizationId: conference.organizationId,
+    if (!row) throw new NotFoundException('Assignment not found');
+    if (row.releasedAt) return;
+    await this.coordination.intervene(
+      userId,
       conferenceId,
-      action: 'reviewer.unassigned',
-      entity: 'ReviewerAssignment',
-      entityId: assignmentId,
-      diff: { paperId: assignment.paperId, reviewerUserId: assignment.reviewerUserId },
-    });
+      assignmentId,
+      {
+        action: 'RELEASE',
+        version: row.version,
+        reason: 'Released through the organizer assignment removal action',
+      },
+      roles,
+    );
   }
 
   private async tryCreateAssignment(

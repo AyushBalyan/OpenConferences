@@ -1,4 +1,8 @@
-import { isIntegrationUrl, integrationLogUrl } from './integrations/integration.http';
+import {
+  isIntegrationUrl,
+  integrationLogUrl,
+  isSensitiveUrl,
+} from './integrations/integration.http';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { EventEmitterModule } from '@nestjs/event-emitter';
@@ -35,7 +39,7 @@ const config = getConfig();
         redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
         serializers: {
           req: (req) =>
-            isIntegrationUrl(req.url ?? '')
+            isIntegrationUrl(req.url ?? '') || isSensitiveUrl(req.url ?? '')
               ? { id: req.id, method: req.method, url: integrationLogUrl(req.url ?? '') }
               : req,
         },

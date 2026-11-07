@@ -348,7 +348,21 @@ describe.skipIf(!url)('in-app updates with real local PostgreSQL and API RLS', (
         }),
       ),
     ).rejects.toThrow();
-    await expect(scoped(chair, (tx) => tx.conferenceUpdate.deleteMany())).rejects.toThrow();
+    const retained = await db.conferenceUpdate.findMany({
+      where: { organizationId: org },
+      select: { id: true },
+      orderBy: { id: 'asc' },
+    });
+    expect(retained.length).toBeGreaterThan(0);
+    // RLS can deny DELETE by matching zero rows without raising a permission error.
+    expect(await scoped(chair, (tx) => tx.conferenceUpdate.deleteMany())).toEqual({ count: 0 });
+    expect(
+      await db.conferenceUpdate.findMany({
+        where: { organizationId: org },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+      }),
+    ).toEqual(retained);
     await expect(
       service.acknowledge(scope(), { kind: 'CONFERENCE', sourceId: randomUUID(), version: 0 }, [
         'CHAIR',

@@ -59,6 +59,9 @@ function canonical(value: unknown): string {
     );
   return JSON.stringify(value);
 }
+export function integrationPayloadHash(value: unknown): string {
+  return createHash('sha256').update(canonical(value)).digest('hex');
+}
 function cursorContext(p: IntegrationPrincipal, resource: string, q: BotQuery) {
   const { cursor: _c, limit: _l, ...filters } = q;
   return canonical({

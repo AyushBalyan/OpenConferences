@@ -1,12 +1,19 @@
+import { getConfig } from '@openconferences/config/env';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, withTenantContext } from '@openconferences/db';
-import { randomBytes, randomUUID, createHash } from 'node:crypto';
+import {
+  Prisma,
+  withTenantContext,
+  newInvitationSecret,
+  recordInvitationChange,
+  invitationLifecycle,
+} from '@openconferences/db';
+import { randomUUID, createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { BotGenerateInvitations, IntegrationScope } from '@openconferences/schemas';
 import { botInvitationLinkSchema } from '@openconferences/schemas';
 import {
   lockInvitationEmails,
-  reviewerInvitationUrl,
+  invitationLinks,
   REVIEWER_INVITATION_TTL_DAYS,
 } from '../review/invitation-links';
 import { IntegrationStore } from './integration.store';
@@ -35,22 +42,35 @@ export class BotInvitationsService {
   private async render(tx: Tx, p: IntegrationPrincipal, ids: string[], emails: string[]) {
     const rows = await tx.reviewerInvitation.findMany({
       where: { conferenceId: p.conferenceId, id: { in: ids } },
-      select: { id: true, email: true, token: true, status: true, expiresAt: true },
+      select: {
+        id: true,
+        email: true,
+        token: true,
+        tokenCiphertext: true,
+        status: true,
+        expiresAt: true,
+        revokedAt: true,
+        sentAt: true,
+      },
     });
     const byId = new Map(rows.map((i) => [i.id, i]));
     return ids.map((id, index) => {
       const i = byId.get(id);
-      const status = !i
-        ? ('REMOVED' as const)
-        : i.status === 'PENDING' && i.expiresAt <= new Date()
-          ? ('EXPIRED' as const)
-          : i.status;
+      const status =
+        !i || i.revokedAt
+          ? ('REMOVED' as const)
+          : i.status === 'PENDING' && i.expiresAt <= new Date()
+            ? ('EXPIRED' as const)
+            : i.status;
       return botInvitationLinkSchema.parse({
         id,
         email: i?.email ?? emails[index],
         status,
         expiresAt: i?.expiresAt.toISOString() ?? null,
-        invitationUrl: i && status === 'PENDING' ? reviewerInvitationUrl(i.token) : null,
+        invitationUrl: i && status === 'PENDING' ? invitationLinks(i).invitationUrl : null,
+        declineUrl: i && status === 'PENDING' ? invitationLinks(i).declineUrl : null,
+        lifecycleStatus: i ? invitationLifecycle(i) : 'REVOKED',
+        sentAt: i?.sentAt?.toISOString() ?? null,
       });
     });
   }
@@ -61,17 +81,30 @@ export class BotInvitationsService {
       async (tx) => {
         await tx.$executeRaw`SET LOCAL statement_timeout = '3s'`;
         await this.store.authorizeOperation(tx, p, READ, false);
-        const invitation = await tx.reviewerInvitation.findFirst({
-          where: { id: invitationId, conferenceId: p.conferenceId },
-          select: { email: true },
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`invitation-changes:${p.conferenceId}`},0))::text`;
+        await tx.$queryRaw`SELECT id FROM reviewer_invitations WHERE id=${invitationId}::uuid AND "conferenceId"=${p.conferenceId}::uuid FOR UPDATE`;
+        let invitation = await tx.reviewerInvitation.findFirst({
+          where: { id: invitationId, conferenceId: p.conferenceId, revokedAt: null },
         });
+        if (
+          invitation &&
+          invitation.status === 'PENDING' &&
+          invitation.expiresAt > new Date() &&
+          !invitation.sentAt
+        ) {
+          invitation = await tx.reviewerInvitation.update({
+            where: { id: invitationId },
+            data: { sentAt: new Date(), version: { increment: 1 } },
+          });
+          await recordInvitationChange(tx, invitation, 'SENT_LINK_GENERATED', p.userId);
+        }
         if (!invitation) throw new NotFoundException('Invitation not found');
         const result = (await this.render(tx, p, [invitationId], [invitation.email]))[0]!;
         if (result.status !== 'PENDING')
           throw new ConflictException('Only unexpired pending invitation links can be shared');
         return result;
       },
-      { readOnly: true, timeout: 5000, isolationLevel: 'RepeatableRead' },
+      { timeout: 5000 },
     );
   }
 
@@ -103,6 +136,7 @@ export class BotInvitationsService {
             );
           ids = generated.parse(prior.response).ids;
         } else {
+          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`invitation-changes:${p.conferenceId}`},0))::text`;
           await lockInvitationEmails(tx, p.conferenceId, emails);
           const now = new Date();
           const pending = await tx.reviewerInvitation.findMany({
@@ -110,6 +144,7 @@ export class BotInvitationsService {
               conferenceId: p.conferenceId,
               email: { in: emails, mode: 'insensitive' },
               status: 'PENDING',
+              revokedAt: null,
               expiresAt: { gt: now },
             },
             orderBy: { createdAt: 'desc' },
@@ -127,9 +162,20 @@ export class BotInvitationsService {
           for (const email of emails) {
             const existing = current.get(email);
             if (existing) {
+              const row = await tx.reviewerInvitation.findUniqueOrThrow({
+                where: { id: existing },
+              });
+              if (!row.sentAt) {
+                const updated = await tx.reviewerInvitation.update({
+                  where: { id: existing },
+                  data: { sentAt: now, version: { increment: 1 } },
+                });
+                await recordInvitationChange(tx, updated, 'SENT_LINK_GENERATED', p.userId);
+              }
               ids.push(existing);
               continue;
             }
+            const secret = newInvitationSecret(getConfig().auth.secret);
             const invitation = await tx.reviewerInvitation.create({
               data: {
                 id: randomUUID(),
@@ -137,12 +183,15 @@ export class BotInvitationsService {
                 conferenceId: p.conferenceId,
                 email,
                 invitedUserId: byEmail.get(email) ?? null,
-                token: randomBytes(32).toString('hex'),
+                token: secret.token,
+                tokenCiphertext: secret.tokenCiphertext,
+                sentAt: now,
+                conferenceName: p.conferenceName,
                 status: 'PENDING',
                 expiresAt: new Date(now.getTime() + REVIEWER_INVITATION_TTL_DAYS * 86400000),
               },
-              select: { id: true },
             });
+            await recordInvitationChange(tx, invitation, 'SENT_LINK_GENERATED', p.userId);
             ids.push(invitation.id);
             await this.audit(tx, p, invitation.id, input.requestId, 'generated');
           }
@@ -209,19 +258,25 @@ export class BotInvitationsService {
               'requestId was already used with different operation details',
             );
         } else {
+          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`invitation-changes:${p.conferenceId}`},0))::text`;
           await tx.$queryRaw`SELECT id FROM reviewer_invitations WHERE id=${invitationId}::uuid AND "conferenceId"=${p.conferenceId}::uuid FOR UPDATE`;
           const invitation = await tx.reviewerInvitation.findFirst({
-            where: { id: invitationId, conferenceId: p.conferenceId },
+            where: { id: invitationId, conferenceId: p.conferenceId, revokedAt: null },
             select: { status: true },
           });
           if (!invitation) throw new NotFoundException('Invitation not found');
           if (invitation.status !== 'PENDING')
             throw new ConflictException('Only pending invitations can be removed');
-          const deleted = await tx.reviewerInvitation.deleteMany({
+          const deleted = await tx.reviewerInvitation.updateMany({
             where: { id: invitationId, conferenceId: p.conferenceId, status: 'PENDING' },
+            data: { status: 'EXPIRED', revokedAt: new Date(), version: { increment: 1 } },
           });
           if (deleted.count !== 1)
             throw new ConflictException('Invitation changed. Refresh and retry.');
+          const retired = await tx.reviewerInvitation.findUniqueOrThrow({
+            where: { id: invitationId },
+          });
+          await recordInvitationChange(tx, retired, 'REVOKED', p.userId);
           await this.audit(tx, p, invitationId, requestId, 'removed');
           await tx.apiIntegrationMutation.create({
             data: {

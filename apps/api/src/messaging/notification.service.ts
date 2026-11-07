@@ -1,3 +1,4 @@
+import { sealInvitationMail } from '@openconferences/db';
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { getConfig } from '@openconferences/config/env';
 import type { NotificationLog, NotificationStatus, Prisma } from '@openconferences/db';
@@ -103,8 +104,26 @@ export class NotificationService {
 
     const context = await this.withConferenceBrand(input);
     const subject = renderTemplate(template.subject, context);
-    const html = renderTemplate(template.bodyHtml, context);
-    const text = template.bodyText ? renderTemplate(template.bodyText, context) : undefined;
+    let html = renderTemplate(template.bodyHtml, context);
+    let text = template.bodyText ? renderTemplate(template.bodyText, context) : undefined;
+    // Existing organization templates keep their wording and branding. The new
+    // response action must remain available before their next template revision.
+    if (
+      input.templateKey === 'reviewer.invitation' &&
+      typeof context.declineUrl === 'string' &&
+      context.declineUrl
+    ) {
+      if (!/\{\{\s*declineUrl\s*\}\}/.test(template.bodyHtml))
+        html += renderTemplate(
+          '<p>To decline this invitation, <a href="{{declineUrl}}">open the decline confirmation page</a>. No login is needed.</p>',
+          context,
+        );
+      if (text && !/\{\{\s*declineUrl\s*\}\}/.test(template.bodyText ?? ''))
+        text += renderTemplate(
+          '\n\nTo decline this invitation, open {{declineUrl}}. You will be asked to confirm; no login is needed.',
+          context,
+        );
+    }
 
     if (getConfig().isTest) {
       lastTestNotification = {
@@ -117,6 +136,14 @@ export class NotificationService {
       lastTestNotifications.push(lastTestNotification);
     }
 
+    const protectedHtml =
+      input.templateKey === 'reviewer.invitation'
+        ? sealInvitationMail(html, getConfig().auth.secret)
+        : html;
+    const protectedText =
+      input.templateKey === 'reviewer.invitation' && text
+        ? sealInvitationMail(text, getConfig().auth.secret)
+        : text;
     const logId = generateId();
 
     // Commit the receipt log and its queue job together. A scheduling failure
@@ -131,7 +158,7 @@ export class NotificationService {
           templateVersion: template.version,
           toEmail: normalizedEmail,
           subject,
-          renderedHtml: html,
+          renderedHtml: protectedHtml,
           status: 'QUEUED',
           idempotencyKey: input.idempotencyKey ?? null,
           relatedEntity: input.relatedEntity ?? null,
@@ -143,8 +170,8 @@ export class NotificationService {
           logId,
           to: normalizedEmail,
           subject,
-          html,
-          text,
+          html: protectedHtml,
+          text: protectedText,
           replyTo: input.replyTo,
           tags: input.tags ?? [input.templateKey],
           idempotencyKey: input.idempotencyKey,
@@ -251,6 +278,11 @@ export class NotificationService {
       original.templateKey,
     );
 
+    const originalHtml = original.renderedHtml ?? template.bodyHtml;
+    const resendHtml =
+      original.templateKey === 'reviewer.invitation'
+        ? sealInvitationMail(originalHtml, getConfig().auth.secret)
+        : originalHtml;
     const newLogId = generateId();
     const idempotencyKey = `resend:${original.id}:${Date.now()}`;
 
@@ -264,7 +296,7 @@ export class NotificationService {
           templateVersion: template.version,
           toEmail: original.toEmail,
           subject: original.subject,
-          renderedHtml: original.renderedHtml,
+          renderedHtml: resendHtml,
           status: 'QUEUED',
           idempotencyKey,
           relatedEntity: original.relatedEntity,
@@ -277,7 +309,7 @@ export class NotificationService {
       logId: newLogId,
       to: original.toEmail,
       subject: original.subject,
-      html: original.renderedHtml ?? template.bodyHtml,
+      html: resendHtml,
       tags: [original.templateKey, 'resend'],
       idempotencyKey,
     });

@@ -1,3 +1,4 @@
+import { InvitationPublicController } from './invitation-public.controller';
 import { ReviewCoordinationService } from './coordination.service';
 import { ReviewerOverviewService } from './reviewer-overview.service';
 import { Module } from '@nestjs/common';
@@ -17,7 +18,7 @@ import { RoundsService } from './rounds.service';
 
 @Module({
   imports: [AuthModule, TenancyModule, AuditModule, BillingModule],
-  controllers: [ReviewController, ReviewInvitationController],
+  controllers: [ReviewController, ReviewInvitationController, InvitationPublicController],
   providers: [
     ReviewCoordinationService,
     ReviewerOverviewService,
@@ -32,6 +33,7 @@ import { RoundsService } from './rounds.service';
     DecisionsService,
   ],
   exports: [
+    ReviewCoordinationService,
     RoundsService,
     AssignmentsService,
     CoiCheckService,

@@ -8,7 +8,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { fetchAnalyticsOverview } from '@/lib/api-client';
 import { decisionOutcomeLabel } from '@/lib/review-types';
 import { paperStatusLabel } from '@/lib/submission-types';
-import { formatAnalyticsMoney } from '@/lib/analytics';
+import './analytics/analytics.css';
+import { formatAnalyticsMoney, formatAnalyticsNumber } from '@/lib/analytics';
 import {
   CategoryChart,
   EmptyChart,
@@ -17,7 +18,7 @@ import {
   chartColors,
   type ChartPoint,
 } from './analytics/analytics-charts';
-const number = (n: number) => n.toLocaleString();
+const number = formatAnalyticsNumber;
 const words = (s: string) =>
   s
     .toLowerCase()
@@ -25,18 +26,26 @@ const words = (s: string) =>
     .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
     .join(' ');
 const sections = [
+  ['submission-activity', 'Paper activity'],
   ['review-health', 'Review health'],
-  ['submission-activity', 'Submissions & decisions'],
   ['participation', 'People & institutions'],
   ['registration-finance', 'Registration & finances'],
 ];
-export function AnalyticsOverview({ conferenceId }: { conferenceId: string }) {
-  const [snapshot, setSnapshot] = useState<ConferenceAnalyticsOverview | null>(null),
-    [loadedId, setLoadedId] = useState(''),
-    [loading, setLoading] = useState(true),
+export function AnalyticsOverview({
+  conferenceId,
+  preview,
+}: {
+  conferenceId: string;
+  preview?: ConferenceAnalyticsOverview;
+}) {
+  const [snapshot, setSnapshot] = useState<ConferenceAnalyticsOverview | null>(preview ?? null),
+    [loadedId, setLoadedId] = useState(preview ? conferenceId : ''),
+    [loading, setLoading] = useState(!preview),
     [error, setError] = useState<string | null>(null),
-    [revision, setRevision] = useState(0);
+    [revision, setRevision] = useState(0),
+    [currencyChoice, setCurrencyChoice] = useState({ conferenceId, currency: '' });
   useEffect(() => {
+    if (preview) return;
     let alive = true;
     setLoading(true);
     setError(null);
@@ -56,28 +65,69 @@ export function AnalyticsOverview({ conferenceId }: { conferenceId: string }) {
     return () => {
       alive = false;
     };
-  }, [conferenceId, revision]);
-  const overview = loadedId === conferenceId ? snapshot : null;
+  }, [conferenceId, revision, preview]);
+  const currentSnapshot = loadedId === conferenceId ? snapshot : null;
+  const selectedReport =
+    currencyChoice.conferenceId === conferenceId
+      ? currentSnapshot?.currencyReports?.find(
+          (report) => report.currency === currencyChoice.currency,
+        )
+      : undefined;
+  const overview = currentSnapshot ? { ...currentSnapshot, ...selectedReport } : null;
   const base = `/dashboard/conferences/${conferenceId}`;
   const toolbar = (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <p className="text-xs text-slate-600">
-        {overview
-          ? `Updated ${new Date(overview.computedAt).toLocaleString()} · your local time`
-          : 'Conference analytics'}
+        {overview ? (
+          <>
+            <span>Updated </span>
+            <LocalTime value={overview.computedAt} /> · your local time
+          </>
+        ) : (
+          'Conference analytics'
+        )}
       </p>
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={loading}
-        onClick={() => setRevision((n) => n + 1)}
-      >
-        <RefreshCw
-          className={`mr-2 h-3.5 w-3.5 ${loading ? 'motion-safe:animate-spin' : ''}`}
-          aria-hidden="true"
-        />
-        {loading ? 'Refreshing…' : 'Refresh analytics'}
-      </Button>
+      <div className="flex flex-wrap items-center gap-3">
+        {overview && (
+          <label className="flex items-center gap-2 text-xs text-slate-600">
+            Reporting currency
+            <select
+              className="analytics-select"
+              aria-label="Reporting currency"
+              value={overview.currency}
+              onChange={(event) =>
+                setCurrencyChoice({ conferenceId, currency: event.target.value })
+              }
+            >
+              {(currentSnapshot?.currencyReports ?? [overview]).map((report) => (
+                <option key={report.currency} value={report.currency}>
+                  {report.currency === 'USD'
+                    ? 'USD · US dollar'
+                    : report.currency === 'INR'
+                      ? 'INR · Indian rupee'
+                      : report.currency}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={loading}
+          onClick={() =>
+            preview
+              ? setSnapshot({ ...preview, computedAt: new Date().toISOString() })
+              : setRevision((n) => n + 1)
+          }
+        >
+          <RefreshCw
+            className={`mr-2 h-3.5 w-3.5 ${loading ? 'motion-safe:animate-spin' : ''}`}
+            aria-hidden="true"
+          />
+          {loading ? 'Refreshing…' : 'Refresh analytics'}
+        </Button>
+      </div>
     </div>
   );
   if (!overview)
@@ -102,15 +152,15 @@ export function AnalyticsOverview({ conferenceId }: { conferenceId: string }) {
   const r = overview.reviews;
   const progress: ChartPoint[] = [
     { name: 'Submitted', value: r.submitted, color: chartColors.teal },
-    { name: 'Draft saved', value: r.draft, color: chartColors.indigo },
-    { name: 'Not started', value: r.notStarted, color: chartColors.amber },
+    { name: 'Draft saved', value: r.draft, color: '#94a3b8' },
+    { name: 'Not started', value: r.notStarted, color: '#cbd5e1' },
     { name: 'Closed incomplete', value: r.closedIncomplete ?? 0, color: chartColors.slate },
     { name: 'Needs data check', value: r.inconsistent ?? 0, color: chartColors.rose },
   ];
   const statuses = overview.submissions.byStatus.map((p) => ({
     name: paperStatusLabel(p.status),
     value: p.count,
-    color: p.status === 'UNDER_REVIEW' ? chartColors.indigo : chartColors.slate,
+    color: p.status === 'UNDER_REVIEW' ? chartColors.accent : chartColors.slate,
   }));
   const decisions = overview.decisions.byOutcome.map((p) => ({
     name: decisionOutcomeLabel(p.outcome),
@@ -126,56 +176,38 @@ export function AnalyticsOverview({ conferenceId }: { conferenceId: string }) {
   const excluded = overview.submissions.excluded ?? { draft: 0, withdrawn: 0 };
   const money = (minor: number) => formatAnalyticsMoney(minor, overview.currency);
   return (
-    <div className="space-y-7" aria-busy={loading}>
+    <div className="analytics-workspace space-y-5" aria-busy={loading}>
       {toolbar}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-[#f2f7f6] px-4 py-3 text-sm">
+        <p className="text-slate-700">
+          {r.assigned ? (
+            <>
+              <strong className="font-semibold text-slate-900">
+                {((r.submitted / r.assigned) * 100).toFixed(1)}% of reviews submitted.
+              </strong>{' '}
+              {number(r.overdue)} overdue assignments need follow-up.
+            </>
+          ) : (
+            'Review progress will appear once reviewers are assigned.'
+          )}
+        </p>
+        <Link
+          className="inline-flex items-center gap-1.5 font-medium text-teal-800"
+          href={`${base}/reviews/rounds?queue=OVERDUE`}
+        >
+          Review queue <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+        </Link>
+      </div>
       {error && (
         <p
           role="alert"
           className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
         >
           Refresh failed. Showing the previous snapshot from{' '}
-          {new Date(overview.computedAt).toLocaleString()}. Refresh to try again.
+          <LocalTime value={overview.computedAt} />. Refresh to try again.
         </p>
       )}
-      <div className="space-y-3 rounded-xl border border-slate-200 bg-white px-5 py-4">
-        <p className="text-sm text-slate-700">
-          <strong className="font-semibold text-slate-900">
-            {number(overview.submissions.total)} included papers.
-          </strong>{' '}
-          {number(excluded.draft)} drafts and {number(excluded.withdrawn)} withdrawn papers excluded
-          from paper metrics.
-        </p>
-        <details className="text-sm">
-          <summary className="w-fit cursor-pointer rounded-sm text-slate-600 underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-indigo-600">
-            How these numbers are counted
-          </summary>
-          <ul className="mt-3 max-w-3xl list-disc space-y-2 pl-5 text-slate-600">
-            <li>
-              Submissions, authors, institutions, reviews, decisions and registrations exclude draft
-              papers and both withdrawal statuses.
-            </li>
-            <li>
-              Reviews and decisions use only the latest review cycle for each paper. Submitted
-              reviews stay submitted while edits are pending. Overdue work is a subset of drafts and
-              not-started reviews.
-            </li>
-            <li>
-              Coverage counts papers still open for review with fewer submitted reviews than
-              required. Released or decided cycles are closed.
-            </li>
-            <li>
-              Activity uses paper creation dates in UTC. The system does not store a dedicated
-              first-submission timestamp.
-            </li>
-            <li>
-              Net receipts are captured payments minus refund records in {overview.currency},
-              including money received for subsequently withdrawn papers. Other currencies are never
-              added together.
-            </li>
-          </ul>
-        </details>
-      </div>
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-5 border-y border-slate-200 py-5 xl:grid-cols-4">
+      <dl className="analytics-summary grid grid-cols-2 gap-x-6 gap-y-5 xl:grid-cols-4">
         <Summary
           label="Included papers"
           value={number(overview.submissions.total)}
@@ -194,20 +226,58 @@ export function AnalyticsOverview({ conferenceId }: { conferenceId: string }) {
         <Summary
           label={`Net receipts · ${overview.currency}`}
           value={money(overview.revenueMinor)}
-          detail="Captured receipts less refunds"
+          detail={
+            overview.revenueConversion
+              ? 'All convertible currencies · less refunds'
+              : 'Captured receipts less refunds'
+          }
         />
       </dl>
-      <nav aria-label="Analytics sections" className="flex flex-wrap gap-x-5 gap-y-3 text-sm">
+      <nav
+        aria-label="Analytics sections"
+        className="analytics-section-nav flex flex-wrap gap-x-5 gap-y-3 text-sm"
+      >
         {sections.map(([id, label]) => (
           <a
             key={id}
             href={`#${id}`}
-            className="rounded-sm text-slate-600 underline decoration-slate-300 underline-offset-4 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
+            className="rounded-sm text-slate-600 hover:text-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
           >
             {label}
           </a>
         ))}
       </nav>
+      <section
+        id="submission-activity"
+        className="scroll-mt-8 space-y-4"
+        aria-label="Paper activity"
+      >
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+          <Panel
+            title="Paper activity"
+            description="Creation dates of currently included papers; not submission timestamps."
+          >
+            <SubmissionTrend data={overview.submissions.byDay} />
+          </Panel>
+          <Panel
+            title="Submissions by status"
+            description={`${number(overview.submissions.total)} included papers. Drafts and withdrawals excluded.`}
+          >
+            <CategoryChart data={statuses} />
+            <div className="mt-6 border-t border-slate-100 pt-4">
+              <p className="text-xs leading-5 text-slate-600">
+                A snapshot of each paper’s current stage. Draft and withdrawn papers are excluded.
+              </p>
+              <Link
+                href={`${base}/submissions`}
+                className="analytics-text-action mt-2 inline-flex items-center gap-1"
+              >
+                Open submissions <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </Link>
+            </div>
+          </Panel>
+        </div>
+      </section>
       <section
         id="review-health"
         className="scroll-mt-8 space-y-4"
@@ -216,9 +286,9 @@ export function AnalyticsOverview({ conferenceId }: { conferenceId: string }) {
         <SectionHeading
           id="review-health-heading"
           title="Review health"
-          description="One current cycle per paper. See progress and where your attention is needed."
+          description="Current review cycles, with the work that needs follow-up."
         />
-        <div className="grid gap-6 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
+        <div className="grid gap-6 analytics-panel rounded-lg border border-slate-200 bg-white p-5 sm:p-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
           <div className="min-w-0 space-y-5">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h3 className="text-base font-semibold text-slate-900">Review progress</h3>
@@ -252,7 +322,7 @@ export function AnalyticsOverview({ conferenceId }: { conferenceId: string }) {
             )}
             <Link
               href={`${base}/reviews/reviewers`}
-              className="inline-flex min-h-10 items-center gap-2 text-sm font-medium text-indigo-700 underline underline-offset-4"
+              className="inline-flex min-h-10 items-center gap-2 text-sm font-medium text-teal-700 underline underline-offset-4"
             >
               Open reviewer overview
               <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
@@ -260,30 +330,7 @@ export function AnalyticsOverview({ conferenceId }: { conferenceId: string }) {
           </div>
         </div>
       </section>
-      <section
-        id="submission-activity"
-        className="scroll-mt-8 space-y-4"
-        aria-labelledby="submission-heading"
-      >
-        <SectionHeading
-          id="submission-heading"
-          title="Submissions & decisions"
-          description="Understand the paper pipeline without mixing paper counts with review or payment counts."
-        />
-        <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-          <Panel
-            title="Paper activity"
-            description="Creation dates of currently included papers; not submission timestamps."
-          >
-            <SubmissionTrend data={overview.submissions.byDay} />
-          </Panel>
-          <Panel
-            title="Submissions by status"
-            description={`${number(overview.submissions.total)} included papers. Drafts and withdrawals excluded.`}
-          >
-            <CategoryChart data={statuses} />
-          </Panel>
-        </div>
+      <section aria-label="Decision outcomes">
         <Panel
           title="Decision outcomes"
           description={`${number(overview.decisions.total)} latest-cycle decisions. Revision outcomes count as decisions, not acceptances.`}
@@ -307,7 +354,7 @@ export function AnalyticsOverview({ conferenceId }: { conferenceId: string }) {
               </p>
               <Link
                 href={`${base}/reviews/decisions`}
-                className="mt-3 inline-flex min-h-10 items-center gap-2 text-sm font-medium text-indigo-700 underline underline-offset-4"
+                className="mt-3 inline-flex min-h-10 items-center gap-2 text-sm font-medium text-teal-700 underline underline-offset-4"
               >
                 Open decisions
                 <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
@@ -326,12 +373,13 @@ export function AnalyticsOverview({ conferenceId }: { conferenceId: string }) {
           title="People & institutions"
           description="Follow reviewer workload and the people contributing included papers."
         />
-        <div className="grid items-start gap-5 lg:grid-cols-2">
+        <div className="grid gap-5 lg:grid-cols-2">
           <Panel
             title="Outstanding reviewer workload"
             description="Top 12 reviewers by unfinished assignments in open, current cycles. Each reviewer is counted separately."
           >
             <CategoryChart
+              expandable
               data={r.reviewerLoad.map((p) => ({ name: p.name, id: p.id, value: p.count }))}
               unit="outstanding assignments"
               empty="No outstanding review assignments."
@@ -342,6 +390,7 @@ export function AnalyticsOverview({ conferenceId }: { conferenceId: string }) {
             description="Top 12 affiliations by distinct paper. A paper may have more than one institution; blank affiliations are Unspecified."
           >
             <CategoryChart
+              expandable
               data={overview.institutions.map((p) => ({
                 name: p.name,
                 value: p.count,
@@ -401,13 +450,122 @@ export function AnalyticsOverview({ conferenceId }: { conferenceId: string }) {
             </dl>
             <Link
               href={`${base}/registrations`}
-              className="mt-3 inline-flex min-h-10 items-center gap-2 text-sm font-medium text-indigo-700 underline underline-offset-4"
+              className="mt-3 inline-flex min-h-10 items-center gap-2 text-sm font-medium text-teal-700 underline underline-offset-4"
             >
               Open registrations
               <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
             </Link>
           </Panel>
         </div>
+        {overview.revenueConversion && (
+          <Panel
+            title="Payments across currencies"
+            description={`All captured receipts and successful refunds, reported in ${overview.currency}. Original amounts are shown below.`}
+          >
+            <div className="mb-5 flex flex-wrap items-baseline justify-between gap-3">
+              <p className="text-sm text-slate-700">
+                {overview.revenueConversion.inrPerUsd ? (
+                  <>
+                    1 USD ={' '}
+                    <strong className="font-semibold tabular-nums">
+                      {number(overview.revenueConversion.inrPerUsd)}
+                    </strong>{' '}
+                    INR · Current fee-schedule rate
+                  </>
+                ) : (
+                  'No USD / INR conversion rate configured in the fee schedule.'
+                )}
+              </p>
+              <p className="text-xs text-slate-600">
+                Rounded per transaction to the nearest minor unit.
+              </p>
+            </div>
+            <dl className="mb-5 grid grid-cols-1 gap-4 rounded-md bg-slate-50 p-4 sm:grid-cols-3">
+              <Summary
+                label={`Captured · ${overview.currency}`}
+                value={money(overview.revenueConversion.capturedMinor)}
+                detail="Includes converted receipts"
+              />
+              <Summary
+                label={`Refunded · ${overview.currency}`}
+                value={money(overview.revenueConversion.refundedMinor)}
+                detail="Successful refund records"
+              />
+              <Summary
+                label={`Net receipts · ${overview.currency}`}
+                value={money(overview.revenueMinor)}
+                detail="Captured less refunded"
+              />
+            </dl>
+            {overview.revenueConversion.byCurrency.length ? (
+              <div>
+                <p className="mb-2 text-xs text-slate-600 sm:hidden">
+                  Scroll the breakdown to see refunds and converted totals.
+                </p>
+                <div
+                  className="overflow-x-auto"
+                  tabIndex={0}
+                  role="region"
+                  aria-label="Currency breakdown, scroll for all amounts"
+                >
+                  <table className="w-full min-w-[470px] text-sm">
+                    <caption className="sr-only">
+                      Captured payments and refunds by original currency
+                    </caption>
+                    <thead className="text-xs text-slate-600">
+                      <tr>
+                        <th scope="col" className="py-3 text-left font-medium">
+                          Original currency
+                        </th>
+                        <th scope="col" className="py-3 text-right font-medium">
+                          Captured
+                        </th>
+                        <th scope="col" className="py-3 text-right font-medium">
+                          Refunded
+                        </th>
+                        <th scope="col" className="py-3 text-right font-medium">
+                          Net in {overview.currency}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {overview.revenueConversion.byCurrency.map((row) => (
+                        <tr key={row.currency} className="border-t border-slate-100">
+                          <th scope="row" className="py-3 text-left font-medium">
+                            {row.currency}
+                            <span className="mt-1 block text-xs font-normal text-slate-600">
+                              {number(row.paymentCount)} ledger records
+                            </span>
+                          </th>
+                          <td className="py-3 text-right tabular-nums">
+                            {formatAnalyticsMoney(row.capturedMinor, row.currency)}
+                          </td>
+                          <td className="py-3 text-right tabular-nums">
+                            {formatAnalyticsMoney(row.refundedMinor, row.currency)}
+                          </td>
+                          <td className="py-3 text-right font-medium tabular-nums">
+                            {row.convertedMinor === null ? (
+                              <span className="text-amber-800">Rate unavailable</span>
+                            ) : (
+                              money(row.convertedMinor)
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <EmptyChart>No captured payments or successful refunds yet.</EmptyChart>
+            )}
+            <p className="mt-4 text-xs leading-5 text-slate-600">
+              Captured and refunded amounts stay in their original currencies. Converted totals use
+              the current fee-schedule rate; changing that rate changes this report. Payment records
+              keep their original amounts.
+            </p>
+          </Panel>
+        )}
         <div className="grid gap-5 lg:grid-cols-2">
           <Panel
             title="Net receipts by fee timing"
@@ -442,11 +600,51 @@ export function AnalyticsOverview({ conferenceId }: { conferenceId: string }) {
         </div>
         {overview.excludedCurrencyPayments > 0 && (
           <p className="text-sm text-amber-800">
-            {number(overview.excludedCurrencyPayments)} payment records in other currencies are
-            excluded from these totals. No currency conversion is applied.
+            {number(overview.excludedCurrencyPayments)} payment or refund records are visible in the
+            currency breakdown but excluded from converted totals because no applicable fee-schedule
+            rate is available.
           </p>
         )}
-      </section>
+      </section>{' '}
+      <div className="analytics-scope space-y-3">
+        <p className="text-sm text-slate-700">
+          <strong className="font-semibold text-slate-900">
+            {number(overview.submissions.total)} included papers.
+          </strong>{' '}
+          {number(excluded.draft)} drafts and {number(excluded.withdrawn)} withdrawn papers excluded
+          from paper metrics.
+        </p>
+        <details className="text-sm">
+          <summary className="w-fit cursor-pointer rounded-sm text-slate-600 underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-teal-600">
+            How these numbers are counted
+          </summary>
+          <ul className="mt-3 max-w-3xl list-disc space-y-2 pl-5 text-slate-600">
+            <li>
+              Submissions, authors, institutions, reviews, decisions and registrations exclude draft
+              papers and both withdrawal statuses.
+            </li>
+            <li>
+              Reviews and decisions use only the latest review cycle for each paper. Submitted
+              reviews stay submitted while edits are pending. Overdue work is a subset of drafts and
+              not-started reviews.
+            </li>
+            <li>
+              Coverage counts papers still open for review with fewer submitted reviews than
+              required. Released or decided cycles are closed.
+            </li>
+            <li>
+              Activity uses paper creation dates in UTC. The system does not store a dedicated
+              first-submission timestamp.
+            </li>
+            <li>
+              Net receipts are captured payments minus refund records in {overview.currency},
+              including money received for subsequently withdrawn papers. USD and INR are converted
+              using the current INR-per-USD rate in the fee schedule. Currencies without an
+              applicable rate remain visible separately.
+            </li>
+          </ul>
+        </details>
+      </div>
     </div>
   );
 }
@@ -489,7 +687,7 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
+    <section className="min-w-0 analytics-panel rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
       <h3 className="text-base font-semibold text-slate-900">{title}</h3>
       <p className="mb-5 mt-1 max-w-2xl text-sm leading-relaxed text-slate-600">{description}</p>
       {children}
@@ -510,13 +708,13 @@ function Attention({
   return (
     <Link
       href={href}
-      className="group flex min-h-11 items-center justify-between gap-4 rounded-md py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
+      className="group flex min-h-11 items-center justify-between gap-4 rounded-md py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
     >
       <span className="text-sm text-slate-700">
         <strong className={`mr-2 text-lg tabular-nums ${color}`}>{number(value)}</strong> {label}
       </span>
       <ArrowUpRight
-        className="h-4 w-4 shrink-0 text-slate-500 group-hover:text-indigo-700"
+        className="h-4 w-4 shrink-0 text-slate-500 group-hover:text-teal-700"
         aria-hidden="true"
       />
     </Link>
@@ -546,7 +744,7 @@ function AuthorList({ authors }: { authors: ConferenceAnalyticsOverview['authors
             setPage(1);
           }}
           placeholder="Search author name"
-          className="min-h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm placeholder:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
+          className="min-h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm placeholder:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
         />
       </label>
       <table className="w-full text-sm">
@@ -609,4 +807,10 @@ function AuthorList({ authors }: { authors: ConferenceAnalyticsOverview['authors
       </div>
     </div>
   );
+}
+
+function LocalTime({ value }: { value: string }) {
+  const [label, setLabel] = useState(value.replace('T', ' ').replace('.000Z', ' UTC'));
+  useEffect(() => setLabel(new Date(value).toLocaleString()), [value]);
+  return <time dateTime={value}>{label}</time>;
 }

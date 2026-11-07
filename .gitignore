@@ -45,3 +45,7 @@ packages/db/prisma/*.db-journal
 
 # Sentry
 .sentryclirc
+
+# Isolated reviewer verification builds
+apps/web/.next-reviewer-test/
+apps/web/.next-reviewer-build/

@@ -54,3 +54,4 @@ export * from './reviewer-overview.js';
 export * from './integrations.js';
 
 export * from './conference-phase.js';
+export * from './reviewer-operations.js';

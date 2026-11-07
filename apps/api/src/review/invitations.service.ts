@@ -1,3 +1,5 @@
+import { applyInvitationAction } from './invitation-lifecycle';
+import type { InvitationOperation } from '@openconferences/schemas';
 import {
   ConflictException,
   ForbiddenException,
@@ -6,10 +8,20 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { RoleKind } from '@openconferences/db';
-import { generateId, withTenantContext } from '@openconferences/db';
+import {
+  generateId,
+  withTenantContext,
+  invitationTokenHash,
+  invitationTokenMatches,
+  newInvitationSecret,
+  recoverInvitationToken,
+  recordInvitationChange,
+  validDeclineToken,
+  invitationLifecycle,
+  sealInvitationData,
+} from '@openconferences/db';
 import type { IssueReviewerInvitationInput } from '@openconferences/schemas';
 import { getConfig } from '@openconferences/config/env';
-import { randomBytes } from 'node:crypto';
 import {
   paginateItems,
   prismaCursorArgs,
@@ -22,8 +34,8 @@ import { ConferenceService } from '../tenancy/conference.service';
 import { canManageConferenceReview } from '../tenancy/role-hierarchy';
 import { mapReviewerInvitation } from './review.mapper';
 import {
+  invitationLinks,
   lockInvitationEmails,
-  reviewerInvitationUrl,
   REVIEWER_INVITATION_TTL_DAYS,
 } from './invitation-links';
 
@@ -39,11 +51,38 @@ export class InvitationsService {
     private readonly authService: AuthService,
   ) {}
 
+  async operate(
+    userId: string,
+    conferenceId: string,
+    invitationId: string,
+    input: InvitationOperation,
+    roles: RoleKind[],
+  ) {
+    if (!canManageConferenceReview(roles))
+      throw new ForbiddenException('Invitation management permission required');
+    const conference = await this.conferences.loadConference(userId, conferenceId, roles);
+    return withTenantContext(
+      { userId, conferenceId, organizationId: conference.organizationId },
+      async (tx) => {
+        const row = await applyInvitationAction(
+          tx,
+          { userId, conferenceId, organizationId: conference.organizationId },
+          invitationId,
+          input,
+        );
+        return {
+          invitation: mapReviewerInvitation(row),
+          ...(['PENDING', 'SENT'].includes(invitationLifecycle(row)) ? invitationLinks(row) : {}),
+        };
+      },
+    );
+  }
+
   async list(
     userId: string,
     conferenceId: string,
     roles: RoleKind[],
-    options: CursorPaginationOptions = {},
+    options: CursorPaginationOptions & { includeHistory?: 'true' | 'false' } = {},
   ) {
     if (!canManageConferenceReview(roles)) {
       throw new ForbiddenException('Insufficient permissions to list invitations');
@@ -56,7 +95,10 @@ export class InvitationsService {
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.reviewerInvitation.findMany({
-          where: { conferenceId },
+          where: {
+            conferenceId,
+            ...(options.includeHistory === 'true' ? {} : { revokedAt: null }),
+          },
           orderBy: { createdAt: 'desc' },
           ...prismaCursorArgs(options, limit),
         }),
@@ -91,6 +133,7 @@ export class InvitationsService {
             conferenceId,
             email: normalizedEmail,
             status: 'PENDING',
+            revokedAt: null,
             expiresAt: { gt: new Date() },
           },
         }),
@@ -104,12 +147,16 @@ export class InvitationsService {
       tx.user.findFirst({ where: { email: normalizedEmail, deletedAt: null } }),
     );
 
-    const token = randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000);
+    const secret = newInvitationSecret(getConfig().auth.secret);
+    const token = secret.token;
+    const lifetimeDays =
+      input.lifetimeDays ?? conference.invitationLifetimeDays ?? INVITATION_TTL_DAYS;
+    const expiresAt = new Date(Date.now() + lifetimeDays * 86400000);
 
     const invitation = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`invitation-changes:${conferenceId}`},0))::text`;
         await lockInvitationEmails(tx, conferenceId, [normalizedEmail]);
         if (
           await tx.reviewerInvitation.findFirst({
@@ -117,12 +164,13 @@ export class InvitationsService {
               conferenceId,
               email: normalizedEmail,
               status: 'PENDING',
+              revokedAt: null,
               expiresAt: { gt: new Date() },
             },
           })
         )
           throw new ConflictException('A pending invitation already exists for this email');
-        return tx.reviewerInvitation.create({
+        const created = await tx.reviewerInvitation.create({
           data: {
             id: generateId(),
             organizationId: conference.organizationId,
@@ -130,11 +178,16 @@ export class InvitationsService {
             email: normalizedEmail,
             invitedUserId: existingUser?.id ?? null,
             token,
+            tokenCiphertext: secret.tokenCiphertext,
+            sentAt: new Date(),
             status: 'PENDING',
             expiresAt,
             roleNote: input.roleNote ?? null,
+            conferenceName: conference.name,
           },
         });
+        await recordInvitationChange(tx, created, 'SENT_LINK_GENERATED', userId);
+        return created;
       },
     );
 
@@ -152,106 +205,81 @@ export class InvitationsService {
       try {
         await this.sendInvitationEmail(invitation, conference);
       } catch {
-        await withTenantContext(
-          { userId, conferenceId, organizationId: conference.organizationId },
-          async (tx) => {
-            const deleted = await tx.reviewerInvitation.deleteMany({
-              where: { id: invitation.id, conferenceId, status: 'PENDING' },
-            });
-            if (deleted.count !== 1)
-              throw new ConflictException('Only pending invitations can be removed');
-          },
-        );
+        await this.revoke(userId, conferenceId, invitation.id, roles);
         throw new InternalServerErrorException('Unable to send reviewer invitation email');
       }
     }
 
     return {
       ...mapReviewerInvitation(invitation),
-      invitationUrl: this.buildInvitationUrl(invitation.token),
+      ...invitationLinks(invitation),
     };
   }
 
   async link(userId: string, conferenceId: string, invitationId: string, roles: RoleKind[]) {
-    if (!canManageConferenceReview(roles)) {
+    if (!canManageConferenceReview(roles))
       throw new ForbiddenException('Insufficient permissions to access invitation links');
-    }
-
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-    const invitation = await withTenantContext(
+    return withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
-      async (tx) => tx.reviewerInvitation.findFirst({ where: { id: invitationId, conferenceId } }),
+      async (tx) => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`invitation-changes:${conferenceId}`},0))::text`;
+        await tx.$queryRaw`SELECT id FROM reviewer_invitations WHERE id=${invitationId}::uuid FOR UPDATE`;
+        let row = await tx.reviewerInvitation.findFirst({
+          where: { id: invitationId, conferenceId, revokedAt: null },
+        });
+        if (!row) throw new NotFoundException('Invitation not found');
+        if (row.status !== 'PENDING' || row.expiresAt <= new Date())
+          throw new ConflictException('Only unexpired pending invitation links can be shared');
+        if (!row.sentAt) {
+          row = await tx.reviewerInvitation.update({
+            where: { id: row.id },
+            data: { sentAt: new Date(), version: { increment: 1 } },
+          });
+          await recordInvitationChange(tx, row, 'SENT_LINK_GENERATED', userId);
+        }
+        return {
+          ...invitationLinks(row),
+          email: row.email,
+          expiresAt: row.expiresAt.toISOString(),
+        };
+      },
     );
-    if (!invitation) throw new NotFoundException('Invitation not found');
-    if (invitation.status !== 'PENDING' || invitation.expiresAt <= new Date()) {
-      throw new ConflictException('Only unexpired pending invitation links can be shared');
-    }
-    return {
-      invitationUrl: this.buildInvitationUrl(invitation.token),
-      email: invitation.email,
-      expiresAt: invitation.expiresAt.toISOString(),
-    };
-  }
-
-  private buildInvitationUrl(token: string): string {
-    // A shareable invitation is not an authentication credential. The recipient
-    // must authenticate with the invited email before the existing accept flow.
-    return reviewerInvitationUrl(token);
   }
 
   async resend(userId: string, conferenceId: string, invitationId: string, roles: RoleKind[]) {
-    if (!canManageConferenceReview(roles)) {
+    if (!canManageConferenceReview(roles))
       throw new ForbiddenException('Insufficient permissions to resend invitations');
-    }
-
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-
-    const invitation = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId },
-      async (tx) =>
-        tx.reviewerInvitation.findFirst({
-          where: { id: invitationId, conferenceId },
-        }),
-    );
-
-    if (!invitation) {
-      throw new NotFoundException('Invitation not found');
-    }
-
-    if (invitation.status === 'ACCEPTED' || invitation.status === 'DECLINED') {
-      throw new ConflictException('Cannot resend an invitation that is no longer pending');
-    }
-
-    const expiresAt = new Date(Date.now() + INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000);
-
     const updated = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
-      async (tx) =>
-        tx.reviewerInvitation.update({
-          where: { id: invitation.id },
+      async (tx) => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`invitation-changes:${conferenceId}`},0))::text`;
+        await tx.$queryRaw`SELECT id FROM reviewer_invitations WHERE id=${invitationId}::uuid FOR UPDATE`;
+        const current = await tx.reviewerInvitation.findFirst({
+          where: { id: invitationId, conferenceId },
+        });
+        if (!current) throw new NotFoundException('Invitation not found');
+        if (current.revokedAt || ['ACCEPTED', 'DECLINED'].includes(current.status))
+          throw new ConflictException('Cannot resend a closed invitation');
+        const row = await tx.reviewerInvitation.update({
+          where: { id: current.id },
           data: {
             status: 'PENDING',
-            expiresAt,
+            expiresAt: new Date(Date.now() + (conference.invitationLifetimeDays ?? 7) * 86400000),
+            sentAt: current.sentAt ?? new Date(),
+            version: { increment: 1 },
           },
-        }),
+        });
+        await recordInvitationChange(tx, row, 'RESENT', userId);
+        return row;
+      },
     );
-
     try {
       await this.sendInvitationEmail(updated, conference);
     } catch {
       throw new InternalServerErrorException('Unable to resend reviewer invitation email');
     }
-
-    await this.audit.log({
-      actorUserId: userId,
-      organizationId: conference.organizationId,
-      conferenceId,
-      action: 'reviewer_invitation.resent',
-      entity: 'ReviewerInvitation',
-      entityId: invitation.id,
-      diff: { email: invitation.email },
-    });
-
     return {
       invitation: mapReviewerInvitation(updated),
       message: 'Reviewer invitation email resent',
@@ -259,133 +287,67 @@ export class InvitationsService {
   }
 
   async revoke(userId: string, conferenceId: string, invitationId: string, roles: RoleKind[]) {
-    if (!canManageConferenceReview(roles)) {
+    if (!canManageConferenceReview(roles))
       throw new ForbiddenException('Insufficient permissions to remove invitations');
-    }
-
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-
-    const invitation = await withTenantContext(
-      { userId, conferenceId, organizationId: conference.organizationId },
-      async (tx) =>
-        tx.reviewerInvitation.findFirst({
-          where: { id: invitationId, conferenceId },
-        }),
-    );
-
-    if (!invitation) {
-      throw new NotFoundException('Invitation not found');
-    }
-
-    if (invitation.status !== 'PENDING') {
-      throw new ConflictException('Only pending invitations can be removed');
-    }
-
     await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
-        const deleted = await tx.reviewerInvitation.deleteMany({
-          where: { id: invitation.id, conferenceId, status: 'PENDING' },
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`invitation-changes:${conferenceId}`},0))::text`;
+        await tx.$queryRaw`SELECT id FROM reviewer_invitations WHERE id=${invitationId}::uuid FOR UPDATE`;
+        const row = await tx.reviewerInvitation.findFirst({
+          where: { id: invitationId, conferenceId },
         });
-        if (deleted.count !== 1)
+        if (!row) throw new NotFoundException('Invitation not found');
+        if (row.revokedAt) return;
+        if (row.status !== 'PENDING')
           throw new ConflictException('Only pending invitations can be removed');
+        const updated = await tx.reviewerInvitation.update({
+          where: { id: row.id },
+          data: { revokedAt: new Date(), status: 'EXPIRED', version: { increment: 1 } },
+        });
+        await recordInvitationChange(tx, updated, 'REVOKED', userId);
       },
     );
-
-    await this.audit.log({
-      actorUserId: userId,
-      organizationId: conference.organizationId,
-      conferenceId,
-      action: 'reviewer_invitation.revoked',
-      entity: 'ReviewerInvitation',
-      entityId: invitation.id,
-      diff: { email: invitation.email },
-    });
   }
 
   async accept(userId: string, token: string) {
     const invitation = await this.resolveInvitationByToken(token);
     await this.resolveInvitationUser(userId, invitation.email);
-
-    if (invitation.status === 'ACCEPTED') {
-      if (invitation.invitedUserId && invitation.invitedUserId !== userId) {
-        throw new ConflictException('Invitation was accepted by another account');
-      }
-
-      await this.materializeReviewerMembership(userId, invitation);
-      const current = await withTenantContext({}, async (tx) =>
-        tx.reviewerInvitation.findUniqueOrThrow({ where: { id: invitation.id } }),
-      );
-
-      return {
-        invitation: mapReviewerInvitation(current),
-        message: 'Reviewer invitation already accepted',
-      };
-    }
-
-    if (invitation.status !== 'PENDING') {
-      throw new ConflictException('Invitation is no longer pending');
-    }
-
-    if (invitation.expiresAt < new Date()) {
-      await withTenantContext({}, async (tx) =>
-        tx.reviewerInvitation.update({
-          where: { id: invitation.id },
-          data: { status: 'EXPIRED' },
-        }),
-      );
-      throw new ConflictException('Invitation has expired');
-    }
-
-    await withTenantContext(
-      {
-        userId,
-        conferenceId: invitation.conferenceId,
-        organizationId: invitation.organizationId,
-      },
+    const updated = await withTenantContext(
+      { userId, conferenceId: invitation.conferenceId, organizationId: invitation.organizationId },
       async (tx) => {
-        // Serialize acceptance with pending-invitation removal before granting membership.
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`invitation-changes:${invitation.conferenceId}`},0))::text`;
         await tx.$queryRaw`SELECT id FROM reviewer_invitations WHERE id=${invitation.id}::uuid FOR UPDATE`;
         const current = await tx.reviewerInvitation.findUnique({ where: { id: invitation.id } });
-        if (!current) throw new NotFoundException('Invitation not found');
-        if (
-          current.status === 'ACCEPTED' &&
-          (!current.invitedUserId || current.invitedUserId === userId)
-        ) {
-          await this.materializeReviewerMembership(userId, current, tx);
-          return;
+        if (!current || !invitationTokenMatches(current, token))
+          throw new ConflictException('This invitation link is no longer available');
+        if (current.revokedAt) throw new ConflictException('This invitation has been revoked');
+        if (current.status === 'ACCEPTED') {
+          if (current.invitedUserId !== userId)
+            throw new ConflictException('Invitation was accepted by another account');
+          // A replay must not restore reviewer access deliberately removed later.
+          return current;
         }
+        if (current.status === 'DECLINED')
+          throw new ConflictException('This invitation has already been declined');
         if (current.status !== 'PENDING' || current.expiresAt <= new Date())
-          throw new ConflictException('Invitation is no longer pending or has expired');
+          throw new ConflictException('This invitation has expired');
         await this.materializeReviewerMembership(userId, current, tx);
-
-        await tx.reviewerInvitation.update({
-          where: { id: invitation.id },
+        const row = await tx.reviewerInvitation.update({
+          where: { id: current.id },
           data: {
             status: 'ACCEPTED',
             invitedUserId: userId,
+            acceptedAt: new Date(),
+            version: { increment: 1 },
           },
         });
+        await recordInvitationChange(tx, row, 'ACCEPTED', userId);
+        return row;
       },
     );
-
-    const updated = await withTenantContext({}, async (tx) =>
-      tx.reviewerInvitation.findUniqueOrThrow({ where: { id: invitation.id } }),
-    );
-
-    await this.audit.log({
-      actorUserId: userId,
-      organizationId: invitation.organizationId,
-      conferenceId: invitation.conferenceId,
-      action: 'reviewer_invitation.accepted',
-      entity: 'ReviewerInvitation',
-      entityId: invitation.id,
-    });
-
-    return {
-      invitation: mapReviewerInvitation(updated),
-      message: 'Reviewer invitation accepted',
-    };
+    return { invitation: mapReviewerInvitation(updated), message: 'Reviewer invitation accepted' };
   }
 
   async acceptPendingForUser(userId: string) {
@@ -403,6 +365,7 @@ export class InvitationsService {
         where: {
           email: normalizedEmail,
           status: 'PENDING',
+          revokedAt: null,
           expiresAt: { gt: new Date() },
         },
         orderBy: { createdAt: 'asc' },
@@ -411,7 +374,10 @@ export class InvitationsService {
 
     const accepted = [];
     for (const invitation of pending) {
-      const result = await this.accept(userId, invitation.token);
+      const result = await this.accept(
+        userId,
+        recoverInvitationToken(invitation, getConfig().auth.secret),
+      );
       accepted.push(result.invitation);
     }
 
@@ -426,50 +392,71 @@ export class InvitationsService {
 
   async decline(userId: string | null, token: string) {
     const invitation = await this.resolveInvitationByToken(token);
-
-    if (invitation.status !== 'PENDING') {
-      throw new ConflictException('Invitation is no longer pending');
-    }
-
-    if (invitation.expiresAt < new Date()) {
-      await withTenantContext({}, async (tx) =>
-        tx.reviewerInvitation.update({
-          where: { id: invitation.id },
-          data: { status: 'EXPIRED' },
-        }),
-      );
-      throw new ConflictException('Invitation has expired');
-    }
-
-    if (userId) {
-      const user = await withTenantContext({ userId }, async (tx) =>
-        tx.user.findFirst({ where: { id: userId } }),
-      );
-      if (user && user.email.toLowerCase() !== invitation.email.toLowerCase()) {
-        throw new ForbiddenException('Invitation email does not match your account');
-      }
-    }
-
-    const updated = await withTenantContext({}, async (tx) =>
-      tx.reviewerInvitation.update({
-        where: { id: invitation.id },
-        data: { status: 'DECLINED', invitedUserId: userId ?? invitation.invitedUserId },
-      }),
+    if (userId) await this.resolveInvitationUser(userId, invitation.email);
+    const updated = await withTenantContext(
+      {
+        userId: userId ?? undefined,
+        conferenceId: invitation.conferenceId,
+        organizationId: invitation.organizationId,
+      },
+      async (tx) => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`invitation-changes:${invitation.conferenceId}`},0))::text`;
+        await tx.$queryRaw`SELECT id FROM reviewer_invitations WHERE id=${invitation.id}::uuid FOR UPDATE`;
+        const row = await tx.reviewerInvitation.findUnique({ where: { id: invitation.id } });
+        if (!row || !invitationTokenMatches(row, token))
+          throw new ConflictException('This invitation link is no longer available');
+        if (!['PENDING', 'SENT'].includes(invitationLifecycle(row)))
+          throw new ConflictException(
+            `This invitation is ${invitationLifecycle(row).toLowerCase()}`,
+          );
+        const result = await tx.reviewerInvitation.update({
+          where: { id: row.id },
+          data: { status: 'DECLINED', declinedAt: new Date(), version: { increment: 1 } },
+        });
+        await recordInvitationChange(tx, result, 'DECLINED', userId);
+        return result;
+      },
     );
+    return { invitation: mapReviewerInvitation(updated), message: 'Reviewer invitation declined' };
+  }
 
-    await this.audit.log({
-      actorUserId: userId,
-      organizationId: invitation.organizationId,
-      conferenceId: invitation.conferenceId,
-      action: 'reviewer_invitation.declined',
-      entity: 'ReviewerInvitation',
-      entityId: invitation.id,
+  async publicDecline(token: string, confirm: boolean, reason?: string) {
+    const id = token.split('.')[0] ?? '';
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+      return { state: 'INVALID', conferenceName: null };
+    return withTenantContext({}, async (tx) => {
+      let row = await tx.reviewerInvitation.findUnique({ where: { id } });
+      if (confirm && row && validDeclineToken(row, token, getConfig().auth.secret)) {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`invitation-changes:${row.conferenceId}`},0))::text`;
+        await tx.$queryRaw`SELECT id FROM reviewer_invitations WHERE id=${id}::uuid FOR UPDATE`;
+        row = await tx.reviewerInvitation.findUnique({ where: { id } });
+      }
+      if (!row || !validDeclineToken(row, token, getConfig().auth.secret))
+        return { state: 'INVALID', conferenceName: null };
+      const state = invitationLifecycle(row);
+      if (!confirm || !['PENDING', 'SENT'].includes(state))
+        return { state, conferenceName: row.conferenceName ?? 'the conference' };
+      // Token authorizes only this decline, independent of any signed-in account.
+      const updated = await tx.reviewerInvitation.update({
+        where: { id },
+        data: {
+          status: 'DECLINED',
+          declinedAt: new Date(),
+          declineReasonEncrypted: reason?.trim()
+            ? sealInvitationData(reason.trim(), getConfig().auth.secret)
+            : null,
+          version: { increment: 1 },
+        },
+      });
+      // Establish conference context after validating the token, for the append-only change policy.
+      await tx.$executeRaw`SELECT set_config('app.current_conference_id', ${row.conferenceId}, true)`;
+      await recordInvitationChange(tx, updated, 'DECLINED');
+      return {
+        state: 'DECLINED',
+        conferenceName: row.conferenceName ?? 'the conference',
+        confirmed: true,
+      };
     });
-
-    return {
-      invitation: mapReviewerInvitation(updated),
-      message: 'Reviewer invitation declined',
-    };
   }
 
   private async resolveInvitationUser(userId: string, invitedEmail: string) {
@@ -547,12 +534,19 @@ export class InvitationsService {
   }
 
   private async sendInvitationEmail(
-    invitation: { id: string; email: string; token: string; expiresAt: Date },
+    invitation: {
+      id: string;
+      email: string;
+      token: string;
+      tokenCiphertext?: string | null;
+      expiresAt: Date;
+    },
     conference: { id: string; organizationId: string; name: string },
   ): Promise<void> {
     const config = getConfig();
+    const rawToken = recoverInvitationToken(invitation, config.auth.secret);
     const callbackURL = new URL('/join/reviewer/complete', config.webUrl);
-    callbackURL.searchParams.set('invitationToken', invitation.token);
+    callbackURL.searchParams.set('invitationToken', rawToken);
     const errorCallbackURL = new URL('/join/reviewer/error', config.webUrl);
 
     await this.authService.signInMagicLink({
@@ -562,7 +556,8 @@ export class InvitationsService {
       errorCallbackURL: errorCallbackURL.toString(),
       metadata: {
         reviewerInvitationId: invitation.id,
-        invitationToken: invitation.token,
+        invitationToken: rawToken,
+        declineUrl: invitationLinks(invitation).declineUrl,
         conferenceId: conference.id,
         organizationId: conference.organizationId,
         conferenceName: conference.name,
@@ -573,10 +568,12 @@ export class InvitationsService {
 
   private async resolveInvitationByToken(token: string) {
     const invitation = await withTenantContext({}, async (tx) =>
-      tx.reviewerInvitation.findFirst({ where: { token } }),
+      tx.reviewerInvitation.findFirst({
+        where: { OR: [{ token }, { token: invitationTokenHash(token) }] },
+      }),
     );
 
-    if (!invitation) {
+    if (!invitation || !invitationTokenMatches(invitation, token)) {
       throw new NotFoundException('Invitation not found');
     }
 

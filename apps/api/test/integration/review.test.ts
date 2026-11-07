@@ -120,11 +120,9 @@ describe('Reviewer management & assignment integration', () => {
   let chairCookie = '';
   let reviewerCookie = '';
   let authorReviewerCookie = '';
-  let inviteeCookie = '';
   let outsiderCookie = '';
   let roundId = '';
   let assignmentId = '';
-  let inviteeUserId = '';
   let invitationToken = '';
 
   beforeAll(async () => {
@@ -143,7 +141,7 @@ describe('Reviewer management & assignment integration', () => {
     const chair = await createUserWithSession(app, chairEmail, 'Chair');
     const reviewer = await createUserWithSession(app, reviewerEmail, 'Reviewer');
     const authorReviewer = await createUserWithSession(app, authorReviewerEmail, 'Author Reviewer');
-    const invitee = await createUserWithSession(app, inviteeEmail, 'Invitee');
+    await createUserWithSession(app, inviteeEmail, 'Invitee');
     const outsider = await createUserWithSession(app, outsiderEmail, 'Outsider');
 
     chairUserId = chair.userId;
@@ -152,8 +150,6 @@ describe('Reviewer management & assignment integration', () => {
     chairCookie = chair.cookie;
     reviewerCookie = reviewer.cookie;
     authorReviewerCookie = authorReviewer.cookie;
-    inviteeUserId = invitee.userId;
-    inviteeCookie = invitee.cookie;
     outsiderCookie = outsider.cookie;
 
     await prisma.user.update({
@@ -677,44 +673,49 @@ describe('Reviewer management & assignment integration', () => {
     const invitation = await withTenantContext({}, async (tx) =>
       tx.reviewerInvitation.findFirst({ where: { id: invitationId } }),
     );
-    expect(invitation).toBeNull();
+    expect(invitation).toMatchObject({ status: 'EXPIRED' });
+    expect(invitation?.revokedAt).toBeTruthy();
   });
 
-  // Skipped: flaky on CI (accept returns 403 after magic-link verify).
-  it.skip('completes reviewer onboarding via magic link and accepts invitation', async () => {
-    expect(lastTestNotification?.html).toBeTruthy();
+  async function onboardFreshReviewer() {
+    const email = `onboard-${generateId()}@example.test`;
+    resetLastTestNotification();
+    const issued = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/reviewer-invitations`)
+      .set('Cookie', chairCookie)
+      .send({ email });
+    expect(issued.status).toBe(201);
+    expect(lastTestNotification?.to).toBe(email);
     const joinUrl = extractReviewerJoinUrlFromEmail(lastTestNotification!.html);
     expect(joinUrl).toBeTruthy();
-
-    const verifyPath = buildMagicLinkVerifyPath(joinUrl!);
-
-    const verifyRes = await request(app.getHttpServer())
-      .get(verifyPath)
+    const verified = await request(app.getHttpServer())
+      .get(buildMagicLinkVerifyPath(joinUrl!))
       .set('Origin', config.api.corsOrigins[0] ?? 'http://localhost:3000');
-
-    expect(verifyRes.status).toBeGreaterThanOrEqual(200);
-    expect(verifyRes.status).toBeLessThan(400);
-
-    const magicCookie = extractCookies(verifyRes.headers['set-cookie']);
-    expect(magicCookie.length).toBeGreaterThan(0);
-    inviteeCookie = magicCookie;
-
-    const acceptRes = await request(app.getHttpServer())
+    expect(verified.status).toBe(302);
+    expect(verified.headers.location).not.toContain('error=');
+    const cookie = extractCookies(verified.headers['set-cookie']);
+    expect(cookie).toBeTruthy();
+    const token = new URL(issued.body.invitationUrl).searchParams.get('reviewerInvite')!;
+    const accepted = await request(app.getHttpServer())
       .post('/api/v1/reviewer-invitations/accept')
-      .set('Cookie', magicCookie)
-      .send({ token: invitationToken });
+      .set('Cookie', cookie)
+      .send({ token });
+    expect(accepted.status).toBe(200);
+    return {
+      cookie,
+      token,
+      invitationId: issued.body.id as string,
+      userId: accepted.body.invitation.invitedUserId as string,
+    };
+  }
 
-    expect(acceptRes.status).toBe(200);
-    expect(acceptRes.body.invitation.status).toBe('ACCEPTED');
-
-    const membership = await withTenantContext({}, async (tx) =>
-      tx.membership.findFirst({
-        where: { userId: inviteeUserId, conferenceId: confId },
-        include: { roles: true },
-      }),
-    );
-
-    expect(membership?.roles.some((r) => r.role === 'REVIEWER')).toBe(true);
+  it('completes fresh reviewer onboarding via magic link and accepts invitation', async () => {
+    const onboarded = await onboardFreshReviewer();
+    const membership = await prisma.membership.findFirst({
+      where: { userId: onboarded.userId, conferenceId: confId },
+      include: { roles: true },
+    });
+    expect(membership?.roles.some((role) => role.role === 'REVIEWER')).toBe(true);
   });
 
   it('accepts pending invitations for signed-in user email when none remain', async () => {
@@ -764,32 +765,31 @@ describe('Reviewer management & assignment integration', () => {
     expect(membership?.roles.some((r) => r.role === 'REVIEWER')).toBe(true);
   });
 
-  // Depends on magic-link onboarding test above.
-  it.skip('accepts an already-accepted invitation idempotently for the same user', async () => {
-    const res = await request(app.getHttpServer())
+  it('accepts an already-accepted invitation idempotently for the same user', async () => {
+    const onboarded = await onboardFreshReviewer();
+    const before = await prisma.reviewerInvitationChange.count({
+      where: { invitationId: onboarded.invitationId },
+    });
+    const response = await request(app.getHttpServer())
       .post('/api/v1/reviewer-invitations/accept')
-      .set('Cookie', inviteeCookie)
-      .send({ token: invitationToken });
-
-    expect(res.status).toBe(200);
-    expect(res.body.invitation.status).toBe('ACCEPTED');
-    expect(res.body.message).toContain('already accepted');
+      .set('Cookie', onboarded.cookie)
+      .send({ token: onboarded.token });
+    expect(response.status).toBe(200);
+    expect(response.body.invitation.status).toBe('ACCEPTED');
+    expect(
+      await prisma.reviewerInvitationChange.count({
+        where: { invitationId: onboarded.invitationId },
+      }),
+    ).toBe(before);
   });
 
-  // Depends on magic-link onboarding test above.
-  it.skip('cannot resend an accepted reviewer invitation', async () => {
-    const invitation = await withTenantContext({}, async (tx) =>
-      tx.reviewerInvitation.findFirst({ where: { email: inviteeEmail.toLowerCase() } }),
-    );
-    expect(invitation?.id).toBeTruthy();
-
-    const res = await request(app.getHttpServer())
-      .post(`/api/v1/conferences/${confId}/reviewer-invitations/${invitation!.id}/resend`)
+  it('cannot resend an accepted reviewer invitation', async () => {
+    const onboarded = await onboardFreshReviewer();
+    const response = await request(app.getHttpServer())
+      .post(`/api/v1/conferences/${confId}/reviewer-invitations/${onboarded.invitationId}/resend`)
       .set('Cookie', chairCookie)
       .send();
-
-    expect(res.status).toBe(409);
-    expect(res.body.detail).toContain('no longer pending');
+    expect(response.status).toBe(409);
   });
 
   it('cannot revoke an accepted reviewer invitation', async () => {
@@ -2016,7 +2016,7 @@ describe('Reviewer management & assignment integration', () => {
     const accepted = await request(app.getHttpServer())
       .post('/api/v1/reviewer-invitations/accept')
       .set('Cookie', cookie)
-      .send({ token: saved.token });
+      .send({ token: new URL(invitation.body.invitationUrl).searchParams.get('reviewerInvite') });
     expect(accepted.status).toBe(200);
     expect(accepted.body.invitation.status).toBe('ACCEPTED');
     const updatedMembership = await prisma.membership.findUniqueOrThrow({
