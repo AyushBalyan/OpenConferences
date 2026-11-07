@@ -128,6 +128,7 @@ export const reviewerInvitationListSchema = z.object({
 
 export const reviewerInvitationListQuerySchema = cursorPaginationQuerySchema.extend({
   includeHistory: z.enum(['true', 'false']).optional(),
+  q: z.string().trim().max(200).optional(),
 });
 
 export const issueReviewerInvitationSchema = z.object({

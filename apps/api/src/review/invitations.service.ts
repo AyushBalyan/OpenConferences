@@ -7,7 +7,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import type { RoleKind } from '@openconferences/db';
+import type { RoleKind, Prisma } from '@openconferences/db';
 import {
   generateId,
   withTenantContext,
@@ -82,7 +82,7 @@ export class InvitationsService {
     userId: string,
     conferenceId: string,
     roles: RoleKind[],
-    options: CursorPaginationOptions & { includeHistory?: 'true' | 'false' } = {},
+    options: CursorPaginationOptions & { includeHistory?: 'true' | 'false'; q?: string } = {},
   ) {
     if (!canManageConferenceReview(roles)) {
       throw new ForbiddenException('Insufficient permissions to list invitations');
@@ -91,15 +91,40 @@ export class InvitationsService {
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
     const limit = resolveLimit(options.limit);
 
+    const search = options.q?.trim();
+    const now = new Date();
+    const states: Record<string, Prisma.ReviewerInvitationWhereInput> = {
+      pending: { status: 'PENDING', revokedAt: null, sentAt: null, expiresAt: { gt: now } },
+      sent: { status: 'PENDING', revokedAt: null, sentAt: { not: null }, expiresAt: { gt: now } },
+      accepted: { status: 'ACCEPTED', revokedAt: null },
+      declined: { status: 'DECLINED', revokedAt: null },
+      revoked: { revokedAt: { not: null } },
+      expired: {
+        revokedAt: null,
+        OR: [{ status: 'EXPIRED' }, { status: 'PENDING', expiresAt: { lte: now } }],
+      },
+    };
+    const searchWhere: Prisma.ReviewerInvitationWhereInput | undefined = search
+      ? {
+          OR: [
+            { email: { contains: search, mode: 'insensitive' } },
+            ...Object.entries(states)
+              .filter(([label]) => label.includes(search.toLowerCase()))
+              .map(([, where]) => where),
+          ],
+        }
+      : undefined;
+
     const rows = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) =>
         tx.reviewerInvitation.findMany({
           where: {
             conferenceId,
+            ...(searchWhere ? { AND: [searchWhere] } : {}),
             ...(options.includeHistory === 'true' ? {} : { revokedAt: null }),
           },
-          orderBy: { createdAt: 'desc' },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
           ...prismaCursorArgs(options, limit),
         }),
     );

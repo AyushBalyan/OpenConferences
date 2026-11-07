@@ -3,24 +3,47 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { Bell, Check, FileText, MessageSquare, RefreshCw, Users } from 'lucide-react';
+import {
+  Bell,
+  Check,
+  FileText,
+  MessageSquare,
+  RefreshCw,
+  Users,
+  Search,
+  ArrowUpRight,
+} from 'lucide-react';
 import type { InboxItem, InboxKind } from '@openconferences/schemas';
 import { apiClient } from '@/lib/api-client';
 import { canCoordinateReview } from '@/lib/roles';
 import { Button } from '@/components/ui/button';
-import { PageHeader } from '@/components/dashboard/page-header';
 import { useConferenceWorkspace } from '@/components/dashboard/conference-workspace';
 import { notifyUpdatesRead } from '@/components/dashboard/conference-update-bell';
+
+type UpdateView = InboxKind | 'INVITATIONS';
 
 export default function InboxPage() {
   const { id } = useParams<{ id: string }>();
   const { conference } = useConferenceWorkspace();
   const coordinator = canCoordinateReview(conference?.myRoles ?? []);
-  const [selectedKind, setKind] = useState<InboxKind | null>(null);
-  const kind =
-    selectedKind === 'CONFERENCE' && !coordinator
+  const [selectedKind, setKind] = useState<UpdateView | null>(null);
+  const view =
+    (selectedKind === 'CONFERENCE' || selectedKind === 'INVITATIONS') && !coordinator
       ? 'REVIEW'
       : (selectedKind ?? (coordinator ? 'CONFERENCE' : 'REVIEW'));
+  const kind: InboxKind = view === 'INVITATIONS' ? 'CONFERENCE' : view;
+  const [response, setResponse] = useState<'ACCEPTED' | 'DECLINED' | undefined>();
+  const [search, setSearch] = useState('');
+  const [q, setQ] = useState('');
+  const [previous, setPrevious] = useState<Array<string | undefined>>([]);
+  const filters =
+    kind === 'CONFERENCE'
+      ? {
+          category: view === 'INVITATIONS' ? ('INVITATIONS' as const) : ('ACTIVITY' as const),
+          ...(view === 'INVITATIONS' && response ? { response } : {}),
+          ...(q ? { q } : {}),
+        }
+      : {};
   const [items, setItems] = useState<InboxItem[]>([]);
   const [cursor, setCursor] = useState<string | undefined>();
   const [unreadOnly, setUnreadOnly] = useState(false);
@@ -30,10 +53,20 @@ export default function InboxPage() {
   const [loading, setLoading] = useState(true);
   const [revision, setRevision] = useState(0);
   const [saving, setSaving] = useState<string | null>(null);
-  const key = `${id}/${kind}/${cursor ?? ''}/${unreadOnly}`;
+  const key = `${id}/${view}/${response ?? ''}/${q}/${cursor ?? ''}/${unreadOnly}`;
   const activeKey = useRef(key);
   activeKey.current = key;
   const previousKey = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (search.trim() === q) return;
+    const timer = setTimeout(() => {
+      setQ(search.trim());
+      setCursor(undefined);
+      setPrevious([]);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search, q]);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,6 +78,7 @@ export default function InboxPage() {
           query: {
             kind,
             cursor,
+            ...filters,
             ...(kind === 'CONFERENCE' && unreadOnly ? { unread: 'true' as const } : {}),
           },
         });
@@ -82,7 +116,8 @@ export default function InboxPage() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [id, kind, cursor, unreadOnly, revision, key]);
+    // key includes the complete server filter; stale responses are discarded by cleanup.
+  }, [key, revision]);
 
   async function markRead(item: InboxItem) {
     const scopeKey = key;
@@ -117,7 +152,7 @@ export default function InboxPage() {
     try {
       const result = await apiClient.messaging.readAllConferenceUpdates({
         params: { id },
-        body: { before: observedAt },
+        body: { before: observedAt, ...filters },
       });
       if (result.status !== 200) throw new Error('Could not mark updates read. Try again.');
       if (activeKey.current === scopeKey) {
@@ -132,225 +167,371 @@ export default function InboxPage() {
       setSaving(null);
     }
   }
-  function selectKind(value: InboxKind) {
+  function selectKind(value: UpdateView) {
     setKind(value);
+    setResponse(undefined);
+    setSearch('');
+    setQ('');
+    setPrevious([]);
     setCursor(undefined);
     setUnreadOnly(false);
   }
   const unread = items.filter((item) => item.unread).length;
+  const viewTitle =
+    view === 'INVITATIONS'
+      ? 'Reviewer invitations'
+      : view === 'CONFERENCE'
+        ? 'Conference activity'
+        : view === 'REVIEW'
+          ? 'Reviews of my papers'
+          : 'Author responses';
+  const detail =
+    view === 'INVITATIONS'
+      ? 'Acceptance and decline responses from invited reviewers.'
+      : view === 'CONFERENCE'
+        ? 'Submission and review activity across your conference.'
+        : view === 'REVIEW'
+          ? 'Feedback released to you as an author.'
+          : 'Responses from authors of papers you reviewed.';
+  const resetPage = () => {
+    setCursor(undefined);
+    setPrevious([]);
+  };
   return (
-    <div className="max-w-5xl space-y-6">
-      <PageHeader
-        title="Updates"
-        description="Short updates from this conference."
-        actions={
-          <Button
-            variant="outline"
-            disabled={loading}
-            onClick={() => setRevision((value) => value + 1)}
-          >
-            <RefreshCw aria-hidden="true" className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
-        }
-      />
-      <nav aria-label="Update type" className="flex flex-wrap gap-2">
-        {coordinator ? (
-          <Button
-            aria-pressed={kind === 'CONFERENCE'}
-            variant={kind === 'CONFERENCE' ? 'default' : 'outline'}
-            onClick={() => selectKind('CONFERENCE')}
-          >
-            Conference activity
-          </Button>
-        ) : null}
+    <div className="w-full space-y-5 text-slate-900">
+      <header className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="mb-1 hidden text-xs font-medium text-slate-600 sm:block">
+            {conference?.name ?? 'Conference workspace'}
+          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">Updates</h1>
+          <p className="mt-1 hidden text-sm text-slate-600 sm:block">
+            Keep up with your conference. Read, filter and follow up in one place.
+          </p>
+        </div>
         <Button
-          aria-pressed={kind === 'REVIEW'}
-          variant={kind === 'REVIEW' ? 'default' : 'outline'}
-          onClick={() => selectKind('REVIEW')}
+          variant="outline"
+          className="shrink-0"
+          disabled={loading}
+          onClick={() => setRevision((value) => value + 1)}
         >
-          Reviews of my papers
+          <RefreshCw
+            aria-hidden="true"
+            className={`mr-2 h-4 w-4 ${loading ? 'motion-safe:animate-spin' : ''}`}
+          />
+          Refresh
         </Button>
-        <Button
-          aria-pressed={kind === 'REBUTTAL'}
-          variant={kind === 'REBUTTAL' ? 'default' : 'outline'}
-          onClick={() => selectKind('REBUTTAL')}
-        >
-          Author responses
-        </Button>
+      </header>
+      <nav
+        aria-label="Update type"
+        className="flex gap-5 overflow-x-auto border-b border-slate-200"
+      >
+        {(
+          [
+            ...(coordinator
+              ? [
+                  { value: 'CONFERENCE', label: 'Conference activity' },
+                  { value: 'INVITATIONS', label: 'Reviewer invitations' },
+                ]
+              : []),
+            { value: 'REVIEW', label: 'Reviews of my papers' },
+            { value: 'REBUTTAL', label: 'Author responses' },
+          ] as Array<{ value: UpdateView; label: string }>
+        ).map((tab) => (
+          <button
+            key={tab.value}
+            type="button"
+            aria-pressed={view === tab.value}
+            onClick={() => selectKind(tab.value)}
+            className={`shrink-0 border-b-2 px-1 py-3 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-600 ${view === tab.value ? 'border-slate-900 font-semibold text-slate-900' : 'border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-900'}`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </nav>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {kind === 'CONFERENCE' ? (
-          <div className="flex gap-1" role="group" aria-label="Read status filter">
-            <Button
-              size="sm"
-              variant={unreadOnly ? 'ghost' : 'outline'}
-              aria-pressed={!unreadOnly}
-              onClick={() => {
-                setUnreadOnly(false);
-                setCursor(undefined);
-              }}
-            >
-              All
-            </Button>
-            <Button
-              size="sm"
-              variant={unreadOnly ? 'outline' : 'ghost'}
-              aria-pressed={unreadOnly}
-              onClick={() => {
-                setUnreadOnly(true);
-                setCursor(undefined);
-              }}
-            >
-              Unread
-            </Button>
+      <section
+        className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+        aria-label={viewTitle}
+      >
+        <div className="space-y-4 border-b border-slate-200 px-4 py-4 sm:px-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold sm:text-base">{viewTitle}</h2>
+              <p className="sr-only mt-1 text-sm text-slate-600 sm:not-sr-only">{detail}</p>
+            </div>
+            {kind === 'CONFERENCE' ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={loading || saving !== null || !observedAt || !!error || !items.length}
+                title="Mark all matching updates read, including older pages"
+                onClick={() => void markAllRead()}
+              >
+                <Check aria-hidden="true" className="mr-1.5 h-4 w-4" />
+                {saving === 'all' ? 'Saving…' : 'Mark all read'}
+              </Button>
+            ) : null}
           </div>
-        ) : (
-          <p className="text-sm text-slate-600">Read status is saved to your account.</p>
-        )}
-        {kind === 'CONFERENCE' ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={loading || saving !== null || !observedAt || !!error}
-            onClick={() => void markAllRead()}
-          >
-            <Check aria-hidden="true" className="mr-1.5 h-4 w-4" />
-            {saving === 'all' ? 'Saving…' : 'Mark all read'}
-          </Button>
-        ) : null}
-      </div>
-      {error ? (
-        <p
-          role="alert"
-          className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"
-        >
-          {error}
-          {items.length ? ' Showing the last loaded updates.' : ''}
-        </p>
-      ) : null}
-      {loading ? (
-        <p role="status" className="text-sm text-slate-600">
-          Loading updates…
-        </p>
-      ) : (
-        <>
-          {!items.length && !error ? (
-            <div className="rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center">
-              <Bell className="mx-auto mb-3 h-6 w-6 text-slate-500" aria-hidden="true" />
-              <p className="font-semibold text-slate-900">
-                {unreadOnly ? 'You’re all caught up.' : 'No updates yet.'}
-              </p>
-              <p className="mt-1 text-sm text-slate-600">
-                {unreadOnly
-                  ? 'There are no unread updates in this view.'
-                  : kind === 'CONFERENCE'
-                    ? 'New submissions and review activity will appear here.'
-                    : kind === 'REVIEW'
-                      ? 'Released reviews of your papers will appear here.'
-                      : 'Submitted author responses will appear here.'}
-              </p>
+          {view === 'INVITATIONS' ? (
+            <div
+              role="group"
+              aria-label="Invitation response"
+              className="flex gap-1 rounded-lg bg-slate-100 p-1 sm:w-fit"
+            >
+              {(
+                [
+                  { value: undefined, label: 'All responses' },
+                  { value: 'ACCEPTED', label: 'Accepted' },
+                  { value: 'DECLINED', label: 'Declined' },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.label}
+                  type="button"
+                  aria-pressed={response === tab.value}
+                  onClick={() => {
+                    setResponse(tab.value);
+                    resetPage();
+                  }}
+                  className={`min-h-9 flex-1 whitespace-nowrap rounded-md px-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-600 ${response === tab.value ? 'bg-white font-medium text-slate-900' : 'text-slate-600 hover:text-slate-900'}`}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
           ) : null}
-          {items.length ? (
-            <ul
-              aria-label="Updates"
-              className="divide-y divide-slate-200 overflow-hidden rounded-2xl border border-slate-200 bg-white"
-            >
-              {items.map((item) => {
-                const Icon = item.eventType?.startsWith('INVITATION')
-                  ? Users
-                  : item.eventType?.startsWith('PAPER')
-                    ? FileText
-                    : MessageSquare;
-                return (
-                  <li
-                    key={item.id}
-                    className={`flex gap-3 p-4 sm:gap-4 sm:p-5 ${item.unread ? 'bg-indigo-50/40' : ''}`}
+          {kind === 'CONFERENCE' ? (
+            <div className="flex items-center justify-between gap-2">
+              <div className="relative min-w-0 flex-1 sm:max-w-sm">
+                <Search
+                  aria-hidden="true"
+                  className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+                />
+                <input
+                  aria-label="Search updates"
+                  placeholder={
+                    view === 'INVITATIONS' ? 'Search responses' : 'Search conference activity'
+                  }
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  maxLength={200}
+                  className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm outline-none focus:border-slate-600 focus:ring-1 focus:ring-slate-600"
+                />
+              </div>
+              <div role="group" aria-label="Read status filter" className="flex items-center gap-1">
+                {['All', 'Unread'].map((label) => (
+                  <Button
+                    key={label}
+                    size="sm"
+                    variant={unreadOnly === (label === 'Unread') ? 'outline' : 'ghost'}
+                    aria-pressed={unreadOnly === (label === 'Unread')}
+                    onClick={() => {
+                      setUnreadOnly(label === 'Unread');
+                      resetPage();
+                    }}
                   >
-                    <Icon
-                      aria-hidden="true"
-                      className={`mt-0.5 h-5 w-5 shrink-0 ${item.unread ? 'text-indigo-700' : 'text-slate-500'}`}
-                    />
-                    <div className="min-w-0 flex-1 space-y-2">
-                      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                        <p
-                          className={`break-words text-sm text-slate-900 ${item.unread ? 'font-semibold' : 'font-medium'}`}
-                        >
-                          {item.title}
-                        </p>
-                        <span
-                          className={`text-xs ${item.unread ? 'font-medium text-indigo-700' : 'text-slate-600'}`}
-                        >
-                          {item.unread ? 'Unread' : 'Read'}
-                        </span>
-                      </div>
-                      {item.subject ? (
-                        <p className="max-w-prose break-words text-sm leading-6 text-slate-700">
-                          {item.subject}
-                        </p>
-                      ) : null}
-                      <time
-                        dateTime={item.updatedAt}
-                        title={item.updatedAt}
-                        className="block text-xs text-slate-600"
-                      >
-                        {new Date(item.updatedAt).toLocaleString()}
-                      </time>
-                      <div className="flex flex-wrap items-center gap-2 pt-1">
-                        <Button asChild size="sm" variant="outline">
-                          <Link
-                            href={item.href}
-                            onClick={() => {
-                              if (item.unread && saving === null) void markRead(item);
-                            }}
-                          >
-                            Open{' '}
-                            {kind !== 'CONFERENCE'
-                              ? kind === 'REVIEW'
-                                ? 'reviews'
-                                : 'response'
-                              : item.paperId
-                                ? 'paper'
-                                : 'reviewers'}
-                          </Link>
-                        </Button>
-                        {item.unread ? (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={saving !== null}
-                            onClick={() => void markRead(item)}
-                          >
-                            {saving === item.id ? 'Saving…' : 'Mark read'}
-                          </Button>
-                        ) : null}
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : null}
-          {items.length ? (
-            <p className="text-xs text-slate-600">
-              {unread} unread on this page. Updates refresh every 30 seconds while visible.
-            </p>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            {cursor ? (
-              <Button variant="outline" onClick={() => setCursor(undefined)}>
-                Newest updates
-              </Button>
-            ) : null}
-            {nextCursor ? (
-              <Button variant="outline" onClick={() => setCursor(nextCursor)}>
-                Older updates
-              </Button>
-            ) : null}
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-600">Read status is saved to your account.</p>
+          )}
+        </div>
+        {error ? (
+          <div
+            role="alert"
+            className="m-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"
+          >
+            {error}
+            {items.length ? ' Showing the last loaded updates.' : ''}
           </div>
-        </>
-      )}
+        ) : null}
+        {loading ? (
+          <div role="status" className="space-y-4 px-5 py-8">
+            <p className="text-sm text-slate-600">Loading updates…</p>
+            <div className="h-4 w-2/3 animate-pulse rounded bg-slate-100 motion-reduce:animate-none" />
+            <div className="h-4 w-1/2 animate-pulse rounded bg-slate-100 motion-reduce:animate-none" />
+          </div>
+        ) : (
+          <>
+            {!items.length && !error ? (
+              <div className="px-6 py-12 text-center">
+                <Bell className="mx-auto mb-3 h-6 w-6 text-slate-500" aria-hidden="true" />
+                <p className="font-semibold">
+                  {unreadOnly
+                    ? 'You’re all caught up.'
+                    : q
+                      ? 'No matching updates.'
+                      : view === 'INVITATIONS'
+                        ? `No ${response ? response.toLowerCase() + ' ' : ''}responses yet.`
+                        : 'No updates yet.'}
+                </p>
+                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">
+                  {q
+                    ? 'Try a different name or search phrase.'
+                    : unreadOnly
+                      ? 'There are no unread updates in this view.'
+                      : view === 'INVITATIONS'
+                        ? 'When a reviewer accepts or declines an invitation, their response will appear here.'
+                        : kind === 'CONFERENCE'
+                          ? 'New submissions and review activity will appear here.'
+                          : kind === 'REVIEW'
+                            ? 'Released reviews of your papers will appear here.'
+                            : 'Submitted author responses will appear here.'}
+                </p>
+                {q || unreadOnly ? (
+                  <Button
+                    className="mt-3"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setSearch('');
+                      setQ('');
+                      setUnreadOnly(false);
+                      resetPage();
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+            {items.length ? (
+              <ul aria-label="Updates" className="divide-y divide-slate-100">
+                {items.map((item) => {
+                  const invitation = item.eventType?.startsWith('INVITATION');
+                  const accepted = item.eventType === 'INVITATION_ACCEPTED';
+                  const Icon = invitation
+                    ? Users
+                    : item.eventType?.startsWith('PAPER')
+                      ? FileText
+                      : MessageSquare;
+                  return (
+                    <li key={item.id} className="flex gap-3 px-4 py-4 sm:gap-4 sm:px-5">
+                      <Icon aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 text-slate-500" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                          <p
+                            className={`flex min-w-0 items-center gap-2 text-sm ${item.unread ? 'font-semibold' : 'font-medium'}`}
+                          >
+                            {item.unread ? (
+                              <span
+                                className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-700"
+                                aria-hidden="true"
+                              />
+                            ) : null}
+                            <span className="break-words">{item.title}</span>
+                          </p>
+                          <time
+                            dateTime={item.updatedAt}
+                            title={new Date(item.updatedAt).toUTCString()}
+                            className="text-xs tabular-nums text-slate-600"
+                          >
+                            {new Date(item.updatedAt).toLocaleString('en-GB', {
+                              day: 'numeric',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </time>
+                        </div>
+                        {item.subject ? (
+                          <p className="mt-1 break-words text-sm leading-6 text-slate-700">
+                            {item.subject}
+                          </p>
+                        ) : null}
+                        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+                          {invitation ? (
+                            <span
+                              className={`rounded px-2 py-0.5 text-xs font-medium ${accepted ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}
+                            >
+                              {accepted ? 'Accepted' : 'Declined'}
+                            </span>
+                          ) : null}
+                          <span className="text-xs text-slate-600">
+                            {item.unread ? 'Unread' : 'Read'}
+                          </span>
+                          <Link
+                            href={
+                              invitation
+                                ? `/dashboard/conferences/${id}/reviews/assignments/invites`
+                                : item.href
+                            }
+                            className="inline-flex items-center gap-1 text-xs font-medium text-slate-900 underline-offset-4 hover:underline"
+                          >
+                            {invitation ? 'View invitations' : 'Open update'}
+                            <ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5" />
+                          </Link>
+                          {item.unread ? (
+                            <button
+                              type="button"
+                              disabled={saving !== null}
+                              onClick={() => void markRead(item)}
+                              className="min-h-8 text-xs font-medium text-slate-600 underline-offset-4 hover:text-slate-900 hover:underline disabled:opacity-50"
+                            >
+                              {saving === item.id ? 'Saving…' : 'Mark read'}
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+            <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 sm:px-5">
+              <p className="text-xs text-slate-600" aria-live="polite">
+                {items.length
+                  ? `${items.length} update${items.length === 1 ? '' : 's'} · ${unread} unread on this page`
+                  : error
+                    ? 'Updates unavailable'
+                    : '0 updates'}
+                <span className="mt-1 block text-slate-500">
+                  Refreshes every 30 seconds while visible.
+                </span>
+              </p>
+              <nav aria-label="Update pages" className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!previous.length}
+                  onClick={() => {
+                    setCursor(previous.at(-1));
+                    setPrevious((values) => values.slice(0, -1));
+                  }}
+                >
+                  Newer updates
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!nextCursor || !!error}
+                  onClick={() => {
+                    setPrevious((values) => [...values, cursor]);
+                    setCursor(nextCursor!);
+                  }}
+                >
+                  Older updates
+                </Button>
+              </nav>
+            </footer>
+          </>
+        )}
+      </section>
+      {view === 'INVITATIONS' ? (
+        <p className="text-xs leading-5 text-slate-600">
+          This feed records reviewer responses. Manage pending invitations and share links in{' '}
+          <Link
+            className="font-medium text-slate-900 underline underline-offset-4"
+            href={`/dashboard/conferences/${id}/reviews/assignments/invites`}
+          >
+            Reviewer invitations
+          </Link>
+          .
+        </p>
+      ) : null}
     </div>
   );
 }

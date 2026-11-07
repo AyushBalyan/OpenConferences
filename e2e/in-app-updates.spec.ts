@@ -58,6 +58,15 @@ async function mockApi(
         unread: i < 3,
         updatedAt: `2026-10-09T${String(14 - i).padStart(2, '0')}:00:00.000Z`,
       }));
+  function matches(item: InboxItem, filters: { category?: string; response?: string; q?: string }) {
+    const invitation = item.eventType?.startsWith('INVITATION_');
+    return (
+      (!filters.category || (filters.category === 'INVITATIONS' ? invitation : !invitation)) &&
+      (!filters.response || item.eventType === `INVITATION_${filters.response}`) &&
+      (!filters.q ||
+        `${item.title} ${item.subject}`.toLowerCase().includes(filters.q.toLowerCase()))
+    );
+  }
   let fail = options.fail ?? false;
   const writes: string[] = [];
   await page.route('**/api/v1/**', async (route) => {
@@ -100,7 +109,8 @@ async function mockApi(
     else if (endpoint.endsWith('/inbox/count'))
       body = { unreadCount: items.filter((i) => i.unread).length };
     else if (endpoint.endsWith('/inbox/read-all')) {
-      items = items.map((i) => ({ ...i, unread: false }));
+      const input = route.request().postDataJSON();
+      items = items.map((i) => (matches(i, input) ? { ...i, unread: false } : i));
       body = { read: true };
     } else if (endpoint.endsWith('/inbox/read')) {
       const input: { sourceId: string } = route.request().postDataJSON();
@@ -116,7 +126,15 @@ async function mockApi(
         body = {
           data:
             kind === 'CONFERENCE'
-              ? items.filter((item) => !params.has('unread') || item.unread)
+              ? items.filter(
+                  (item) =>
+                    (!params.has('unread') || item.unread) &&
+                    matches(item, {
+                      category: params.get('category') ?? undefined,
+                      response: params.get('response') ?? undefined,
+                      q: params.get('q') ?? undefined,
+                    }),
+                )
               : [],
           nextCursor: null,
           observedAt: '2026-10-09T15:00:00.000Z',
@@ -167,6 +185,9 @@ test('desktop and mobile presentation', async ({ page }) => {
   if (!process.env.CAPTURE_BEFORE)
     await expect(page.getByText('Paper submitted.', { exact: true })).toBeVisible();
   await capture(page, process.env.CAPTURE_BEFORE ? 'before-desktop' : 'desktop');
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await capture(page, 'tablet');
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await expect(
     page.getByRole('link', { name: 'Updates, 3 new notifications', exact: true }),
   ).toBeVisible();
@@ -202,14 +223,18 @@ test('read controls update the bell and unread feed without email requests', asy
   ).toBeVisible();
   await page.getByRole('button', { name: 'Unread', exact: true }).click();
   await expect(page.getByText('Paper submitted.', { exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Mark read', exact: true })).toHaveCount(2);
+  await expect(page.getByRole('button', { name: 'Mark read', exact: true })).toHaveCount(1);
   await page.getByRole('button', { name: 'Mark all read', exact: true }).click();
   await expect(page.getByText('You’re all caught up.')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Updates, 1 unread', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Reviewer invitations', exact: true }).click();
+  await expect(page.getByText('Reviewer invitation accepted.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Mark all read', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Updates, 0 unread', exact: true })).toBeVisible();
   const updatesTab = page.getByRole('link', { name: 'Updates, 0 new notifications', exact: true });
   await expect(updatesTab).toBeVisible();
   await expect(updatesTab.locator('span.bg-red-600')).toHaveCount(0);
-  expect(api.writes).toHaveLength(2);
+  expect(api.writes).toHaveLength(3);
   expect(
     api.writes.every((url) => url.endsWith('/inbox/read') || url.endsWith('/inbox/read-all')),
   ).toBe(true);
@@ -241,4 +266,36 @@ test('initial failure can recover without claiming an empty inbox', async ({ pag
   api.recover();
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.getByText('Paper submitted.', { exact: true })).toBeVisible();
+});
+
+test('invitation response tabs filter on the server, search and preserve read scope', async ({
+  page,
+}) => {
+  await mockApi(page);
+  const requests: URL[] = [];
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname.endsWith('/inbox')) requests.push(new URL(request.url()));
+  });
+  await page.goto(path);
+  await expect(page.getByText('Paper submitted.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Reviewer invitation accepted.', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Reviewer invitations', exact: true }).click();
+  await expect(page.getByText('Ada Reviewer', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Declined', exact: true }).click();
+  await expect(page.getByText('Grace Reviewer', { exact: true })).toBeVisible();
+  await expect(page.getByText('Ada Reviewer', { exact: true })).toHaveCount(0);
+  expect(requests.at(-1)?.searchParams.get('response')).toBe('DECLINED');
+  await page.getByRole('button', { name: 'Accepted', exact: true }).click();
+  await expect(page.getByText('Ada Reviewer', { exact: true })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Search updates' }).fill('Nobody');
+  await expect(page.getByText('No matching updates.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
+  await expect(page.getByText('Ada Reviewer', { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await capture(page, 'invitations-desktop');
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await capture(page, 'invitations-tablet');
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await capture(page, 'invitations-mobile');
 });

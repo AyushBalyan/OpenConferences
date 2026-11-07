@@ -37,6 +37,7 @@ export class MessagingController {
           query.cursor,
           roles,
           query.unread === 'true',
+          query,
         ),
       };
     });
@@ -84,6 +85,7 @@ export class MessagingController {
           { userId: user.id, conferenceId: params.id, organizationId: conference.organizationId },
           body.before,
           roles,
+          body,
         ),
       };
     });

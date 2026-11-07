@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { generateId, withTenantContext, Prisma, type RoleKind } from '@openconferences/db';
-import type { InboxKind } from '@openconferences/schemas';
+import type { InboxKind, InboxFilters } from '@openconferences/schemas';
 import { canCoordinateReview } from '../tenancy/role-hierarchy';
 
 type Kind = InboxKind;
@@ -15,12 +15,22 @@ export function inboxAuthorWhere(userId: string) {
   return { OR: [{ submittedById: userId }, { authorships: { some: { userId } } }] };
 }
 
+// Shared by list and mark-all: the action must affect exactly the selected view.
+function conferenceFilter(filters: InboxFilters) {
+  return Prisma.sql`
+    ${filters.category === 'ACTIVITY' ? Prisma.sql`AND u.kind NOT IN ('INVITATION_ACCEPTED','INVITATION_DECLINED')` : Prisma.empty}
+    ${filters.category === 'INVITATIONS' ? Prisma.sql`AND u.kind IN ('INVITATION_ACCEPTED','INVITATION_DECLINED')` : Prisma.empty}
+    ${filters.response ? Prisma.sql`AND u.kind=${'INVITATION_' + filters.response}` : Prisma.empty}
+    ${filters.q ? Prisma.sql`AND (strpos(lower(u.subject),lower(${filters.q}))>0 OR strpos(lower(u.message),lower(${filters.q}))>0)` : Prisma.empty}
+  `;
+}
+
 @Injectable()
 export class InboxService {
   private async sources(
     scope: Scope,
     kind: Kind,
-    options: { cursor?: string; sourceId?: string; unread?: boolean } = {},
+    options: { cursor?: string; sourceId?: string; unread?: boolean } & InboxFilters = {},
   ) {
     return withTenantContext(scope, async (tx) => {
       if (kind === 'CONFERENCE') {
@@ -32,6 +42,7 @@ export class InboxService {
         if (options.cursor && !cursor) throw new NotFoundException('Update not found');
         const rows = await tx.$queryRaw<Prisma.ConferenceUpdateGetPayload<Record<string, never>>[]>`
           SELECT u.* FROM public.conference_updates u WHERE u."conferenceId"=${scope.conferenceId}::uuid
+          ${conferenceFilter(options)}
           ${options.sourceId ? Prisma.sql`AND u.id=${options.sourceId}::uuid` : Prisma.empty}
           ${cursor ? Prisma.sql`AND (u."createdAt",u.id)<((${cursor.createdAt}::timestamptz AT TIME ZONE 'UTC'),${cursor.id}::uuid)` : Prisma.empty}
           ${
@@ -122,10 +133,17 @@ export class InboxService {
     });
   }
 
-  async list(scope: Scope, kind: Kind, cursor?: string, roles: RoleKind[] = [], unread = false) {
+  async list(
+    scope: Scope,
+    kind: Kind,
+    cursor?: string,
+    roles: RoleKind[] = [],
+    unread = false,
+    filters: InboxFilters = {},
+  ) {
     if (kind === 'CONFERENCE') this.assertCoordinator(roles);
     const observedAt = new Date().toISOString();
-    const rows = await this.sources(scope, kind, { cursor, unread });
+    const rows = await this.sources(scope, kind, { ...filters, cursor, unread });
     const page = rows.slice(0, 50);
     const receipts = await withTenantContext(scope, (tx) =>
       tx.inboxReadState.findMany({
@@ -201,7 +219,12 @@ export class InboxService {
     return { unreadCount: Number(result?.count ?? 0) };
   }
 
-  async readAllConferenceUpdates(scope: Scope, before: string, roles: RoleKind[]) {
+  async readAllConferenceUpdates(
+    scope: Scope,
+    before: string,
+    roles: RoleKind[],
+    filters: InboxFilters = {},
+  ) {
     this.assertCoordinator(roles);
     const cutoff = new Date(Math.min(new Date(before).getTime(), Date.now()));
     await withTenantContext(
@@ -209,7 +232,7 @@ export class InboxService {
       (tx) => tx.$executeRaw`
       INSERT INTO public.inbox_read_states(id,"organizationId","conferenceId","userId",kind,"sourceId","readVersion","updatedAt")
       SELECT gen_random_uuid(),u."organizationId",u."conferenceId",${scope.userId}::uuid,'CONFERENCE',u.id,0,now()
-      FROM public.conference_updates u WHERE u."conferenceId"=${scope.conferenceId}::uuid AND u."createdAt"<=(${cutoff}::timestamptz AT TIME ZONE 'UTC')
+      FROM public.conference_updates u WHERE u."conferenceId"=${scope.conferenceId}::uuid ${conferenceFilter(filters)} AND u."createdAt"<=(${cutoff}::timestamptz AT TIME ZONE 'UTC')
       ON CONFLICT ("userId","conferenceId",kind,"sourceId") DO NOTHING`,
     );
     return { read: true as const };

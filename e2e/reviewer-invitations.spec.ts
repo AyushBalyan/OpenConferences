@@ -9,8 +9,24 @@ const invitationUrl = `http://localhost:3007/sign-in?reviewerInvite=${'a'.repeat
 const declineUrl = `http://localhost:3008/reviewer-invite/decline#token=synthetic-decline-token`;
 const captures = '.impeccable/review/reviewer-invitations-v31';
 
-async function fixture(page: Page) {
-  const invitations: Array<Record<string, unknown>> = [];
+async function fixture(page: Page, count = 0) {
+  const invitations: Array<Record<string, unknown>> = Array.from({ length: count }, (_, index) => ({
+    id: id(100 + index),
+    organizationId: conferenceId,
+    conferenceId,
+    email: `reviewer-${String(index + 1).padStart(3, '0')}@example.test`,
+    invitedUserId: null,
+    status: 'PENDING',
+    lifecycleStatus: 'SENT',
+    version: 0,
+    sentAt: '2026-11-06T10:00:00.000Z',
+    roleNote: null,
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    createdAt: '2026-11-06T10:00:00.000Z',
+    updatedAt: '2026-11-06T10:00:00.000Z',
+  }));
+  const listRequests: URL[] = [];
+  let failNext = false;
   const deliveries: string[] = [];
   const sends: string[] = [];
   const actions: string[] = [];
@@ -59,7 +75,23 @@ async function fixture(page: Page) {
     } else if (endpoint.endsWith('/inbox/count')) {
       body = { unreadCount: 0 };
     } else if (endpoint === base && req.method() === 'GET') {
-      body = { data: invitations, nextCursor: null };
+      const url = new URL(req.url());
+      listRequests.push(url);
+      if (failNext) {
+        failNext = false;
+        status = 503;
+        body = { detail: 'Unavailable' };
+      } else {
+        const q = (url.searchParams.get('q') ?? '').toLowerCase();
+        const filtered = invitations.filter((row) =>
+          `${row.email} ${row.lifecycleStatus ?? row.status}`.toLowerCase().includes(q),
+        );
+        const cursor = url.searchParams.get('cursor');
+        const offset = cursor ? filtered.findIndex((row) => row.id === cursor) + 1 : 0;
+        const limit = Number(url.searchParams.get('limit') ?? 20);
+        const data = filtered.slice(offset, offset + limit);
+        body = { data, nextCursor: offset + limit < filtered.length ? data.at(-1)?.id : null };
+      }
     } else if (endpoint === base && req.method() === 'POST') {
       const input = req.postDataJSON();
       deliveries.push(input.delivery);
@@ -117,7 +149,15 @@ async function fixture(page: Page) {
     await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   });
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-  return { deliveries, sends, actions };
+  return {
+    deliveries,
+    sends,
+    actions,
+    listRequests,
+    failNextPage: () => {
+      failNext = true;
+    },
+  };
 }
 
 test('generates a pending invitation without email and can copy after reload or send later', async ({
@@ -237,4 +277,49 @@ test('extends without changing links and explicitly reissues replacements withou
   );
   expect(state.actions).toEqual(['EXTEND', 'REISSUE']);
   expect(state.sends).toHaveLength(0);
+});
+
+test('loads one invitation page, navigates and searches across the complete roster', async ({
+  page,
+}) => {
+  const state = await fixture(page, 45);
+  await page.goto(path);
+  await expect(
+    page.getByRole('cell', { name: 'reviewer-001@example.test', exact: true }),
+  ).toBeVisible();
+  // React Strict Mode may repeat the initial effect in dev. No later page is fetched.
+  expect(new Set(state.listRequests.map((url) => url.toString())).size).toBe(1);
+  expect(state.listRequests.every((url) => !url.searchParams.has('cursor'))).toBe(true);
+  expect(state.listRequests[0].searchParams.get('limit')).toBe('20');
+  await expect(
+    page.getByRole('cell', { name: 'reviewer-021@example.test', exact: true }),
+  ).toHaveCount(0);
+  const pagination = page.getByRole('navigation', { name: 'Invitation pages' });
+  await expect(pagination.getByRole('button', { name: 'Previous', exact: true })).toBeDisabled();
+  await pagination.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(
+    page.getByRole('cell', { name: 'reviewer-021@example.test', exact: true }),
+  ).toBeVisible();
+  state.failNextPage();
+  await pagination.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'Could not load invitations' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(
+    page.getByRole('cell', { name: 'reviewer-045@example.test', exact: true }),
+  ).toBeVisible();
+  await expect(pagination.getByRole('button', { name: 'Next', exact: true })).toBeDisabled();
+  await pagination.getByRole('button', { name: 'Previous', exact: true }).click();
+  await expect(
+    page.getByRole('cell', { name: 'reviewer-021@example.test', exact: true }),
+  ).toBeVisible();
+  await page.getByLabel('Find invitation').fill('reviewer-045');
+  await expect(
+    page.getByRole('cell', { name: 'reviewer-045@example.test', exact: true }),
+  ).toBeVisible();
+  await expect(pagination).toContainText('Page 1');
+  await expect(pagination.getByRole('button', { name: 'Previous', exact: true })).toBeDisabled();
+  expect(state.listRequests.at(-1)?.searchParams.get('q')).toBe('reviewer-045');
+  expect(state.listRequests.at(-1)?.searchParams.has('cursor')).toBe(false);
 });

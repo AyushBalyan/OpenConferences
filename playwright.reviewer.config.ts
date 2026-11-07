@@ -4,6 +4,7 @@ export default defineConfig({
   testDir: './e2e',
   testMatch: [
     'reviewer-operations.spec.ts',
+    'in-app-updates.spec.ts',
     'reviewer-invitations.spec.ts',
     'review-coordination.spec.ts',
   ],

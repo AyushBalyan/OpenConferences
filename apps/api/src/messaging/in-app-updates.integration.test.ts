@@ -405,4 +405,76 @@ describe.skipIf(!url)('in-app updates with real local PostgreSQL and API RLS', (
       status: 404,
     });
   });
+  it('filters invitation responses before pagination and marks only the selected response read', async () => {
+    const date = new Date('2025-05-01');
+    await db.conferenceUpdate.createMany({
+      data: Array.from({ length: 62 }, (_, index) => ({
+        organizationId: org,
+        conferenceId: conf,
+        sourceId: randomUUID(),
+        sourceVersion: 0,
+        kind: index < 60 ? 'INVITATION_ACCEPTED' : 'INVITATION_DECLINED',
+        message: index < 60 ? 'Reviewer invitation accepted.' : 'Reviewer invitation declined.',
+        subject: `Response filter fixture ${index}`,
+        createdAt: date,
+      })),
+    });
+    const filters = {
+      category: 'INVITATIONS' as const,
+      response: 'ACCEPTED' as const,
+      q: 'Response filter fixture',
+    };
+    const first = await service.list(
+      scope(organizer),
+      'CONFERENCE',
+      undefined,
+      ['ORGANIZER'],
+      false,
+      filters,
+    );
+    const second = await service.list(
+      scope(organizer),
+      'CONFERENCE',
+      first.nextCursor!,
+      ['ORGANIZER'],
+      false,
+      filters,
+    );
+    expect(first.data).toHaveLength(50);
+    expect(second.data).toHaveLength(10);
+    expect(new Set([...first.data, ...second.data].map((row) => row.id)).size).toBe(60);
+    expect(second.nextCursor).toBeNull();
+    expect(
+      [...first.data, ...second.data].every((row) => row.eventType === 'INVITATION_ACCEPTED'),
+    ).toBe(true);
+    await service.readAllConferenceUpdates(
+      scope(organizer),
+      new Date().toISOString(),
+      ['ORGANIZER'],
+      filters,
+    );
+    expect(
+      (await service.list(scope(organizer), 'CONFERENCE', undefined, ['ORGANIZER'], true, filters))
+        .data,
+    ).toHaveLength(0);
+    const declined = await service.list(
+      scope(organizer),
+      'CONFERENCE',
+      undefined,
+      ['ORGANIZER'],
+      true,
+      { ...filters, response: 'DECLINED' },
+    );
+    expect(declined.data).toHaveLength(2);
+    expect(
+      (await service.list(scope(), 'CONFERENCE', undefined, ['CHAIR'], true, filters)).data,
+    ).toHaveLength(50);
+    const activity = await service.list(scope(), 'CONFERENCE', undefined, ['CHAIR'], false, {
+      category: 'ACTIVITY',
+    });
+    expect(activity.data.every((row) => !row.eventType?.startsWith('INVITATION_'))).toBe(true);
+    await expect(
+      service.list(scope(author), 'CONFERENCE', undefined, ['AUTHOR'], false, filters),
+    ).rejects.toMatchObject({ status: 403 });
+  });
 });

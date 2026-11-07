@@ -630,6 +630,7 @@ model ReviewerInvitation {
   invitedUser  User?                      @relation("InvitedReviewer", fields: [invitedUserId], references: [id])
   changes      ReviewerInvitationChange[]
 
+  @@index([conferenceId, createdAt(sort: Desc), id(sort: Desc)], map: "reviewer_invitations_page_idx")
   @@index([conferenceId, updatedAt, id])
   @@index([conferenceId, email])
   @@index([conferenceId, status])
@@ -1143,6 +1144,7 @@ model ConferenceUpdate {
 
   @@unique([kind, sourceId, sourceVersion])
   @@index([conferenceId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([conferenceId, kind, createdAt(sort: Desc), id(sort: Desc)], map: "conference_updates_response_page_idx")
   @@index([organizationId])
   @@map("conference_updates")
 }

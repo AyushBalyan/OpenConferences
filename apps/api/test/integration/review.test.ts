@@ -644,6 +644,51 @@ describe('Reviewer management & assignment integration', () => {
     ).toBe(404);
   });
 
+  it('paginates and searches invitations on the server with stable equal-time ordering', async () => {
+    const prefix = `paging-${generateId()}`;
+    const ids = Array.from({ length: 45 }, () => generateId());
+    await prisma.reviewerInvitation.createMany({
+      data: ids.map((id, index) => ({
+        id,
+        organizationId: orgId,
+        conferenceId: confId,
+        email: `${prefix}-${index}@example.test`,
+        token: generateId(),
+        expiresAt: new Date('2099-01-01'),
+        createdAt: new Date('2026-01-01'),
+        sentAt: index % 2 ? new Date() : null,
+      })),
+    });
+    const collected: string[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 3; page++) {
+      const response = await request(app.getHttpServer())
+        .get(`/api/v1/conferences/${confId}/reviewer-invitations`)
+        .query({ q: prefix.toUpperCase(), limit: 20, ...(cursor ? { cursor } : {}) })
+        .set('Cookie', chairCookie);
+      expect(response.status).toBe(200);
+      expect(response.body.data).toHaveLength(page === 2 ? 5 : 20);
+      collected.push(...response.body.data.map((row: { id: string }) => row.id));
+      cursor = response.body.nextCursor;
+    }
+    expect(cursor).toBeNull();
+    expect(new Set(collected)).toEqual(new Set(ids));
+    const one = await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/reviewer-invitations`)
+      .query({ q: `${prefix}-44@`, limit: 20 })
+      .set('Cookie', chairCookie);
+    expect(one.status).toBe(200);
+    expect(one.body.data.map((row: { id: string }) => row.id)).toEqual([ids[44]]);
+    const states = await request(app.getHttpServer())
+      .get(`/api/v1/conferences/${confId}/reviewer-invitations`)
+      .query({ q: 'sent', limit: 100 })
+      .set('Cookie', chairCookie);
+    expect(states.status).toBe(200);
+    expect(
+      states.body.data.every((row: { lifecycleStatus: string }) => row.lifecycleStatus === 'SENT'),
+    ).toBe(true);
+  });
+
   it('rejects an invalid invitation delivery mode', async () => {
     const result = await request(app.getHttpServer())
       .post(`/api/v1/conferences/${confId}/reviewer-invitations`)

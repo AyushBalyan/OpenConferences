@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { cursorPaginationQuerySchema } from './pagination.js';
 
+export const inboxFiltersSchema = z.object({
+  category: z.enum(['ACTIVITY', 'INVITATIONS']).optional(),
+  response: z.enum(['ACCEPTED', 'DECLINED']).optional(),
+  q: z.string().trim().max(200).optional(),
+});
+export type InboxFilters = z.infer<typeof inboxFiltersSchema>;
+
 export const inboxKindSchema = z.enum(['REVIEW', 'REBUTTAL', 'CONFERENCE']);
 export type InboxKind = z.infer<typeof inboxKindSchema>;
 export const inboxItemSchema = z.object({

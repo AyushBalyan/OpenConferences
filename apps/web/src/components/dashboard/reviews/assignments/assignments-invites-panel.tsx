@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -19,7 +19,7 @@ import {
   fetchConference,
   updateConferenceSettings,
   operateReviewerInvitation,
-  fetchReviewerInvitations,
+  fetchReviewerInvitationPage,
   fetchReviewerInvitationLink,
   issueReviewerInvitation,
   resendReviewerInvitation,
@@ -55,6 +55,24 @@ export function AssignmentsInvitesPanel() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [lifetimeDays, setLifetimeDays] = useState(7);
   const [filter, setFilter] = useState('');
+  const [page, setPage] = useState<{
+    q: string;
+    cursor?: string;
+    previous: Array<string | undefined>;
+  }>({ q: '', previous: [] });
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
+  const generation = useRef(0);
+  useEffect(() => {
+    const timer = setTimeout(
+      () =>
+        setPage((current) =>
+          current.q === filter.trim() ? current : { q: filter.trim(), previous: [] },
+        ),
+      300,
+    );
+    return () => clearTimeout(timer);
+  }, [filter]);
   const [operation, setOperation] = useState<{
     invitation: ReviewerInvitationDto;
     action: 'EXTEND' | 'REISSUE' | 'REINVITE';
@@ -75,19 +93,31 @@ export function AssignmentsInvitesPanel() {
   const actionPending = busy || !!resendingId || !!revokingId || !!linkId;
 
   const loadInvitations = useCallback(async () => {
+    const request = ++generation.current;
     setLoadingInvitations(true);
+    setListError(null);
     try {
-      const data = await fetchReviewerInvitations(conferenceId, true);
-      setInvitations(data);
+      const data = await fetchReviewerInvitationPage(conferenceId, {
+        cursor: page.cursor,
+        q: page.q || undefined,
+        limit: 20,
+      });
+      if (generation.current !== request) return;
+      setInvitations(data.data);
+      setNextCursor(data.nextCursor);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load invitations');
+      if (generation.current === request)
+        setListError(err instanceof Error ? err.message : 'Failed to load invitations');
     } finally {
-      setLoadingInvitations(false);
+      if (generation.current === request) setLoadingInvitations(false);
     }
-  }, [conferenceId, setError]);
+  }, [conferenceId, page]);
 
   useEffect(() => {
     void loadInvitations();
+    return () => {
+      generation.current++;
+    };
   }, [loadInvitations]);
 
   useEffect(() => {
@@ -138,7 +168,8 @@ export function AssignmentsInvitesPanel() {
         setMessage(`Invitation email sent to ${invitation.email}`);
       }
       setInviteEmail('');
-      await loadInvitations();
+      setFilter('');
+      setPage({ q: '', previous: [] });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create invitation');
     } finally {
@@ -419,15 +450,29 @@ export function AssignmentsInvitesPanel() {
             <Label htmlFor="filter-invitations">Find invitation</Label>
             <Input
               id="filter-invitations"
+              maxLength={200}
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               placeholder="Filter by email or status"
             />
           </div>
+          {listError ? (
+            <div
+              role="alert"
+              className="mb-4 flex flex-wrap items-center gap-3 text-sm text-rose-800"
+            >
+              {listError}
+              <Button variant="outline" size="sm" onClick={() => void loadInvitations()}>
+                Try again
+              </Button>
+            </div>
+          ) : null}
           {loadingInvitations ? (
             <Skeleton className="h-24 w-full" />
-          ) : invitations.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No reviewer invitations yet.</p>
+          ) : listError ? null : invitations.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {page.q ? 'No invitations match this search.' : 'No reviewer invitations yet.'}
+            </p>
           ) : (
             <DataTable>
               <DataTableHeader>
@@ -439,101 +484,132 @@ export function AssignmentsInvitesPanel() {
                 </DataTableRow>
               </DataTableHeader>
               <DataTableBody>
-                {invitations
-                  .filter((invitation) =>
-                    `${invitation.email} ${invitation.lifecycleStatus ?? invitation.status}`
-                      .toLowerCase()
-                      .includes(filter.toLowerCase()),
-                  )
-                  .map((invitation) => {
-                    const canResend =
-                      !invitation.revokedAt &&
-                      (invitation.status === 'PENDING' || invitation.status === 'EXPIRED');
-                    const canRevoke = invitation.status === 'PENDING';
-                    const canCopy =
-                      invitation.status === 'PENDING' &&
-                      new Date(invitation.expiresAt) > new Date();
+                {invitations.map((invitation) => {
+                  const canResend =
+                    !invitation.revokedAt &&
+                    (invitation.status === 'PENDING' || invitation.status === 'EXPIRED');
+                  const canRevoke = invitation.status === 'PENDING';
+                  const canCopy =
+                    invitation.status === 'PENDING' && new Date(invitation.expiresAt) > new Date();
 
-                    return (
-                      <DataTableRow key={invitation.id}>
-                        <DataTableCell>{invitation.email}</DataTableCell>
-                        <DataTableCell>
-                          <WorkflowBadge
-                            label={invitation.lifecycleStatus ?? invitation.status}
-                            tone={invitationStatusTone(invitation.status)}
-                          />
-                        </DataTableCell>
-                        <DataTableCell className="text-muted-foreground">
-                          {formatInvitationExpiry(invitation.expiresAt)}
-                        </DataTableCell>
-                        <DataTableCell className="text-right">
-                          <div className="inline-flex flex-wrap items-center justify-end gap-2">
-                            {canCopy ? (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={actionPending}
-                                onClick={() => void handleCopyLink(invitation.id)}
-                              >
-                                {linkId === invitation.id ? 'Loading…' : 'Copy link'}
-                              </Button>
-                            ) : null}
-                            {['PENDING', 'EXPIRED', 'DECLINED'].includes(invitation.status) ? (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={actionPending}
-                                onClick={() =>
-                                  setOperation({
-                                    invitation,
-                                    action:
-                                      invitation.status === 'DECLINED' || invitation.revokedAt
-                                        ? 'REINVITE'
-                                        : 'REISSUE',
-                                  })
-                                }
-                              >
-                                {invitation.status === 'DECLINED' || invitation.revokedAt
-                                  ? 'Reinvite'
-                                  : 'Reissue'}
-                              </Button>
-                            ) : null}
-                            {canCopy ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                disabled={actionPending}
-                                onClick={() => setOperation({ invitation, action: 'EXTEND' })}
-                              >
-                                Extend
-                              </Button>
-                            ) : null}
-                            {canRevoke ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                disabled={actionPending}
-                                onClick={() => void handleRevoke(invitation.id, invitation.email)}
-                              >
-                                {revokingId === invitation.id ? 'Revoking…' : 'Revoke'}
-                              </Button>
-                            ) : null}
+                  return (
+                    <DataTableRow key={invitation.id}>
+                      <DataTableCell>{invitation.email}</DataTableCell>
+                      <DataTableCell>
+                        <WorkflowBadge
+                          label={invitation.lifecycleStatus ?? invitation.status}
+                          tone={invitationStatusTone(invitation.status)}
+                        />
+                      </DataTableCell>
+                      <DataTableCell className="text-muted-foreground">
+                        {formatInvitationExpiry(invitation.expiresAt)}
+                      </DataTableCell>
+                      <DataTableCell className="text-right">
+                        <div className="inline-flex flex-wrap items-center justify-end gap-2">
+                          {canCopy ? (
                             <Button
                               variant="outline"
                               size="sm"
-                              disabled={!canResend || actionPending}
-                              onClick={() => void handleResend(invitation.id, invitation.email)}
+                              disabled={actionPending}
+                              onClick={() => void handleCopyLink(invitation.id)}
                             >
-                              {resendingId === invitation.id ? 'Sending…' : 'Send email'}
+                              {linkId === invitation.id ? 'Loading…' : 'Copy link'}
                             </Button>
-                          </div>
-                        </DataTableCell>
-                      </DataTableRow>
-                    );
-                  })}
+                          ) : null}
+                          {['PENDING', 'EXPIRED', 'DECLINED'].includes(invitation.status) ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={actionPending}
+                              onClick={() =>
+                                setOperation({
+                                  invitation,
+                                  action:
+                                    invitation.status === 'DECLINED' || invitation.revokedAt
+                                      ? 'REINVITE'
+                                      : 'REISSUE',
+                                })
+                              }
+                            >
+                              {invitation.status === 'DECLINED' || invitation.revokedAt
+                                ? 'Reinvite'
+                                : 'Reissue'}
+                            </Button>
+                          ) : null}
+                          {canCopy ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={actionPending}
+                              onClick={() => setOperation({ invitation, action: 'EXTEND' })}
+                            >
+                              Extend
+                            </Button>
+                          ) : null}
+                          {canRevoke ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={actionPending}
+                              onClick={() => void handleRevoke(invitation.id, invitation.email)}
+                            >
+                              {revokingId === invitation.id ? 'Revoking…' : 'Revoke'}
+                            </Button>
+                          ) : null}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={!canResend || actionPending}
+                            onClick={() => void handleResend(invitation.id, invitation.email)}
+                          >
+                            {resendingId === invitation.id ? 'Sending…' : 'Send email'}
+                          </Button>
+                        </div>
+                      </DataTableCell>
+                    </DataTableRow>
+                  );
+                })}
               </DataTableBody>
             </DataTable>
           )}
+          <nav
+            aria-label="Invitation pages"
+            className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4"
+          >
+            <p className="text-xs text-slate-600" aria-live="polite">
+              Page {page.previous.length + 1} · Up to 20 invitations per page
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={loadingInvitations || actionPending || !page.previous.length}
+                onClick={() =>
+                  setPage((current) => ({
+                    ...current,
+                    cursor: current.previous.at(-1),
+                    previous: current.previous.slice(0, -1),
+                  }))
+                }
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={loadingInvitations || actionPending || !!listError || !nextCursor}
+                onClick={() =>
+                  setPage((current) => ({
+                    ...current,
+                    cursor: nextCursor!,
+                    previous: [...current.previous, current.cursor],
+                  }))
+                }
+              >
+                Next
+              </Button>
+            </div>
+          </nav>
         </CardContent>
       </Card>
     </div>

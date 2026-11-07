@@ -805,6 +805,18 @@ export async function updateReviewRound(
   throw new Error('Failed to update review round');
 }
 
+export async function fetchReviewerInvitationPage(
+  conferenceId: string,
+  query: { cursor?: string; q?: string; limit?: number } = {},
+) {
+  const result = await apiClient.review.listInvitations({
+    params: { conferenceId },
+    query: { ...query, limit: query.limit ?? 20, includeHistory: 'true' },
+  });
+  if (result.status !== 200) throw new Error('Could not load invitations. Try again.');
+  return result.body;
+}
+
 export async function fetchReviewerInvitations(conferenceId: string, includeHistory = false) {
   return fetchAllPages(async (query) => {
     const result = await apiClient.review.listInvitations({

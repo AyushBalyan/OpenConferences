@@ -10,6 +10,7 @@ import {
   resendNotificationResponseSchema,
   problemEnvelopeSchema,
   inboxKindSchema,
+  inboxFiltersSchema,
   inboxItemSchema,
 } from '@openconferences/schemas';
 import { z } from 'zod';
@@ -39,6 +40,7 @@ export const messagingContract = c.router({
       kind: inboxKindSchema,
       cursor: z.string().uuid().optional(),
       unread: z.literal('true').optional(),
+      ...inboxFiltersSchema.shape,
     }),
     responses: {
       200: z.object({
@@ -83,7 +85,7 @@ export const messagingContract = c.router({
     method: 'POST',
     path: '/conferences/:id/inbox/read-all',
     pathParams: conferenceIdParams,
-    body: z.object({ before: z.string().datetime() }),
+    body: inboxFiltersSchema.extend({ before: z.string().datetime() }),
     responses: {
       200: z.object({ read: z.literal(true) }),
       401: problemEnvelopeSchema,
