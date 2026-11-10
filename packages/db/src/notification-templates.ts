@@ -485,7 +485,7 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
     headline: 'Manuscript accepted for presentation',
     paragraphs: [
       'Dear Dr {{authorName}},',
-      'We are pleased to inform you that your manuscript has been <strong>accepted for presentation</strong> at <em>{{conferenceName}}</em>, scheduled to be held online from <strong>15–17 December 2026</strong>.',
+      'We are pleased to inform you that your manuscript has been <strong>accepted for presentation</strong> at <em>{{conferenceName}}</em>, subject to the incorporation of reviewers’ comments.',
     ],
     details: [
       { label: 'PaperID', value: '{{submissionNumber}}' },
