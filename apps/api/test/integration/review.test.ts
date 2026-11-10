@@ -1454,6 +1454,360 @@ describe('Reviewer management & assignment integration', () => {
       });
     });
 
+    describe('decisions without reviewer assignments', () => {
+      const conferenceId = generateId(),
+        decisionTrackId = generateId();
+      beforeAll(async () => {
+        await prisma.conference.create({
+          data: {
+            id: conferenceId,
+            organizationId: orgId,
+            slug: conferenceId,
+            name: 'Unassigned decision fixture',
+            authorJoinToken: generateId(),
+            status: 'REVIEWING',
+            reviewConfig: { minimumReviews: 2 },
+            feeSchedule: {
+              currency: 'INR',
+              earlyBirdEndsAt: '2099-01-01T23:59:59.000Z',
+              registrationDeadlineAt: '2099-12-31T23:59:59.000Z',
+              matrix: {
+                REGULAR: { EARLY: 10000, REGULAR: 20000 },
+                STUDENT: { EARLY: 5000, REGULAR: 10000 },
+              },
+            },
+          },
+        });
+        await prisma.track.create({
+          data: {
+            id: decisionTrackId,
+            organizationId: orgId,
+            conferenceId,
+            slug: 'main',
+            name: 'Main',
+          },
+        });
+        await prisma.membership.create({
+          data: {
+            id: generateId(),
+            userId: chairUserId,
+            organizationId: orgId,
+            conferenceId,
+            scope: 'CONFERENCE',
+            roles: { create: { id: generateId(), role: 'CHAIR' } },
+          },
+        });
+      });
+      async function fixture(
+        withCycle = false,
+        status: 'SUBMITTED' | 'DRAFT' | 'WITHDRAWN' = 'SUBMITTED',
+      ) {
+        const paper = await prisma.paper.create({
+          data: {
+            id: generateId(),
+            organizationId: orgId,
+            conferenceId,
+            trackId: decisionTrackId,
+            submittedById: authorReviewerUserId,
+            title: 'Paper without assigned reviewers',
+            abstract: 'Synthetic decision fixture',
+            keywords: [],
+            status,
+            authorships: {
+              create: {
+                id: generateId(),
+                userId: authorReviewerUserId,
+                order: 1,
+                isCorresponding: true,
+                fullName: 'Test Author',
+                email: authorReviewerEmail,
+              },
+            },
+          },
+        });
+        const round = withCycle
+          ? await prisma.reviewRound.create({
+              data: {
+                id: generateId(),
+                organizationId: orgId,
+                conferenceId,
+                paperId: paper.id,
+                roundNumber: 1,
+              },
+            })
+          : null;
+        return { paper, round };
+      }
+      it.each(['ACCEPT', 'REJECT', 'MINOR_REVISION', 'MAJOR_REVISION'] as const)(
+        'records %s with no cycle, assignments or reviews and preserves the review-count warning',
+        async (outcome) => {
+          const { paper } = await fixture();
+          resetLastTestNotification();
+          const result = await request(app.getHttpServer())
+            .post(`/api/v1/conferences/${conferenceId}/papers/${paper.id}/decision`)
+            .set('Cookie', chairCookie)
+            .send({
+              outcome,
+              version: paper.version,
+              notify: false,
+              rationale: 'Editorial decision without external review.',
+            });
+          expect(result.status).toBe(201);
+          expect(result.body.decision.outcome).toBe(outcome);
+          expect(result.body.warnings).toContain('0 of 2 required reviews submitted');
+          expect(await prisma.reviewerAssignment.count({ where: { paperId: paper.id } })).toBe(0);
+          expect(await prisma.reviewRound.count({ where: { paperId: paper.id } })).toBe(1);
+          expect((await prisma.paper.findUniqueOrThrow({ where: { id: paper.id } })).status).toBe(
+            outcome.includes('REVISION') ? 'UNDER_REVIEW' : 'DECISION_MADE',
+          );
+          expect(lastTestNotification).toBeNull();
+          if (outcome === 'ACCEPT')
+            expect(await prisma.registration.count({ where: { paperId: paper.id } })).toBe(1);
+          const replay = await request(app.getHttpServer())
+            .post(`/api/v1/conferences/${conferenceId}/papers/${paper.id}/decision`)
+            .set('Cookie', chairCookie)
+            .send({ outcome, version: paper.version + 1, notify: false });
+          expect(replay.status).toBe(409);
+          expect(await prisma.decision.count({ where: { paperId: paper.id } })).toBe(1);
+        },
+      );
+      it('serializes concurrent first decisions without creating duplicate cycles', async () => {
+        const { paper } = await fixture();
+        const decide = () =>
+          request(app.getHttpServer())
+            .post(`/api/v1/conferences/${conferenceId}/papers/${paper.id}/decision`)
+            .set('Cookie', chairCookie)
+            .send({ outcome: 'REJECT', version: 0, notify: false });
+        const results = await Promise.all([decide(), decide()]);
+        expect(results.map((result) => result.status).sort()).toEqual([201, 409]);
+        expect(await prisma.reviewRound.count({ where: { paperId: paper.id } })).toBe(1);
+        expect(await prisma.decision.count({ where: { paperId: paper.id } })).toBe(1);
+      });
+      it('records a decision in an existing unassigned cycle', async () => {
+        const { paper, round } = await fixture(true);
+        const result = await request(app.getHttpServer())
+          .post(`/api/v1/conferences/${conferenceId}/papers/${paper.id}/decision`)
+          .set('Cookie', chairCookie)
+          .send({ roundId: round!.id, outcome: 'REJECT', version: 0, notify: false });
+        expect(result.status).toBe(201);
+        expect(result.body.decision.roundId).toBe(round!.id);
+        expect(result.body.warnings).toContain('0 of 2 required reviews submitted');
+      });
+      it('bulk-records unassigned papers with and without an existing cycle', async () => {
+        const first = await fixture(),
+          second = await fixture(true);
+        const result = await request(app.getHttpServer())
+          .post(`/api/v1/conferences/${conferenceId}/decisions/bulk`)
+          .set('Cookie', chairCookie)
+          .send({
+            items: [
+              { paperId: first.paper.id, outcome: 'REJECT' },
+              { paperId: second.paper.id, outcome: 'MINOR_REVISION' },
+            ],
+            notify: false,
+          });
+        expect(result.status).toBe(201);
+        expect(result.body.data).toHaveLength(2);
+        expect(result.body.failures).toEqual([]);
+        expect(await prisma.reviewerAssignment.count({ where: { conferenceId } })).toBe(0);
+      });
+      it.each([false, true])(
+        'preserves recorded decisions through bulk endpoint (legacy=%s)',
+        async (legacy) => {
+          const old = await fixture(true);
+          const fresh = await fixture();
+          const recorded = await prisma.decision.create({
+            data: {
+              id: generateId(),
+              organizationId: orgId,
+              conferenceId,
+              paperId: old.paper.id,
+              roundId: old.round!.id,
+              decidedById: chairUserId,
+              outcome: 'ACCEPT',
+              rationale: 'Historical rationale',
+              notifiedAt: new Date('2026-01-01T00:00:00Z'),
+              version: 1,
+            },
+          });
+          const previousPaper = await prisma.paper.update({
+            where: { id: old.paper.id },
+            data: { status: 'DECISION_MADE' },
+          });
+          const path = legacy ? `rounds/${old.round!.id}/decisions/bulk` : 'decisions/bulk';
+          const response = await request(app.getHttpServer())
+            .post(`/api/v1/conferences/${conferenceId}/${path}`)
+            .set('Cookie', chairCookie)
+            .send({
+              items: [
+                { paperId: old.paper.id, outcome: 'REJECT' },
+                { paperId: fresh.paper.id, outcome: 'REJECT' },
+              ],
+              notify: false,
+            });
+          expect(response.status).toBe(201);
+          expect(response.body.data).toHaveLength(1);
+          expect(response.body.data[0].paperId).toBe(fresh.paper.id);
+          expect(response.body.failures).toHaveLength(1);
+          expect(response.body.failures[0].paperId).toBe(old.paper.id);
+          const replay = await request(app.getHttpServer())
+            .post(`/api/v1/conferences/${conferenceId}/papers/${old.paper.id}/decision`)
+            .set('Cookie', chairCookie)
+            .send({
+              roundId: old.round!.id,
+              version: previousPaper.version,
+              outcome: 'REJECT',
+              notify: false,
+            });
+          expect(replay.status).toBe(409);
+          expect(await prisma.decision.findUnique({ where: { id: recorded.id } })).toEqual(
+            recorded,
+          );
+          expect(await prisma.paper.findUnique({ where: { id: old.paper.id } })).toEqual(
+            previousPaper,
+          );
+          expect(await prisma.reviewRound.count({ where: { paperId: old.paper.id } })).toBe(1);
+        },
+      );
+      it('rejects an older undecided cycle and preserves a newer recorded decision', async () => {
+        const { paper, round } = await fixture(true);
+        const current = await prisma.reviewRound.create({
+          data: {
+            id: generateId(),
+            organizationId: orgId,
+            conferenceId,
+            paperId: paper.id,
+            roundNumber: 2,
+          },
+        });
+        const recorded = await prisma.decision.create({
+          data: {
+            id: generateId(),
+            organizationId: orgId,
+            conferenceId,
+            paperId: paper.id,
+            roundId: current.id,
+            decidedById: chairUserId,
+            outcome: 'REJECT',
+            version: 1,
+          },
+        });
+        const response = await request(app.getHttpServer())
+          .post(`/api/v1/conferences/${conferenceId}/papers/${paper.id}/decision`)
+          .set('Cookie', chairCookie)
+          .send({ roundId: round!.id, version: paper.version, outcome: 'ACCEPT', notify: false });
+        expect(response.status).toBe(409);
+        expect(await prisma.decision.findMany({ where: { paperId: paper.id } })).toEqual([
+          recorded,
+        ]);
+        expect(await prisma.paper.findUnique({ where: { id: paper.id } })).toEqual(paper);
+        expect(await prisma.registration.count({ where: { paperId: paper.id } })).toBe(0);
+      });
+      it('records a reviewed revision cycle without changing its earlier decision or review', async () => {
+        const { paper, round } = await fixture(true);
+        const previous = await prisma.decision.create({
+          data: {
+            id: generateId(),
+            organizationId: orgId,
+            conferenceId,
+            paperId: paper.id,
+            roundId: round!.id,
+            decidedById: chairUserId,
+            outcome: 'MINOR_REVISION',
+            version: 1,
+          },
+        });
+        const current = await prisma.reviewRound.create({
+          data: {
+            id: generateId(),
+            organizationId: orgId,
+            conferenceId,
+            paperId: paper.id,
+            roundNumber: 2,
+          },
+        });
+        const assignment = await prisma.reviewerAssignment.create({
+          data: {
+            id: generateId(),
+            organizationId: orgId,
+            conferenceId,
+            paperId: paper.id,
+            roundId: current.id,
+            reviewerUserId,
+          },
+        });
+        const review = await prisma.review.create({
+          data: {
+            id: generateId(),
+            organizationId: orgId,
+            conferenceId,
+            paperId: paper.id,
+            roundId: current.id,
+            assignmentId: assignment.id,
+            reviewerUserId,
+            scores: { clarity: 4 },
+            recommendation: 'WEAK_ACCEPT',
+            confidence: 4,
+            commentsToAuthors: 'Reviewed revision',
+            submittedAt: new Date(),
+          },
+        });
+        const response = await request(app.getHttpServer())
+          .post(`/api/v1/conferences/${conferenceId}/papers/${paper.id}/decision`)
+          .set('Cookie', chairCookie)
+          .send({ roundId: current.id, version: paper.version, outcome: 'ACCEPT', notify: false });
+        expect(response.status).toBe(201);
+        expect(response.body.decision.roundId).toBe(current.id);
+        expect(response.body.warnings).toContain('1 of 2 required reviews submitted');
+        expect(await prisma.decision.findUnique({ where: { id: previous.id } })).toEqual(previous);
+        expect(await prisma.review.findUnique({ where: { id: review.id } })).toEqual(review);
+        expect(
+          await prisma.reviewerAssignment.findUnique({ where: { id: assignment.id } }),
+        ).toEqual(assignment);
+        expect(await prisma.reviewRound.count({ where: { paperId: paper.id } })).toBe(2);
+        expect(await prisma.registration.count({ where: { paperId: paper.id } })).toBe(1);
+      });
+      it('preserves version, paper status, cycle ownership and authorization checks', async () => {
+        const active = await fixture(),
+          foreign = await fixture(true);
+        for (const status of ['DRAFT', 'WITHDRAWN'] as const) {
+          const { paper } = await fixture(false, status);
+          const result = await request(app.getHttpServer())
+            .post(`/api/v1/conferences/${conferenceId}/papers/${paper.id}/decision`)
+            .set('Cookie', chairCookie)
+            .send({ outcome: 'REJECT', version: 0, notify: false });
+          expect(result.status).toBe(409);
+          expect(await prisma.reviewRound.count({ where: { paperId: paper.id } })).toBe(0);
+        }
+        const path = `/api/v1/conferences/${conferenceId}/papers/${active.paper.id}/decision`;
+        expect(
+          (
+            await request(app.getHttpServer())
+              .post(path)
+              .set('Cookie', chairCookie)
+              .send({ outcome: 'REJECT', version: 99, notify: false })
+          ).status,
+        ).toBe(409);
+        expect(
+          (
+            await request(app.getHttpServer())
+              .post(path)
+              .set('Cookie', chairCookie)
+              .send({ roundId: foreign.round!.id, outcome: 'REJECT', version: 0, notify: false })
+          ).status,
+        ).toBe(409);
+        expect([403, 404]).toContain(
+          (
+            await request(app.getHttpServer())
+              .post(path)
+              .set('Cookie', outsiderCookie)
+              .send({ outcome: 'REJECT', version: 0, notify: false })
+          ).status,
+        );
+        expect(await prisma.reviewRound.count({ where: { paperId: active.paper.id } })).toBe(0);
+      });
+    });
+
     // Skipped: flaky status codes under parallel CI (404 vs 403 / fee-schedule 500).
     it.skip('rejects decision without MFA for chair role', async () => {
       const noMfaEmail = `no-mfa-decide-${Date.now()}@example.com`;

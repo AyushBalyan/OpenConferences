@@ -516,6 +516,22 @@ export class ReviewController {
     });
   }
 
+  @TsRestHandler(reviewContract.bulkDecideCurrent)
+  @RequireReviewCoordination()
+  @RequireMembership()
+  bulkDecideCurrent(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(reviewContract.bulkDecideCurrent, async ({ params, body }) => {
+      const result = await this.decisions.bulkDecide(
+        user.id,
+        params.conferenceId,
+        undefined,
+        body,
+        roles,
+      );
+      return { status: 201 as const, body: result };
+    });
+  }
+
   @TsRestHandler(reviewContract.notifyDecisions)
   @RequireReviewCoordination()
   @RequireMembership()

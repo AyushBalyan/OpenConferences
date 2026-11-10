@@ -646,6 +646,21 @@ export const reviewContract = c.router({
     },
     summary: 'Bulk record editorial decisions for a round',
   },
+  bulkDecideCurrent: {
+    method: 'POST',
+    path: '/conferences/:conferenceId/decisions/bulk',
+    pathParams: conferenceParams,
+    body: bulkDecisionSchema,
+    responses: {
+      201: bulkDecisionResponseSchema,
+      400: problemEnvelopeSchema,
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+      409: problemEnvelopeSchema,
+    },
+    summary: 'Bulk record decisions in each paper’s current cycle',
+  },
   notifyDecisions: {
     method: 'POST',
     path: '/conferences/:conferenceId/rounds/:roundId/decisions/notify',

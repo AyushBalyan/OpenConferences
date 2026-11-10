@@ -9,6 +9,7 @@ async function mockApi(
   page: Page,
   options: {
     role?: string;
+    withoutCycles?: boolean;
     many?: boolean;
     failDecision?: boolean;
     failLogs?: boolean;
@@ -83,6 +84,7 @@ async function mockApi(
     version: 1,
     submissionNumber: p.submissionNumber,
   }));
+  if (options.withoutCycles) rounds.splice(0, 2);
   const decisions = papers
     .filter((p) => p.status === 'DECISION_MADE')
     .map((p, i) => ({
@@ -138,7 +140,7 @@ async function mockApi(
           paperId: paper.id,
           paperTitle: paper.title,
           submissionNumber: paper.submissionNumber,
-          roundId: input.roundId,
+          roundId: input.roundId ?? id(2900),
           outcome: input.outcome,
           rationale: input.rationale,
           notifiedAt: null,
@@ -164,7 +166,7 @@ async function mockApi(
               id: id(3600 + index),
               paperTitle: paper.title,
               submissionNumber: paper.submissionNumber,
-              roundId: rounds.find((round) => round.paperId === paper.id)!.id,
+              roundId: rounds.find((round) => round.paperId === paper.id)?.id ?? id(2900 + index),
               notifiedAt: null,
             };
             decisions.push(decision);
@@ -267,12 +269,13 @@ async function mockApi(
       };
     } else if (endpoint.endsWith('/review-progress'))
       body = {
-        data: rounds.map((r, index) => ({
-          paperId: r.paperId,
-          cycleId: r.id,
-          roundNumber: 1,
-          submittedReviewCount: index === 1 ? 0 : 2,
-          warning: index === 1 ? '0 of 2 required reviews submitted' : null,
+        data: papers.map((p, index) => ({
+          paperId: p.id,
+          cycleId: rounds.find((r) => r.paperId === p.id)?.id ?? null,
+          roundNumber: rounds.some((r) => r.paperId === p.id) ? 1 : null,
+          submittedReviewCount: options.withoutCycles || index === 1 ? 0 : 2,
+          warning:
+            options.withoutCycles || index === 1 ? '0 of 2 required reviews submitted' : null,
         })),
         minimumReviews: 2,
       };
@@ -860,4 +863,38 @@ test('recorded decisions recognize the combined acceptance email delivery status
     .filter({ has: page.getByRole('link', { name: 'Recorded reliable systems', exact: true }) });
   await expect(row.getByText('Sent', { exact: true })).toBeVisible();
   await expect(row.getByRole('button', { name: 'Review and send' })).toHaveCount(0);
+});
+
+test('records an unassigned paper without an existing cycle after explicit confirmation', async ({
+  page,
+}) => {
+  const fixture = await mockApi(page, { withoutCycles: true });
+  await page.goto(`${path}/pending`);
+  await expect(page.getByText('0 of 2 required reviews submitted').first()).toBeVisible();
+  await page.getByRole('radio', { name: /^Reject/ }).click();
+  await page.getByLabel('Next paper after recording').uncheck();
+  await page.getByRole('button', { name: 'Record reject', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('0 of 2 required reviews submitted');
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm and record' }).click();
+  await expect(page.getByRole('heading', { name: 'Decision recorded', exact: true })).toBeVisible();
+  expect(fixture.requests).toHaveLength(1);
+  expect(fixture.requests[0].body.roundId).toBeUndefined();
+  expect(fixture.requests[0].body.notify).toBe(false);
+});
+
+test('bulk records unassigned papers without requiring a cycle identifier', async ({ page }) => {
+  const fixture = await mockApi(page, { withoutCycles: true });
+  await page.goto(`${path}/pending`);
+  await page.getByRole('checkbox', { name: 'Select all visible pending papers' }).check();
+  await page.getByLabel('Fill blanks with').selectOption('REJECT');
+  await page.getByRole('button', { name: 'Record 2', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('0 of 2 required reviews submitted');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Record 2 decisions', exact: true })
+    .click();
+  await expect(page.getByRole('status')).toContainText('2 decisions recorded');
+  expect(fixture.requests).toHaveLength(1);
+  expect(fixture.requests[0].endpoint).toBe(`/conferences/${conferenceId}/decisions/bulk`);
+  expect(fixture.requests[0].body.notify).toBe(false);
 });

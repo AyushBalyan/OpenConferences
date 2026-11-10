@@ -1201,7 +1201,7 @@ export async function makeDecision(
   conferenceId: string,
   paperId: string,
   body: {
-    roundId: string;
+    roundId?: string;
     outcome: 'ACCEPT' | 'REJECT' | 'MINOR_REVISION' | 'MAJOR_REVISION';
     rationale?: string | null;
     version: number;
@@ -1223,7 +1223,7 @@ export async function makeDecision(
 
 export async function bulkDecide(
   conferenceId: string,
-  roundId: string,
+  roundId: string | undefined,
   body: {
     items: Array<{
       paperId: string;
@@ -1233,10 +1233,9 @@ export async function bulkDecide(
     notify?: boolean;
   },
 ) {
-  const result = await apiClient.review.bulkDecide({
-    params: { conferenceId, roundId },
-    body,
-  });
+  const result = roundId
+    ? await apiClient.review.bulkDecide({ params: { conferenceId, roundId }, body })
+    : await apiClient.review.bulkDecideCurrent({ params: { conferenceId }, body });
   if (result.status === 201) return result.body;
   if (result.status === 409) throw new Error(result.body.detail ?? 'Conflict');
   throw new Error('Failed to record bulk decisions');

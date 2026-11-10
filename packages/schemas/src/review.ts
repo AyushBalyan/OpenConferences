@@ -590,7 +590,7 @@ export const decisionQuerySchema = cursorPaginationQuerySchema.extend({
 export type DecisionListDto = z.infer<typeof decisionListSchema>;
 
 export const makeDecisionSchema = z.object({
-  roundId: z.string().uuid(),
+  roundId: z.string().uuid().optional(),
   outcome: decisionOutcomeSchema,
   rationale: z.string().max(10000).nullable().optional(),
   version: z.number().int().nonnegative(),

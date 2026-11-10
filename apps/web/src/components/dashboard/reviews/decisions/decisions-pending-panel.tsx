@@ -212,7 +212,7 @@ export function DecisionsPendingPanel() {
 
   async function recordDecisionWithFreshVersion(
     paperId: string,
-    body: { roundId: string; outcome: DecisionOutcome; rationale: string | null; notify: boolean },
+    body: { roundId?: string; outcome: DecisionOutcome; rationale: string | null; notify: boolean },
   ) {
     const latest = await fetchPaper(conferenceId, paperId);
     try {
@@ -226,7 +226,7 @@ export function DecisionsPendingPanel() {
 
   async function handleSingleDecision(paper: PaperRow) {
     const current = pending[paper.id];
-    if (!paper.cycleId || !current?.outcome) return;
+    if (!current?.outcome) return;
     if (confirming !== 'single') {
       setConfirming('single');
       return;
@@ -238,7 +238,7 @@ export function DecisionsPendingPanel() {
     const nextPaper = queue[activeIndex + 1] ?? queue[activeIndex - 1];
     try {
       const result = await recordDecisionWithFreshVersion(paper.id, {
-        roundId: paper.cycleId,
+        roundId: paper.cycleId ?? undefined,
         outcome: current.outcome,
         rationale: current.rationale || null,
         notify: false,
@@ -272,7 +272,7 @@ export function DecisionsPendingPanel() {
 
   async function handleBulkDecide() {
     const bulkCycleId = undecidedPapers.find((paper) => selected.has(paper.id))?.cycleId;
-    if (!bulkCycleId || selected.size === 0) return;
+    if (selected.size === 0) return;
     if (bulkMissing > 0) {
       setError('Choose an outcome for every selected paper or choose a bulk outcome.');
       return;
@@ -286,7 +286,7 @@ export function DecisionsPendingPanel() {
     setError(null);
     setMessage(null);
     try {
-      const result = await bulkDecide(conferenceId, bulkCycleId, {
+      const result = await bulkDecide(conferenceId, bulkCycleId ?? undefined, {
         items: bulkItems.map((item) => ({ ...item, outcome: item.outcome as DecisionOutcome })),
         notify: false,
       });
@@ -557,7 +557,7 @@ export function DecisionsPendingPanel() {
                     {active.submissionNumber} · Review cycle{' '}
                     {rounds.find((round) => round.id === active.cycleId)?.roundNumber ??
                       active.roundNumber ??
-                      'unavailable'}{' '}
+                      '1 (created when recording)'}{' '}
                     · Paper {activeIndex + 1} of {queue.length}
                   </p>
                   <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 [text-wrap:balance]">
@@ -670,7 +670,7 @@ export function DecisionsPendingPanel() {
               <Button
                 className="mt-4 w-full bg-slate-900 shadow-none hover:bg-slate-800"
                 onClick={() => void handleSingleDecision(active)}
-                disabled={busy || !draft?.outcome || !active.cycleId}
+                disabled={busy || !draft?.outcome}
               >
                 {busy
                   ? 'Recording…'

@@ -166,7 +166,9 @@ export class DecisionsService {
     }
 
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
-    const round = await this.rounds.loadRound(userId, conferenceId, input.roundId, roles);
+    const round = input.roundId
+      ? await this.rounds.loadRound(userId, conferenceId, input.roundId, roles)
+      : undefined;
 
     const result = await this.applyDecisionInTransaction(
       userId,
@@ -188,7 +190,7 @@ export class DecisionsService {
       entityId: result.decision.id,
       diff: {
         paperId,
-        roundId: input.roundId,
+        roundId: result.decision.roundId,
         outcome: input.outcome,
       },
     });
@@ -216,7 +218,7 @@ export class DecisionsService {
   async bulkDecide(
     userId: string,
     conferenceId: string,
-    roundId: string,
+    roundId: string | undefined,
     input: BulkDecisionInput,
     roles: RoleKind[],
   ) {
@@ -237,25 +239,13 @@ export class DecisionsService {
 
     for (const item of input.items) {
       try {
-        const cycle = await withTenantContext(
-          { userId, conferenceId, organizationId: conference.organizationId },
-          async (tx) =>
-            tx.reviewRound.findFirst({
-              where: { conferenceId, paperId: item.paperId },
-              orderBy: { roundNumber: 'desc' },
-            }),
-        );
-        if (!cycle) {
-          failures.push({ paperId: item.paperId, reason: 'Paper has no review cycle' });
-          continue;
-        }
         const paper = await this.loadPaper(userId, conferenceId, item.paperId);
         const result = await this.applyDecisionInTransaction(
           userId,
           conference.organizationId,
           conferenceId,
           item.paperId,
-          cycle,
+          undefined,
           item.outcome,
           item.rationale ?? null,
           paper.version,
@@ -382,13 +372,15 @@ export class DecisionsService {
     organizationId: string,
     conferenceId: string,
     paperId: string,
-    round: ReviewRound,
+    round: ReviewRound | undefined,
     outcome: DecisionOutcome,
     rationale: string | null,
     paperVersion: number,
   ) {
     try {
       return await withTenantContext({ userId, conferenceId, organizationId }, async (tx) => {
+        // Serialize initial cycle creation and paper version changes together.
+        await tx.$queryRaw`SELECT id FROM papers WHERE id=${paperId}::uuid AND "conferenceId"=${conferenceId}::uuid FOR UPDATE`;
         const paper = await tx.paper.findFirst({
           where: { id: paperId, conferenceId },
           include: {
@@ -409,13 +401,37 @@ export class DecisionsService {
           throw new ConflictException('Paper was modified by another request');
         }
 
+        if (paper.status === 'DRAFT') throw new ConflictException('Cannot decide on a draft paper');
+        if (paper.status === 'WITHDRAWN' || paper.status === 'WITHDRAWN_NONPAYMENT')
+          throw new ConflictException('Cannot decide on a withdrawn paper');
+        if (round) {
+          const latest = await tx.reviewRound.findFirst({
+            where: { paperId, conferenceId },
+            orderBy: { roundNumber: 'desc' },
+            select: { id: true },
+          });
+          if (latest?.id !== round.id) {
+            throw new ConflictException('Only the current review cycle can receive a decision');
+          }
+        }
+        const cycle =
+          round ??
+          (await this.rounds.ensureOpenCycle(tx, {
+            organizationId,
+            conferenceId,
+            paperId,
+            ...(await tx.conference.findUniqueOrThrow({
+              where: { id: conferenceId },
+              select: { reviewDueAt: true, rebuttalDueAt: true },
+            })),
+          }));
         return this.createDecisionAndUpdatePaper(
           tx,
           userId,
           organizationId,
           conferenceId,
           paper,
-          round,
+          cycle,
           outcome,
           rationale,
         );
@@ -444,14 +460,6 @@ export class DecisionsService {
 
     if (round.paperId !== paper.id) {
       throw new ConflictException('Review cycle does not belong to this paper');
-    }
-
-    const existingAssignment = await tx.reviewerAssignment.findFirst({
-      where: { paperId: paper.id, roundId: round.id, conferenceId },
-    });
-
-    if (!existingAssignment) {
-      throw new BadRequestException('Paper has no assignments in this review round');
     }
 
     const decision = await tx.decision.create({
