@@ -283,7 +283,8 @@ describe('combined acceptance email', () => {
       expect(rendered).toContain('CONF-A1');
       expect(rendered).toContain(registrationUrl);
       expect(rendered).toContain('This message was sent by Example Research Conference.');
-      expect(rendered).toContain('15–17 December 2026');
+      expect(rendered).toContain('subject to the incorporation of reviewers’ comments.');
+      expect(rendered).not.toContain('15–17 December 2026');
       expect(rendered).toContain('active participation in Example Research Conference.');
       expect(rendered).not.toContain('ICAMCDS-2026');
       expect(rendered).not.toContain('{{');
