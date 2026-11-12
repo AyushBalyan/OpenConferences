@@ -893,7 +893,9 @@ test('bulk records unassigned papers without requiring a cycle identifier', asyn
     .getByRole('dialog')
     .getByRole('button', { name: 'Record 2 decisions', exact: true })
     .click();
-  await expect(page.getByRole('status')).toContainText('2 decisions recorded');
+  await expect(page.getByRole('status').filter({ hasText: '2 decisions recorded.' })).toHaveText(
+    '2 decisions recorded. No decision emails sent.',
+  );
   expect(fixture.requests).toHaveLength(1);
   expect(fixture.requests[0].endpoint).toBe(`/conferences/${conferenceId}/decisions/bulk`);
   expect(fixture.requests[0].body.notify).toBe(false);
