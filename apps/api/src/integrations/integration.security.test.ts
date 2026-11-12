@@ -12,6 +12,7 @@ import {
   hashMatches,
   encodeCursor,
   decodeCursor,
+  authenticationErrorCodes,
   type IntegrationPrincipal,
 } from './integration.security';
 const p: IntegrationPrincipal = {
@@ -28,6 +29,25 @@ const p: IntegrationPrincipal = {
 process.env.BOT_API_ENABLED = 'true';
 process.env.BOT_API_CURSOR_SECRET = '12'.repeat(32);
 describe('bot credentials and query contracts', () => {
+  it('logs only recognized database codes from authentication failures', () => {
+    expect(
+      authenticationErrorCodes({
+        code: 'P2010',
+        message: 'SQL and private credential digest',
+        meta: { code: '42501', message: 'private connection details' },
+      }),
+    ).toEqual({ prismaCode: 'P2010', sqlState: '42501' });
+    for (const error of [
+      null,
+      'private error',
+      new Error('secret'),
+      {
+        code: 'private credential',
+        meta: { code: 'private digest' },
+      },
+    ])
+      expect(authenticationErrorCodes(error)).toEqual({});
+  });
   it('requires explicit write dependencies and accepts the complete scope grant', () => {
     expect(integrationScopesSchema.safeParse(['invitations:write']).success).toBe(false);
     expect(integrationScopesSchema.safeParse(['invitations:read', 'reviewers:read']).success).toBe(

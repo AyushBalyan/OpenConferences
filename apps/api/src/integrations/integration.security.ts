@@ -9,6 +9,19 @@ import {
 } from 'node:crypto';
 import { z } from 'zod';
 import type { IntegrationScope, BotQuery } from '@openconferences/schemas';
+
+// Prisma messages/meta can contain SQL parameters and connection details.
+// Only copy recognized error codes into authentication diagnostics.
+export function authenticationErrorCodes(error: unknown) {
+  if (!error || typeof error !== 'object') return {};
+  const { code, meta } = error as { code?: unknown; meta?: { code?: unknown } };
+  return {
+    ...(typeof code === 'string' && /^P\d{4}$/.test(code) ? { prismaCode: code } : {}),
+    ...(typeof meta?.code === 'string' && /^[0-9A-Z]{5}$/.test(meta.code)
+      ? { sqlState: meta.code }
+      : {}),
+  };
+}
 export type IntegrationPrincipal = {
   integrationId: string;
   keyId: string;

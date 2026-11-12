@@ -101,6 +101,14 @@ Treat returned URLs as private. Responses use `Cache-Control: no-store`. The mut
 
 ## Logs and retention
 
+### Authentication returns 503 after key rotation
+
+`Bot authentication is temporarily unavailable` means an internal exception occurred during credential lookup or the authorizer's conference/MFA/membership checks. Invalid, expired, or revoked keys return 401. Rotating a key does not resolve a database exception.
+
+Search API container logs for `bot_authentication_failure`. The `stage` is `credential_lookup` or `authorizer_check`; `prismaCode` and `sqlState` are included when available. Raw exceptions, SQL, credential digests, and connection strings are deliberately excluded. Older builds only log the generic 503 and require the diagnostic update before the underlying failure can be identified.
+
+Check migration status using the deployment's migration owner and verify the API runtime is still `openconferences_api`. Use the reported code to investigate missing tables/columns (`P2021`/`P2022`), connection failures (`P1001`/`P1002`), pool/transaction timeouts (`P2024`/`P2028`), or permission failures (SQLSTATE `42501`). Compare all API replicas' image versions and migration state. Do not switch runtime to an owner or bypass-RLS role to make authentication pass. After addressing the reported cause, retry capabilities, papers, and reviewers with the existing key.
+
 Settings shows active keys plus recent key metadata, authorizer, grant status, permissions, expiry/approximate last use, and paginated request metadata. No key secret can be retrieved later. Access history is ordered newest first using timestamp/ID keyset pagination; an expired or removed cursor requires refreshing the log. The integration access log stores route templates, status, result count, request ID, duration and timestamp. It stores no query values, IPs, request/response bodies or secrets. Ordinary API code cannot update or delete it. Unauthenticated failures are rate-limited but are not written as integration-attributed events.
 
 Pino strips identifiers and query strings for integration URLs; Sentry integration events are dropped. SQL query logging is disabled to avoid credential digest exposure. Management changes are audited in the same transaction as the change. A separate worker retention queue runs every 15 minutes, deleting up to 1,000 access records older than 30 days per run. Under heavy volume, monitor backlog and schedule more bounded runs. Worker RLS forbids access to new credential tables and deletion of recent log records.

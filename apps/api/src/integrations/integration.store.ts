@@ -5,6 +5,8 @@ import {
   NotFoundException,
   ForbiddenException,
   UnauthorizedException,
+  HttpException,
+  Logger,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { withTenantContext, type Prisma, type RoleKind } from '@openconferences/db';
@@ -18,6 +20,7 @@ import {
   botConfig,
   makeCredential,
   hashMatches,
+  authenticationErrorCodes,
   type IntegrationPrincipal,
 } from './integration.security';
 import { ConferenceService } from '../tenancy/conference.service';
@@ -59,6 +62,21 @@ function keyDto(row: unknown) {
 }
 @Injectable()
 export class IntegrationStore {
+  private readonly logger = new Logger(IntegrationStore.name);
+
+  private authenticationFailure(
+    stage: 'credential_lookup' | 'authorizer_check',
+    error: unknown,
+  ): never {
+    if (!(error instanceof HttpException)) {
+      this.logger.error(
+        { event: 'bot_authentication_failure', stage, ...authenticationErrorCodes(error) },
+        'Bot authentication dependency failed',
+      );
+    }
+    throw error;
+  }
+
   constructor(private readonly conferences: ConferenceService) {}
   async assertInvitationManager(
     tx: Tx,
@@ -441,7 +459,7 @@ export class IntegrationStore {
         });
       },
       { readOnly: true, timeout: 5000 },
-    );
+    ).catch((error: unknown) => this.authenticationFailure('credential_lookup', error));
     if (
       !key ||
       !hashMatches(key.secretHash, candidate.hash) ||
@@ -491,7 +509,7 @@ export class IntegrationStore {
           : null;
       },
       { readOnly: true, timeout: 5000 },
-    );
+    ).catch((error: unknown) => this.authenticationFailure('authorizer_check', error));
     if (!valid) throw new UnauthorizedException('Invalid API credential');
     const scopes = integrationScopesSchema.safeParse(
       key.scopes.filter((s) => g.scopes.includes(s)),
