@@ -4,12 +4,13 @@ import Link from 'next/link';
 import { ArrowRight, CalendarDays, CheckCircle2, FileText, Loader2 } from 'lucide-react';
 import { useConferenceWorkspace } from '@/components/dashboard/conference-workspace';
 import { DownloadPaperButton } from '@/components/dashboard/download-paper-button';
-import { AppToast } from '@/components/dashboard/app-toast';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { PdfUploadField } from '@/components/dashboard/pdf-upload-field';
 import { RevisionSubmission } from '@/components/dashboard/revision-submission';
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
 import { Button } from '@/components/ui/button';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { useToast } from '@/components/ui/toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -229,8 +230,8 @@ function SubmissionDetail() {
   const [cameraReadyDueAt, setCameraReadyDueAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [limitToast, setLimitToast] = useState<string | null>(null);
-  const dismissLimitToast = useCallback(() => setLimitToast(null), []);
+  const confirm = useConfirm();
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
@@ -370,7 +371,7 @@ function SubmissionDetail() {
       await load();
     } catch (err) {
       if (isCorrespondingPaperLimitError(err)) {
-        setLimitToast(err.message);
+        toast.info(err.message, { title: 'Submission limit' });
       } else {
         setActionError(err instanceof Error ? err.message : 'Submit failed');
       }
@@ -400,7 +401,13 @@ function SubmissionDetail() {
 
   async function onDeleteDraft() {
     if (!paper) return;
-    if (!window.confirm('Delete this draft? This cannot be undone.')) return;
+    const confirmed = await confirm({
+      title: 'Delete this draft?',
+      description: `“${paper.title || 'Untitled draft'}” will be deleted. This cannot be undone.`,
+      confirmLabel: 'Delete draft',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     setBusy(true);
     setActionError(null);
     try {
@@ -595,9 +602,6 @@ function SubmissionDetail() {
 
   return (
     <div className="min-w-0 max-w-full space-y-6">
-      {limitToast ? (
-        <AppToast title="Submission limit" message={limitToast} onClose={dismissLimitToast} />
-      ) : null}
       <Link
         href={`/dashboard/conferences/${conferenceId}/submissions`}
         className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-900"

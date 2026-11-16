@@ -1,6 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -43,6 +44,7 @@ function isVersionConflict(err: unknown): boolean {
 
 export function ReviewEditorPanel({ conferenceId, assignmentId }: ReviewEditorPanelProps) {
   const searchParams = useSearchParams();
+  const confirm = useConfirm();
   const [review, setReview] = useState<ReviewDto | null>(null);
   const [recommendation, setRecommendation] = useState<Recommendation | ''>('');
   const [confidence, setConfidence] = useState<number | ''>('');
@@ -310,9 +312,13 @@ export function ReviewEditorPanel({ conferenceId, assignmentId }: ReviewEditorPa
   async function handleReload() {
     if (
       isDirty &&
-      !window.confirm(
-        'Discard your unsaved changes and load the saved review? Copy your text first if you need to keep it.',
-      )
+      !(await confirm({
+        title: 'Discard unsaved changes?',
+        description:
+          'The saved review will be loaded and your unsaved text will be lost. Copy your text first if you need to keep it.',
+        confirmLabel: 'Discard and reload',
+        tone: 'danger',
+      }))
     )
       return;
     setSaveStateSafe('idle');

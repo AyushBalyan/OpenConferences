@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -134,6 +134,24 @@ export function DecisionsPendingPanel() {
   const active = queue.find((paper) => paper.id === activeId) ?? queue[0] ?? null;
   const activeIndex = active ? queue.indexOf(active) : -1;
   const draft = active ? pending[active.id] : undefined;
+
+  // On small screens the decision form sits below the reviews. Track whether it
+  // is on screen so a jump bar can appear only while it is out of view.
+  const decisionForm = useRef<HTMLElement>(null);
+  const [decisionFormVisible, setDecisionFormVisible] = useState(true);
+  const activePaperId = active?.id;
+  useEffect(() => {
+    const element = decisionForm.current;
+    if (!element || typeof IntersectionObserver === 'undefined') {
+      setDecisionFormVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(([entry]) =>
+      setDecisionFormVisible(entry?.isIntersecting ?? true),
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [activePaperId]);
 
   const decidedCount = decisionByPaper.size;
   const totalInRound = decidedCount + undecidedPapers.length;
@@ -597,8 +615,10 @@ export function DecisionsPendingPanel() {
             </div>
 
             <aside
+              ref={decisionForm}
               aria-label="Decision"
-              className="rounded-xl border border-slate-200 bg-white p-5 lg:sticky lg:top-4"
+              tabIndex={-1}
+              className="scroll-mt-4 rounded-xl focus:outline-none border border-slate-200 bg-white p-5 lg:sticky lg:top-4"
             >
               <h3 className="text-sm font-semibold text-slate-900">Your decision</h3>
               <p className="mt-2 break-words text-sm font-medium lg:hidden">
@@ -701,6 +721,30 @@ export function DecisionsPendingPanel() {
         ) : null}
       </div>
 
+      {active && selected.size === 0 && !decisionFormVisible ? (
+        <div className="sticky bottom-0 z-10 lg:hidden">
+          <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
+            <p className="min-w-0 flex-1 text-xs text-slate-600">
+              <span className="block truncate font-medium text-slate-900">
+                {active.submissionNumber ?? active.title}
+              </span>
+              {draft?.outcome
+                ? `Drafted: ${decisionOutcomeLabel(draft.outcome)}`
+                : 'No outcome yet'}
+            </p>
+            <Button
+              size="sm"
+              className="shrink-0 bg-slate-900 shadow-none hover:bg-slate-800"
+              onClick={() => {
+                decisionForm.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                decisionForm.current?.focus({ preventScroll: true });
+              }}
+            >
+              Jump to decision
+            </Button>
+          </div>
+        </div>
+      ) : null}
       {selected.size > 0 ? (
         <div className="sticky bottom-0 z-20">
           <div className="flex flex-wrap items-center gap-3 rounded-xl bg-slate-900 p-4 text-white">

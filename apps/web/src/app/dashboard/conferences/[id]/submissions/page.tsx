@@ -5,6 +5,8 @@ import { SubmissionDate } from '@/components/dashboard/submission-date';
 import Link from 'next/link';
 import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { useToast } from '@/components/ui/toast';
 import { DownloadPaperButton } from '@/components/dashboard/download-paper-button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -52,6 +54,8 @@ const STATUS_OPTIONS: Array<{ value: PaperDto['status'] | ''; label: string }> =
 
 export default function SubmissionsListPage() {
   const { conferenceId, conference } = useConferenceWorkspace();
+  const confirm = useConfirm();
+  const toast = useToast();
   const { data: session } = useSession();
   const userId = session?.user?.id;
   const roles = conference?.myRoles ?? [];
@@ -86,13 +90,20 @@ export default function SubmissionsListPage() {
     void refresh();
   }, [refresh]);
 
-  async function onDeleteDraft(paperId: string) {
-    if (!window.confirm('Delete this draft? This cannot be undone.')) return;
+  async function onDeleteDraft(paper: PaperDto) {
+    const confirmed = await confirm({
+      title: 'Delete this draft?',
+      description: `“${paper.title || 'Untitled draft'}” will be deleted. This cannot be undone.`,
+      confirmLabel: 'Delete draft',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
-      await deletePaper(conferenceId, paperId);
+      await deletePaper(conferenceId, paper.id);
+      toast.success('Draft deleted.');
       await refresh();
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Delete failed');
+      toast.error(err instanceof Error ? err.message : 'Delete failed');
     }
   }
 
@@ -251,11 +262,7 @@ export default function SubmissionsListPage() {
                       userId &&
                       (paper.submittedById === userId ||
                         paper.authorships?.some((author) => author.userId === userId)) ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => void onDeleteDraft(paper.id)}
-                        >
+                        <Button size="sm" variant="ghost" onClick={() => void onDeleteDraft(paper)}>
                           Delete draft
                         </Button>
                       ) : null}

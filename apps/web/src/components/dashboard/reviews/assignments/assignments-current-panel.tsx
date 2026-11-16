@@ -17,6 +17,8 @@ import {
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
 import { bidValueLabel, type BidValue } from '@/lib/review-types';
 import { deleteAssignment } from '@/lib/api-client';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { useToast } from '@/components/ui/toast';
 import { useAssignmentsWorkspace } from './assignments-workspace';
 import Link from 'next/link';
 import { useState } from 'react';
@@ -26,12 +28,23 @@ export function AssignmentsCurrentPanel() {
   const { assignments, busy, setBusy, setError, refresh, conferenceId, loading } =
     useAssignmentsWorkspace();
 
-  async function handleUnassign(assignmentId: string) {
-    if (!window.confirm('Remove this reviewer assignment?')) return;
+  const confirm = useConfirm();
+  const toast = useToast();
+
+  async function handleUnassign(assignment: (typeof assignments)[number]) {
+    const assignmentId = assignment.id;
+    const confirmed = await confirm({
+      title: 'Remove this assignment?',
+      description: `${assignment.reviewerName ?? 'This reviewer'} will no longer be assigned to “${assignment.paperTitle ?? 'this paper'}”.`,
+      confirmLabel: 'Remove assignment',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     setBusy(true);
     setError(null);
     try {
       await deleteAssignment(conferenceId, assignmentId);
+      toast.success('Assignment removed.');
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove assignment');
@@ -155,7 +168,7 @@ export function AssignmentsCurrentPanel() {
                     variant="outline"
                     size="sm"
                     disabled={busy}
-                    onClick={() => void handleUnassign(assignment.id)}
+                    onClick={() => void handleUnassign(assignment)}
                   >
                     Remove
                   </Button>

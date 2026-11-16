@@ -307,9 +307,9 @@ for (const history of ['CURRENT', 'HISTORICAL']) {
     row.canReleaseReviews = true;
     row.reviewStage = 'REVISION_REQUESTED';
     row.submittedReviewCount = 1;
-    page.on('dialog', (dialog) => dialog.accept());
     await page.goto(`${path}?history=${history}`);
     await page.getByRole('button', { name: 'Release reviews', exact: true }).click();
+    await page.getByRole('button', { name: 'Release to authors', exact: true }).click();
     await expect(
       page.getByRole('listitem').filter({ hasText: 'Reviews released to authors' }),
     ).toBeVisible();
@@ -325,10 +325,10 @@ for (const history of ['CURRENT', 'HISTORICAL']) {
 test('manual assignment saves the chosen local deadline as UTC', async ({ page }) => {
   const { data, assignments } = await mockApi(page);
   await page.goto(`/dashboard/conferences/${conferenceId}/reviews/assignments/manual`);
-  await page.getByLabel('Paper', { exact: true }).selectOption(data.data[0]!.paperId);
-  await page
-    .getByLabel('Reviewer', { exact: true })
-    .selectOption('00000000-0000-4000-8000-000000000008');
+  await page.getByLabel('Paper', { exact: true }).click();
+  await page.locator(`[role="option"][data-value="${data.data[0]!.paperId}"]`).click();
+  await page.getByLabel('Reviewer', { exact: true }).click();
+  await page.locator('[role="option"][data-value="00000000-0000-4000-8000-000000000008"]').click();
   const deadline = '2030-10-15T17:30';
   await page.getByLabel('Individual review deadline (local time)').fill(deadline);
   const expectedUtc = await page.evaluate((value) => new Date(value).toISOString(), deadline);

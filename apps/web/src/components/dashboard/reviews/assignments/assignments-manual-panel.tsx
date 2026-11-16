@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { Combobox } from '@/components/ui/combobox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { reviewerAssignmentDueAt } from '@openconferences/schemas';
@@ -19,6 +20,7 @@ export function AssignmentsManualPanel() {
     rounds,
     papers,
     reviewers,
+    assignments,
     selectedPaper,
     setSelectedPaper,
     selectedReviewer,
@@ -50,6 +52,49 @@ export function AssignmentsManualPanel() {
     if (paper) setSelectedPaper(paper);
     if (reviewer) setSelectedReviewer(reviewer);
   }, [searchParams, setSelectedPaper, setSelectedReviewer]);
+
+  const paperOptions = useMemo(
+    () =>
+      papers.map((paper) => ({
+        value: paper.id,
+        label: paper.submissionNumber ? `${paper.submissionNumber} · ${paper.title}` : paper.title,
+      })),
+    [papers],
+  );
+
+  // Reviewers who bid on the selected paper come first; each row shows the bid
+  // and current load so the chair can balance work without leaving the form.
+  const reviewerOptions = useMemo(() => {
+    const load = new Map<string, number>();
+    for (const assignment of assignments) {
+      load.set(assignment.reviewerUserId, (load.get(assignment.reviewerUserId) ?? 0) + 1);
+    }
+    return [...reviewers]
+      .sort((a, b) => {
+        if (!selectedPaper) return a.name.localeCompare(b.name);
+        const aBid = bidForReviewer(selectedPaper, a.userId);
+        const bBid = bidForReviewer(selectedPaper, b.userId);
+        if (aBid && bBid) return BID_RANK[aBid] - BID_RANK[bBid];
+        if (aBid) return -1;
+        if (bBid) return 1;
+        return a.name.localeCompare(b.name);
+      })
+      .map((reviewer) => {
+        const bid = selectedPaper ? bidForReviewer(selectedPaper, reviewer.userId) : undefined;
+        const assigned = load.get(reviewer.userId) ?? 0;
+        return {
+          value: reviewer.userId,
+          label: reviewer.name,
+          hint: [
+            reviewer.email,
+            `${assigned} assigned in this round`,
+            bid ? `Bid: ${bidValueLabel(bid)}` : null,
+          ]
+            .filter(Boolean)
+            .join(' · '),
+        };
+      });
+  }, [reviewers, assignments, selectedPaper, bidForReviewer]);
 
   async function handleAssign() {
     if (!selectedPaper || !selectedReviewer || !deadline) return;
@@ -89,48 +134,27 @@ export function AssignmentsManualPanel() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="paper">Paper</Label>
-              <select
+              <Combobox
                 id="paper"
-                className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
                 value={selectedPaper}
-                onChange={(e) => setSelectedPaper(e.target.value)}
-              >
-                <option value="">Select paper…</option>
-                {papers.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.submissionNumber ? `${p.submissionNumber} · ${p.title}` : p.title}
-                  </option>
-                ))}
-              </select>
+                onChange={setSelectedPaper}
+                options={paperOptions}
+                placeholder="Search by number or title…"
+                emptyText="No papers match"
+                disabled={busy}
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="reviewer">Reviewer</Label>
-              <select
+              <Combobox
                 id="reviewer"
-                className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
                 value={selectedReviewer}
-                onChange={(e) => setSelectedReviewer(e.target.value)}
-              >
-                <option value="">Select reviewer…</option>
-                {[...reviewers]
-                  .sort((a, b) => {
-                    if (!selectedPaper) return a.name.localeCompare(b.name);
-                    const aBid = bidForReviewer(selectedPaper, a.userId);
-                    const bBid = bidForReviewer(selectedPaper, b.userId);
-                    if (aBid && bBid) return BID_RANK[aBid] - BID_RANK[bBid];
-                    if (aBid) return -1;
-                    if (bBid) return 1;
-                    return a.name.localeCompare(b.name);
-                  })
-                  .map((r) => {
-                    const bid = selectedPaper ? bidForReviewer(selectedPaper, r.userId) : undefined;
-                    return (
-                      <option key={r.userId} value={r.userId}>
-                        {r.name} ({r.email}){bid ? ` — ${bidValueLabel(bid)}` : ''}
-                      </option>
-                    );
-                  })}
-              </select>
+                onChange={setSelectedReviewer}
+                options={reviewerOptions}
+                placeholder="Search by name or email…"
+                emptyText="No reviewers match"
+                disabled={busy}
+              />
             </div>
           </div>
           <div className="space-y-2">

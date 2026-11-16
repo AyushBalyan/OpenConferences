@@ -1,7 +1,7 @@
 'use client';
 
 import { PageHeader } from '@/components/dashboard/page-header';
-import { AppToast } from '@/components/dashboard/app-toast';
+import { useToast } from '@/components/ui/toast';
 import {
   PdfUploadField,
   UploadProgressSteps,
@@ -30,7 +30,7 @@ import {
 } from '@/lib/co-author-drafts';
 import { canSubmitDraft, latestScanStatus, type PaperDto } from '@/lib/submission-types';
 import { useParams, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 type Step = 'details' | 'authors' | 'upload';
 
@@ -66,12 +66,11 @@ function SubmissionWizard() {
   const [pdfUploaded, setPdfUploaded] = useState(false);
   const [busy, setBusy] = useState<'uploading' | 'submitting' | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [limitToast, setLimitToast] = useState<string | null>(null);
-  const dismissLimitToast = useCallback(() => setLimitToast(null), []);
+  const toast = useToast();
 
   function reportRequestError(err: unknown, fallback: string) {
     if (isCorrespondingPaperLimitError(err)) {
-      setLimitToast(err.message);
+      toast.info(err.message, { title: 'Submission limit' });
       return;
     }
     setError(err instanceof Error ? err.message : fallback);
@@ -330,10 +329,6 @@ function SubmissionWizard() {
       />
 
       <WizardSteps current={step} />
-
-      {limitToast ? (
-        <AppToast title="Submission limit" message={limitToast} onClose={dismissLimitToast} />
-      ) : null}
 
       {error && step !== 'upload' ? (
         <p

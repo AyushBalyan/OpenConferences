@@ -12,6 +12,7 @@ import type {
   ReviewCoordinationDto,
 } from '@openconferences/schemas';
 import { Button } from '@/components/ui/button';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { PageHeader } from '@/components/dashboard/page-header';
 import {
   DataTable,
@@ -83,6 +84,7 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const confirm = useConfirm();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
@@ -274,14 +276,13 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
     setBusy(false);
   }
   async function handleRelease(row: NonNullable<ReviewCoordinationDto['data']>[number]) {
-    if (
-      !row.cycleId ||
-      row.cycleVersion == null ||
-      !window.confirm(
-        `Release ${row.submittedReviewCount} submitted reviews for ${row.submissionNumber ?? row.paperTitle} to its authors? This makes the submitted review content visible to authors.`,
-      )
-    )
-      return;
+    if (!row.cycleId || row.cycleVersion == null) return;
+    const confirmed = await confirm({
+      title: 'Release reviews to authors?',
+      description: `${row.submittedReviewCount} submitted ${row.submittedReviewCount === 1 ? 'review' : 'reviews'} for ${row.submissionNumber ?? row.paperTitle} will become visible to its authors.`,
+      confirmLabel: 'Release to authors',
+    });
+    if (!confirmed) return;
     setBusy(true);
     setError(null);
     try {

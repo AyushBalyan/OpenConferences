@@ -10,6 +10,7 @@ import {
 } from 'next/font/google';
 import Script from 'next/script';
 import { ConditionalAppHeader } from '@/components/layout/conditional-header';
+import { AppProviders } from '@/components/ui/app-providers';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
@@ -74,8 +75,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           return payload;
         };`}</Script>
         <PrivacyAnalytics />
-        <ConditionalAppHeader />
-        {children}
+        <AppProviders>
+          <ConditionalAppHeader />
+          {children}
+        </AppProviders>
       </body>
     </html>
   );

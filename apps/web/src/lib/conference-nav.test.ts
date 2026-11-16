@@ -5,9 +5,14 @@ const options = { conferenceId: id, conferenceName: 'Conference', roles: ['CHAIR
 describe('conference navigation', () => {
   it('uses the actual conference ID and analytics route in breadcrumbs', () => {
     expect(buildDashboardBreadcrumbs(`/dashboard/conferences/${id}/analytics`, options)).toEqual([
-      { label: 'Conferences', href: '/me/dashboard' },
       { label: 'Conference', href: `/dashboard/conferences/${id}` },
       { label: 'Analytics', href: undefined },
+    ]);
+  });
+  it('keeps the all-conferences root outside a conference', () => {
+    expect(buildDashboardBreadcrumbs('/dashboard/conferences/new', options)).toEqual([
+      { label: 'Conferences', href: '/me/dashboard' },
+      { label: 'Create conference' },
     ]);
   });
   it('does not highlight Overview on analytics or another child route', () => {

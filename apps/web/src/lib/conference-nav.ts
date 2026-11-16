@@ -405,6 +405,9 @@ export function buildDashboardBreadcrumbs(
     return items;
   }
 
+  // Inside a conference the trail starts at the conference: the sidebar already
+  // links back to all conferences, and a shorter trail leaves room for page names.
+  items.length = 0;
   items.push({
     label: options.conferenceName ?? 'Conference',
     href: `/dashboard/conferences/${id}`,
