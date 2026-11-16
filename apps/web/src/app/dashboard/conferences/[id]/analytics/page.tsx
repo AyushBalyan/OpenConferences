@@ -8,7 +8,7 @@ export default function ConferenceAnalyticsPage() {
   const { conferenceId } = useConferenceWorkspace();
 
   return (
-    <div className="analytics-page space-y-4">
+    <div className="space-y-2">
       <PageHeader
         title="Analytics"
         description="Understand conference progress, spot review bottlenecks, and follow registration and finances."

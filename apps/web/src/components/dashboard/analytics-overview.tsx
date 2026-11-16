@@ -1,36 +1,49 @@
 'use client';
-import Link from 'next/link';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ArrowUpRight, RefreshCw } from 'lucide-react';
+
+import { useEffect, useRef, useState } from 'react';
+import { ClipboardCheck, FileText, RefreshCw, Users, Wallet } from 'lucide-react';
 import type { ConferenceAnalyticsOverview } from '@openconferences/schemas';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { fetchAnalyticsOverview } from '@/lib/api-client';
+import { activitySeries, formatAnalyticsMoney, formatAnalyticsNumber } from '@/lib/analytics';
 import { decisionOutcomeLabel } from '@/lib/review-types';
-import { paperStatusLabel } from '@/lib/submission-types';
+import { cn } from '@/lib/utils';
 import './analytics/analytics.css';
-import { formatAnalyticsMoney, formatAnalyticsNumber } from '@/lib/analytics';
+import { chartColors, type ChartPoint } from './analytics/analytics-card';
 import {
-  CategoryChart,
-  EmptyChart,
-  ReviewProgressChart,
-  SubmissionTrend,
-  chartColors,
-  type ChartPoint,
-} from './analytics/analytics-charts';
+  AttentionTile,
+  KpiTile,
+  MiniStack,
+  ProgressRing,
+  Sparkline,
+} from './analytics/analytics-kpis';
+import { FinanceTab, PapersTab, PeopleTab, ReviewsTab } from './analytics/analytics-tabs';
+
 const number = formatAnalyticsNumber;
-const words = (s: string) =>
-  s
-    .toLowerCase()
-    .split('_')
-    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-    .join(' ');
-const sections = [
-  ['submission-activity', 'Paper activity'],
-  ['review-health', 'Review health'],
-  ['participation', 'People & institutions'],
-  ['registration-finance', 'Registration & finances'],
-];
+
+const TABS = [
+  { id: 'papers', label: 'Papers', icon: FileText },
+  { id: 'reviews', label: 'Reviews & decisions', icon: ClipboardCheck },
+  { id: 'people', label: 'People', icon: Users },
+  { id: 'finance', label: 'Finance', icon: Wallet },
+] as const;
+type TabId = (typeof TABS)[number]['id'];
+// Links to the previous single-page layout still land on the matching tab.
+const LEGACY_HASH: Record<string, TabId> = {
+  'submission-activity': 'papers',
+  'review-health': 'reviews',
+  participation: 'people',
+  'registration-finance': 'finance',
+};
+const OUTCOME_ORDER = ['ACCEPT', 'MINOR_REVISION', 'MAJOR_REVISION', 'REJECT'] as const;
+const OUTCOME_COLOR: Record<(typeof OUTCOME_ORDER)[number], string> = {
+  ACCEPT: chartColors.good,
+  MINOR_REVISION: chartColors.sky,
+  MAJOR_REVISION: chartColors.warning,
+  REJECT: chartColors.critical,
+};
+
 export function AnalyticsOverview({
   conferenceId,
   preview,
@@ -38,12 +51,15 @@ export function AnalyticsOverview({
   conferenceId: string;
   preview?: ConferenceAnalyticsOverview;
 }) {
-  const [snapshot, setSnapshot] = useState<ConferenceAnalyticsOverview | null>(preview ?? null),
-    [loadedId, setLoadedId] = useState(preview ? conferenceId : ''),
-    [loading, setLoading] = useState(!preview),
-    [error, setError] = useState<string | null>(null),
-    [revision, setRevision] = useState(0),
-    [currencyChoice, setCurrencyChoice] = useState({ conferenceId, currency: '' });
+  const [snapshot, setSnapshot] = useState<ConferenceAnalyticsOverview | null>(preview ?? null);
+  const [loadedId, setLoadedId] = useState(preview ? conferenceId : '');
+  const [loading, setLoading] = useState(!preview);
+  const [error, setError] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
+  const [currencyChoice, setCurrencyChoice] = useState({ conferenceId, currency: '' });
+  const [tab, setTab] = useState<TabId>('papers');
+  const tabList = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (preview) return;
     let alive = true;
@@ -66,6 +82,36 @@ export function AnalyticsOverview({
       alive = false;
     };
   }, [conferenceId, revision, preview]);
+
+  // The tab lives in the URL hash so a view can be linked or reloaded.
+  useEffect(() => {
+    const hash = window.location.hash.slice(1);
+    const fromHash = TABS.find((item) => item.id === hash)?.id ?? LEGACY_HASH[hash];
+    if (fromHash) setTab(fromHash);
+  }, []);
+  function openTab(next: TabId, reveal = false) {
+    setTab(next);
+    window.history.replaceState(null, '', `#${next}`);
+    if (reveal) tabList.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  function onTabKeyDown(event: React.KeyboardEvent) {
+    const index = TABS.findIndex((item) => item.id === tab);
+    const next =
+      event.key === 'ArrowRight'
+        ? TABS[(index + 1) % TABS.length]
+        : event.key === 'ArrowLeft'
+          ? TABS[(index - 1 + TABS.length) % TABS.length]
+          : event.key === 'Home'
+            ? TABS[0]
+            : event.key === 'End'
+              ? TABS[TABS.length - 1]
+              : undefined;
+    if (!next) return;
+    event.preventDefault();
+    openTab(next.id);
+    document.getElementById(`analytics-tab-${next.id}`)?.focus();
+  }
+
   const currentSnapshot = loadedId === conferenceId ? snapshot : null;
   const selectedReport =
     currencyChoice.conferenceId === conferenceId
@@ -75,24 +121,40 @@ export function AnalyticsOverview({
       : undefined;
   const overview = currentSnapshot ? { ...currentSnapshot, ...selectedReport } : null;
   const base = `/dashboard/conferences/${conferenceId}`;
+
   const toolbar = (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <p className="text-xs text-slate-600">
+      <p className="flex items-center gap-2 text-xs text-slate-500">
         {overview ? (
           <>
-            <span>Updated </span>
-            <LocalTime value={overview.computedAt} /> · your local time
+            <span className="relative flex size-2" aria-hidden>
+              <span
+                className={cn(
+                  'absolute inline-flex size-full rounded-full opacity-60',
+                  loading ? 'bg-amber-400 motion-safe:animate-ping' : 'bg-emerald-400',
+                )}
+              />
+              <span
+                className={cn(
+                  'relative inline-flex size-2 rounded-full',
+                  loading ? 'bg-amber-500' : 'bg-emerald-500',
+                )}
+              />
+            </span>
+            <span>
+              Updated <LocalTime value={overview.computedAt} /> · your local time
+            </span>
           </>
         ) : (
           'Conference analytics'
         )}
       </p>
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2">
         {overview && (
-          <label className="flex items-center gap-2 text-xs text-slate-600">
+          <label className="flex items-center gap-2 text-xs text-slate-500">
             Reporting currency
             <select
-              className="analytics-select"
+              className="min-h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-label="Reporting currency"
               value={overview.currency}
               onChange={(event) =>
@@ -114,6 +176,7 @@ export function AnalyticsOverview({
         <Button
           variant="outline"
           size="sm"
+          className="bg-white"
           disabled={loading}
           onClick={() =>
             preview
@@ -130,495 +193,216 @@ export function AnalyticsOverview({
       </div>
     </div>
   );
+
   if (!overview)
     return (
-      <div className="space-y-5">
+      <div className="space-y-6">
         {toolbar}
         {error ? (
-          <div role="alert" className="rounded-xl border border-rose-200 bg-white p-5">
+          <div role="alert" className="rounded-2xl border border-rose-200 bg-white p-6">
             <p className="font-medium text-slate-900">Analytics could not be loaded</p>
             <p className="mt-1 text-sm text-slate-600">
               Refresh to try again. Counts are unavailable while loading fails.
             </p>
           </div>
         ) : (
-          <div role="status" aria-label="Loading analytics" className="space-y-5">
-            <Skeleton className="h-24 w-full rounded-xl" />
-            <Skeleton className="h-64 w-full rounded-xl" />
+          <div role="status" aria-label="Loading analytics" className="space-y-6">
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-5">
+              {Array.from({ length: 5 }, (_, i) => (
+                <Skeleton
+                  key={i}
+                  className="h-[8.5rem] rounded-2xl last:col-span-2 xl:last:col-span-1"
+                />
+              ))}
+            </div>
+            <Skeleton className="h-11 w-full max-w-xl rounded-xl" />
+            <div className="grid gap-4 lg:grid-cols-12 lg:gap-5">
+              <Skeleton className="h-96 rounded-2xl lg:col-span-8" />
+              <Skeleton className="h-96 rounded-2xl lg:col-span-4" />
+            </div>
           </div>
         )}
       </div>
     );
+
   const r = overview.reviews;
   const progress: ChartPoint[] = [
-    { name: 'Submitted', value: r.submitted, color: chartColors.teal },
-    { name: 'Draft saved', value: r.draft, color: '#94a3b8' },
-    { name: 'Not started', value: r.notStarted, color: '#cbd5e1' },
-    { name: 'Closed incomplete', value: r.closedIncomplete ?? 0, color: chartColors.slate },
-    { name: 'Needs data check', value: r.inconsistent ?? 0, color: chartColors.rose },
+    { name: 'Submitted', value: r.submitted, color: chartColors.accent },
+    { name: 'Draft saved', value: r.draft, color: chartColors.sky },
+    { name: 'Not started', value: r.notStarted, color: chartColors.warning },
+    { name: 'Closed incomplete', value: r.closedIncomplete ?? 0, color: chartColors.neutral },
+    { name: 'Needs data check', value: r.inconsistent ?? 0, color: chartColors.critical },
   ];
-  const statuses = overview.submissions.byStatus.map((p) => ({
-    name: paperStatusLabel(p.status),
-    value: p.count,
-    color: p.status === 'UNDER_REVIEW' ? chartColors.accent : chartColors.slate,
-  }));
-  const decisions = overview.decisions.byOutcome.map((p) => ({
-    name: decisionOutcomeLabel(p.outcome),
-    value: p.count,
-    color:
-      p.outcome === 'ACCEPT'
-        ? chartColors.teal
-        : p.outcome === 'REJECT'
-          ? chartColors.rose
-          : chartColors.amber,
+  // A fixed order keeps each outcome's colour and position stable between refreshes.
+  const decisions: ChartPoint[] = OUTCOME_ORDER.map((outcome) => ({
+    name: decisionOutcomeLabel(outcome),
+    value: overview.decisions.byOutcome.find((p) => p.outcome === outcome)?.count ?? 0,
+    color: OUTCOME_COLOR[outcome],
   }));
   const accepted = overview.decisions.byOutcome.find((p) => p.outcome === 'ACCEPT')?.count ?? 0;
   const excluded = overview.submissions.excluded ?? { draft: 0, withdrawn: 0 };
   const money = (minor: number) => formatAnalyticsMoney(minor, overview.currency);
+  const activity = activitySeries(overview.submissions.byDay).points.map((p) => p.count);
+  const conversion = overview.revenueConversion;
+  const tabProps = { overview, base, money };
+
   return (
-    <div className="analytics-workspace space-y-5" aria-busy={loading}>
+    <div className="space-y-6" aria-busy={loading}>
       {toolbar}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-[#f2f7f6] px-4 py-3 text-sm">
-        <p className="text-slate-700">
-          {r.assigned ? (
-            <>
-              <strong className="font-semibold text-slate-900">
-                {((r.submitted / r.assigned) * 100).toFixed(1)}% of reviews submitted.
-              </strong>{' '}
-              {number(r.overdue)} overdue assignments need follow-up.
-            </>
-          ) : (
-            'Review progress will appear once reviewers are assigned.'
-          )}
-        </p>
-        <Link
-          className="inline-flex items-center gap-1.5 font-medium text-teal-800"
-          href={`${base}/reviews/rounds?queue=OVERDUE`}
-        >
-          Review queue <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
-        </Link>
-      </div>
       {error && (
         <p
           role="alert"
-          className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+          className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
         >
           Refresh failed. Showing the previous snapshot from{' '}
           <LocalTime value={overview.computedAt} />. Refresh to try again.
         </p>
       )}
-      <dl className="analytics-summary grid grid-cols-2 gap-x-6 gap-y-5 xl:grid-cols-4">
-        <Summary
+
+      <section
+        aria-label="Headline figures"
+        className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-[repeat(4,minmax(0,1fr))_minmax(0,1.3fr)]"
+      >
+        <KpiTile
           label="Included papers"
           value={number(overview.submissions.total)}
           detail="Across all submitted stages"
+          visual={<Sparkline values={activity} />}
+          opens="Papers"
+          onOpen={() => openTab('papers', true)}
         />
-        <Summary
+        <KpiTile
+          delay={1}
           label="Reviews submitted"
-          value={`${number(r.submitted)} / ${number(r.assigned)}`}
+          value={number(r.submitted)}
+          suffix={`/ ${number(r.assigned)}`}
           detail="Assignments in latest cycles"
+          visual={<ProgressRing value={r.assigned ? r.submitted / r.assigned : null} />}
+          opens="Reviews & decisions"
+          onOpen={() => openTab('reviews', true)}
         />
-        <Summary
+        <KpiTile
+          delay={2}
           label="Accepted decisions"
-          value={`${number(accepted)} / ${number(overview.decisions.total)}`}
-          detail="Latest decisions, including revisions"
+          value={number(accepted)}
+          suffix={`/ ${number(overview.decisions.total)}`}
+          detail={
+            overview.decisions.total
+              ? `${Math.round(overview.decisions.acceptRate * 100)}% of latest decisions, including revisions`
+              : 'Latest decisions, including revisions'
+          }
+          visual={<MiniStack data={decisions} />}
+          opens="Reviews & decisions"
+          onOpen={() => openTab('reviews', true)}
         />
-        <Summary
+        <KpiTile
+          delay={3}
           label={`Net receipts · ${overview.currency}`}
           value={money(overview.revenueMinor)}
           detail={
-            overview.revenueConversion
-              ? 'All convertible currencies · less refunds'
+            conversion
+              ? `${money(conversion.capturedMinor)} captured · ${money(conversion.refundedMinor)} refunded`
               : 'Captured receipts less refunds'
           }
+          opens="Finance"
+          onOpen={() => openTab('finance', true)}
         />
-      </dl>
-      <nav
-        aria-label="Analytics sections"
-        className="analytics-section-nav flex flex-wrap gap-x-5 gap-y-3 text-sm"
-      >
-        {sections.map(([id, label]) => (
-          <a
-            key={id}
-            href={`#${id}`}
-            className="rounded-sm text-slate-600 hover:text-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
-          >
-            {label}
-          </a>
-        ))}
-      </nav>
-      <section
-        id="submission-activity"
-        className="scroll-mt-8 space-y-4"
-        aria-label="Paper activity"
-      >
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-          <Panel
-            title="Paper activity"
-            description="Creation dates of currently included papers; not submission timestamps."
-          >
-            <SubmissionTrend data={overview.submissions.byDay} />
-          </Panel>
-          <Panel
-            title="Submissions by status"
-            description={`${number(overview.submissions.total)} included papers. Drafts and withdrawals excluded.`}
-          >
-            <CategoryChart data={statuses} />
-            <div className="mt-6 border-t border-slate-100 pt-4">
-              <p className="text-xs leading-5 text-slate-600">
-                A snapshot of each paper’s current stage. Draft and withdrawn papers are excluded.
-              </p>
-              <Link
-                href={`${base}/submissions`}
-                className="analytics-text-action mt-2 inline-flex items-center gap-1"
-              >
-                Open submissions <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
-              </Link>
-            </div>
-          </Panel>
+        <div className="col-span-2 flex xl:col-span-1 [&>*]:w-full">
+          <AttentionTile
+            delay={4}
+            items={[
+              {
+                value: r.overdue,
+                label: 'reviews past their deadline',
+                href: `${base}/reviews/rounds?queue=OVERDUE`,
+                tone: 'critical',
+              },
+              {
+                value: r.underCoveredPapers,
+                label: 'papers below the review minimum',
+                href: `${base}/reviews/rounds`,
+                tone: 'warning',
+              },
+            ]}
+          />
         </div>
       </section>
-      <section
-        id="review-health"
-        className="scroll-mt-8 space-y-4"
-        aria-labelledby="review-health-heading"
+
+      <div
+        ref={tabList}
+        className="sticky top-0 z-20 -mx-2 scroll-mt-2 bg-slate-50/80 px-2 py-2 backdrop-blur-md"
       >
-        <SectionHeading
-          id="review-health-heading"
-          title="Review health"
-          description="Current review cycles, with the work that needs follow-up."
-        />
-        <div className="grid gap-6 analytics-panel rounded-lg border border-slate-200 bg-white p-5 sm:p-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
-          <div className="min-w-0 space-y-5">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h3 className="text-base font-semibold text-slate-900">Review progress</h3>
-              <p className="text-sm text-slate-600">{number(r.assigned)} assignments</p>
-            </div>
-            <ReviewProgressChart data={progress} total={r.assigned} />
-            <p className="text-xs leading-relaxed text-slate-600">
-              Each assignment appears in one segment. Overdue reviews are included within draft or
-              not-started work.
-            </p>
-          </div>
-          <div className="min-w-0 space-y-4 border-t border-slate-200 pt-5 xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0">
-            <h3 className="text-base font-semibold text-slate-900">Needs attention</h3>
-            <Attention
-              value={r.overdue}
-              label="reviews past their deadline"
-              href={`${base}/reviews/rounds?queue=OVERDUE`}
-              color="text-rose-700"
-            />
-            <Attention
-              value={r.underCoveredPapers}
-              label="papers below the submitted-review minimum"
-              href={`${base}/reviews/rounds`}
-              color="text-amber-800"
-            />
-            {r.inconsistent > 0 && (
-              <p className="text-xs text-rose-700">
-                {number(r.inconsistent)} completed assignments have no submitted review. Check the
-                paper ledger.
-              </p>
-            )}
-            <Link
-              href={`${base}/reviews/reviewers`}
-              className="inline-flex min-h-10 items-center gap-2 text-sm font-medium text-teal-700 underline underline-offset-4"
-            >
-              Open reviewer overview
-              <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
-            </Link>
-          </div>
-        </div>
-      </section>
-      <section aria-label="Decision outcomes">
-        <Panel
-          title="Decision outcomes"
-          description={`${number(overview.decisions.total)} latest-cycle decisions. Revision outcomes count as decisions, not acceptances.`}
+        <div
+          role="tablist"
+          aria-label="Analytics sections"
+          onKeyDown={onTabKeyDown}
+          className="inline-flex max-w-full gap-1 overflow-x-auto rounded-xl border border-slate-200/80 bg-white p-1 shadow-[0_1px_2px_rgb(15_23_42/0.04)]"
         >
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-            <CategoryChart
-              data={decisions}
-              unit="decisions"
-              empty="No decisions in the latest cycles yet."
-            />
-            <div className="flex flex-col justify-center border-t border-slate-200 pt-4 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
-              <p className="text-base font-semibold text-slate-900">
-                {overview.decisions.total
-                  ? `${Math.round(overview.decisions.acceptRate * 100)}% acceptance share`
-                  : 'Acceptance share unavailable'}
-              </p>
-              <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-600">
-                {overview.decisions.total
-                  ? `${number(accepted)} accepted out of ${number(overview.decisions.total)} current decisions. Papers without a current decision are not in this denominator.`
-                  : 'An acceptance share will appear after a decision is recorded in a current cycle.'}
-              </p>
-              <Link
-                href={`${base}/reviews/decisions`}
-                className="mt-3 inline-flex min-h-10 items-center gap-2 text-sm font-medium text-teal-700 underline underline-offset-4"
-              >
-                Open decisions
-                <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
-              </Link>
-            </div>
-          </div>
-        </Panel>
-      </section>
-      <section
-        id="participation"
-        className="scroll-mt-8 space-y-4"
-        aria-labelledby="participation-heading"
-      >
-        <SectionHeading
-          id="participation-heading"
-          title="People & institutions"
-          description="Follow reviewer workload and the people contributing included papers."
-        />
-        <div className="grid gap-5 lg:grid-cols-2">
-          <Panel
-            title="Outstanding reviewer workload"
-            description="Top 12 reviewers by unfinished assignments in open, current cycles. Each reviewer is counted separately."
-          >
-            <CategoryChart
-              expandable
-              data={r.reviewerLoad.map((p) => ({ name: p.name, id: p.id, value: p.count }))}
-              unit="outstanding assignments"
-              empty="No outstanding review assignments."
-            />
-          </Panel>
-          <Panel
-            title="Institutions"
-            description="Top 12 affiliations by distinct paper. A paper may have more than one institution; blank affiliations are Unspecified."
-          >
-            <CategoryChart
-              expandable
-              data={overview.institutions.map((p) => ({
-                name: p.name,
-                value: p.count,
-                color: chartColors.teal,
-              }))}
-            />
-          </Panel>
-        </div>
-        <Panel
-          title="Corresponding authors"
-          description={`${number(overview.authors.length)} authors, grouped by email. Distinct paper IDs count once; co-authors are not listed.`}
-        >
-          <AuthorList authors={overview.authors} />
-        </Panel>
-      </section>
-      <section
-        id="registration-finance"
-        className="scroll-mt-8 space-y-4"
-        aria-labelledby="finance-heading"
-      >
-        <SectionHeading
-          id="finance-heading"
-          title="Registration & finances"
-          description="Registration workload follows included papers. Financial receipts retain the full conference payment history."
-        />
-        <div className="grid gap-5 lg:grid-cols-2">
-          <Panel
-            title="Registration status"
-            description={`${number(overview.registrations.total)} records for included papers. Cancelled, refunded and discarded records are not unpaid work.`}
-          >
-            <CategoryChart
-              data={overview.registrations.byStatus.map((p) => ({
-                name: words(p.status),
-                value: p.count,
-                color: p.status === 'PAID' ? chartColors.teal : chartColors.slate,
-              }))}
-              unit="registrations"
-              empty="No registrations for included papers."
-            />
-          </Panel>
-          <Panel
-            title="Registration follow-up"
-            description="Unpaid work includes pending payment, verification and additional-payment requests."
-          >
-            <dl className="divide-y divide-slate-100">
-              {[
-                [overview.registrations.unpaid, 'Unpaid / awaiting verification'],
-                [overview.registrations.overdue ?? 0, 'Past the registration deadline'],
-                [overview.registrations.atRisk, 'Due within the next 7 days'],
-                [overview.unpaidAccepted, 'Accepted papers without paid registration'],
-              ].map(([n, label]) => (
-                <div key={String(label)} className="flex justify-between gap-4 py-3 first:pt-0">
-                  <dt className="max-w-xs text-sm text-slate-700">{label}</dt>
-                  <dd className="font-semibold tabular-nums text-slate-900">{number(Number(n))}</dd>
-                </div>
-              ))}
-            </dl>
-            <Link
-              href={`${base}/registrations`}
-              className="mt-3 inline-flex min-h-10 items-center gap-2 text-sm font-medium text-teal-700 underline underline-offset-4"
-            >
-              Open registrations
-              <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
-            </Link>
-          </Panel>
-        </div>
-        {overview.revenueConversion && (
-          <Panel
-            title="Payments across currencies"
-            description={`All captured receipts and successful refunds, reported in ${overview.currency}. Original amounts are shown below.`}
-          >
-            <div className="mb-5 flex flex-wrap items-baseline justify-between gap-3">
-              <p className="text-sm text-slate-700">
-                {overview.revenueConversion.inrPerUsd ? (
-                  <>
-                    1 USD ={' '}
-                    <strong className="font-semibold tabular-nums">
-                      {number(overview.revenueConversion.inrPerUsd)}
-                    </strong>{' '}
-                    INR · Current fee-schedule rate
-                  </>
-                ) : (
-                  'No USD / INR conversion rate configured in the fee schedule.'
+          {TABS.map(({ id, label, icon: Icon }) => {
+            const selected = tab === id;
+            return (
+              <button
+                key={id}
+                id={`analytics-tab-${id}`}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                aria-controls="analytics-tabpanel"
+                tabIndex={selected ? 0 : -1}
+                onClick={() => openTab(id)}
+                className={cn(
+                  'inline-flex min-h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  selected
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
                 )}
-              </p>
-              <p className="text-xs text-slate-600">
-                Rounded per transaction to the nearest minor unit.
-              </p>
-            </div>
-            <dl className="mb-5 grid grid-cols-1 gap-4 rounded-md bg-slate-50 p-4 sm:grid-cols-3">
-              <Summary
-                label={`Captured · ${overview.currency}`}
-                value={money(overview.revenueConversion.capturedMinor)}
-                detail="Includes converted receipts"
-              />
-              <Summary
-                label={`Refunded · ${overview.currency}`}
-                value={money(overview.revenueConversion.refundedMinor)}
-                detail="Successful refund records"
-              />
-              <Summary
-                label={`Net receipts · ${overview.currency}`}
-                value={money(overview.revenueMinor)}
-                detail="Captured less refunded"
-              />
-            </dl>
-            {overview.revenueConversion.byCurrency.length ? (
-              <div>
-                <p className="mb-2 text-xs text-slate-600 sm:hidden">
-                  Scroll the breakdown to see refunds and converted totals.
-                </p>
-                <div
-                  className="overflow-x-auto"
-                  tabIndex={0}
-                  role="region"
-                  aria-label="Currency breakdown, scroll for all amounts"
-                >
-                  <table className="w-full min-w-[470px] text-sm">
-                    <caption className="sr-only">
-                      Captured payments and refunds by original currency
-                    </caption>
-                    <thead className="text-xs text-slate-600">
-                      <tr>
-                        <th scope="col" className="py-3 text-left font-medium">
-                          Original currency
-                        </th>
-                        <th scope="col" className="py-3 text-right font-medium">
-                          Captured
-                        </th>
-                        <th scope="col" className="py-3 text-right font-medium">
-                          Refunded
-                        </th>
-                        <th scope="col" className="py-3 text-right font-medium">
-                          Net in {overview.currency}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {overview.revenueConversion.byCurrency.map((row) => (
-                        <tr key={row.currency} className="border-t border-slate-100">
-                          <th scope="row" className="py-3 text-left font-medium">
-                            {row.currency}
-                            <span className="mt-1 block text-xs font-normal text-slate-600">
-                              {number(row.paymentCount)} ledger records
-                            </span>
-                          </th>
-                          <td className="py-3 text-right tabular-nums">
-                            {formatAnalyticsMoney(row.capturedMinor, row.currency)}
-                          </td>
-                          <td className="py-3 text-right tabular-nums">
-                            {formatAnalyticsMoney(row.refundedMinor, row.currency)}
-                          </td>
-                          <td className="py-3 text-right font-medium tabular-nums">
-                            {row.convertedMinor === null ? (
-                              <span className="text-amber-800">Rate unavailable</span>
-                            ) : (
-                              money(row.convertedMinor)
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : (
-              <EmptyChart>No captured payments or successful refunds yet.</EmptyChart>
-            )}
-            <p className="mt-4 text-xs leading-5 text-slate-600">
-              Captured and refunded amounts stay in their original currencies. Converted totals use
-              the current fee-schedule rate; changing that rate changes this report. Payment records
-              keep their original amounts.
-            </p>
-          </Panel>
-        )}
-        <div className="grid gap-5 lg:grid-cols-2">
-          <Panel
-            title="Net receipts by fee timing"
-            description={`Actual receipts less refunds, in ${overview.currency}. Unspecified timing is kept separate.`}
-          >
-            <CategoryChart
-              data={overview.revenueByTiming.map((p) => ({
-                name: words(p.name),
-                value: p.amountMinor,
-                color: chartColors.teal,
-              }))}
-              unit={overview.currency}
-              money={money}
-              empty="No net receipts in this currency."
-            />
-          </Panel>
-          <Panel
-            title="Net receipts by audience"
-            description={`The same ${overview.currency} receipts, grouped by registration audience.`}
-          >
-            <CategoryChart
-              data={overview.revenueByAudience.map((p) => ({
-                name: words(p.name),
-                value: p.amountMinor,
-                color: chartColors.teal,
-              }))}
-              unit={overview.currency}
-              money={money}
-              empty="No net receipts in this currency."
-            />
-          </Panel>
+              >
+                <Icon className="size-4" aria-hidden />
+                {label}
+              </button>
+            );
+          })}
         </div>
-        {overview.excludedCurrencyPayments > 0 && (
-          <p className="text-sm text-amber-800">
-            {number(overview.excludedCurrencyPayments)} payment or refund records are visible in the
-            currency breakdown but excluded from converted totals because no applicable fee-schedule
-            rate is available.
-          </p>
+      </div>
+
+      <div
+        id="analytics-tabpanel"
+        role="tabpanel"
+        aria-labelledby={`analytics-tab-${tab}`}
+        tabIndex={-1}
+        className="focus:outline-none"
+      >
+        {/* The key remounts the grid so each tab's modules animate in. */}
+        {tab === 'papers' ? (
+          <PapersTab key="papers" {...tabProps} />
+        ) : tab === 'reviews' ? (
+          <ReviewsTab
+            key="reviews"
+            {...tabProps}
+            progress={progress}
+            decisions={decisions}
+            accepted={accepted}
+          />
+        ) : tab === 'people' ? (
+          <PeopleTab key="people" {...tabProps} />
+        ) : (
+          <FinanceTab key="finance" {...tabProps} />
         )}
-      </section>{' '}
-      <div className="analytics-scope space-y-3">
-        <p className="text-sm text-slate-700">
+      </div>
+
+      <div className="space-y-2 border-t border-slate-200 pt-5 text-xs">
+        <p className="text-slate-600">
           <strong className="font-semibold text-slate-900">
             {number(overview.submissions.total)} included papers.
           </strong>{' '}
           {number(excluded.draft)} drafts and {number(excluded.withdrawn)} withdrawn papers excluded
           from paper metrics.
         </p>
-        <details className="text-sm">
-          <summary className="w-fit cursor-pointer rounded-sm text-slate-600 underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-teal-600">
+        <details>
+          <summary className="w-fit cursor-pointer rounded text-slate-600 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             How these numbers are counted
           </summary>
-          <ul className="mt-3 max-w-3xl list-disc space-y-2 pl-5 text-slate-600">
+          <ul className="mt-3 max-w-3xl list-disc space-y-2 pl-5 leading-relaxed text-slate-600">
             <li>
               Submissions, authors, institutions, reviews, decisions and registrations exclude draft
               papers and both withdrawal statuses.
@@ -644,166 +428,6 @@ export function AnalyticsOverview({
             </li>
           </ul>
         </details>
-      </div>
-    </div>
-  );
-}
-function Summary({ label, value, detail }: { label: string; value: string; detail: string }) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-sm text-slate-600">{label}</dt>
-      <dd className="mt-1 break-words text-xl font-semibold tabular-nums tracking-tight text-slate-900 sm:text-2xl">
-        {value}
-      </dd>
-      <p className="mt-1 text-xs leading-relaxed text-slate-600">{detail}</p>
-    </div>
-  );
-}
-function SectionHeading({
-  id,
-  title,
-  description,
-}: {
-  id: string;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="space-y-1">
-      <h2 id={id} className="text-lg font-semibold tracking-tight text-slate-900">
-        {title}
-      </h2>
-      <p className="max-w-3xl text-sm text-slate-600">{description}</p>
-    </div>
-  );
-}
-function Panel({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="min-w-0 analytics-panel rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
-      <h3 className="text-base font-semibold text-slate-900">{title}</h3>
-      <p className="mb-5 mt-1 max-w-2xl text-sm leading-relaxed text-slate-600">{description}</p>
-      {children}
-    </section>
-  );
-}
-function Attention({
-  value,
-  label,
-  href,
-  color,
-}: {
-  value: number;
-  label: string;
-  href: string;
-  color: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="group flex min-h-11 items-center justify-between gap-4 rounded-md py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
-    >
-      <span className="text-sm text-slate-700">
-        <strong className={`mr-2 text-lg tabular-nums ${color}`}>{number(value)}</strong> {label}
-      </span>
-      <ArrowUpRight
-        className="h-4 w-4 shrink-0 text-slate-500 group-hover:text-teal-700"
-        aria-hidden="true"
-      />
-    </Link>
-  );
-}
-function AuthorList({ authors }: { authors: ConferenceAnalyticsOverview['authors'] }) {
-  const [search, setSearch] = useState(''),
-    [page, setPage] = useState(1);
-  const filtered = useMemo(
-    () =>
-      authors.filter((a) => a.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())),
-    [authors, search],
-  );
-  const pages = Math.max(1, Math.ceil(filtered.length / 10)),
-    current = Math.min(page, pages);
-  if (!authors.length)
-    return <EmptyChart>No corresponding authors for included papers.</EmptyChart>;
-  return (
-    <div className="space-y-4">
-      <label className="block max-w-sm space-y-1 text-sm text-slate-700">
-        <span>Find a corresponding author</span>
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-          }}
-          placeholder="Search author name"
-          className="min-h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm placeholder:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
-        />
-      </label>
-      <table className="w-full text-sm">
-        <caption className="sr-only">Corresponding authors and distinct included papers</caption>
-        <thead className="border-b border-slate-200 text-slate-600">
-          <tr>
-            <th scope="col" className="py-2 text-left font-medium">
-              Corresponding author
-            </th>
-            <th scope="col" className="py-2 text-right font-medium">
-              Papers
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.slice((current - 1) * 10, current * 10).map((a, i) => (
-            <tr key={`${a.name}-${i}`} className="border-b border-slate-100">
-              <th
-                scope="row"
-                className="break-words py-3 pr-3 text-left font-normal text-slate-700"
-              >
-                {a.name}
-              </th>
-              <td className="py-3 text-right font-medium tabular-nums text-slate-900">
-                {number(a.count)}
-              </td>
-            </tr>
-          ))}
-          {!filtered.length && (
-            <tr>
-              <td colSpan={2} className="py-6 text-slate-600">
-                No matching authors. Clear the search to see everyone.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-      <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
-        <p className="text-slate-600">
-          {number(filtered.length)} of {number(authors.length)} authors · Page {current} of {pages}
-        </p>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={current === 1}
-            onClick={() => setPage(current - 1)}
-          >
-            Previous authors
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={current === pages}
-            onClick={() => setPage(current + 1)}
-          >
-            Next authors
-          </Button>
-        </div>
       </div>
     </div>
   );

@@ -36,7 +36,7 @@ export default function AnalyticsPreviewPage() {
             This preview uses the same analytics components as your conference workspace.
           </p>
         </aside>
-        <main className="min-w-0 flex-1 rounded-2xl border border-[#e4eaea] bg-white px-4 py-6 sm:px-6 lg:px-8">
+        <main className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-7xl">
             <div className="mb-5">
               <p className="mb-3 text-xs text-slate-600">

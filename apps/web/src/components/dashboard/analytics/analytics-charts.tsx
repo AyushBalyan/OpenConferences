@@ -1,11 +1,11 @@
 'use client';
-import { useMemo, useState } from 'react';
+
+import { useId, useMemo, useState, type ReactNode } from 'react';
 import {
   Area,
   AreaChart,
   Bar,
   BarChart,
-  Brush,
   CartesianGrid,
   ReferenceLine,
   ResponsiveContainer,
@@ -13,133 +13,293 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { Download } from 'lucide-react';
 import { activitySeries, formatAnalyticsNumber, type ActivityPoint } from '@/lib/analytics';
+import { cn } from '@/lib/utils';
+import {
+  chartColors,
+  CsvButton,
+  downloadCsv,
+  EmptyChart,
+  ModuleCard,
+  Segmented,
+  type ChartPoint,
+} from './analytics-card';
 
-export type ChartPoint = { name: string; value: number; color?: string; id?: string };
-export const chartColors = {
-  accent: '#016a6a',
-  teal: '#0f766e',
-  amber: '#b45309',
-  rose: '#be123c',
-  slate: '#64748b',
-};
 const number = formatAnalyticsNumber;
-export function EmptyChart({
-  children = 'No data in this scope yet.',
-}: {
-  children?: React.ReactNode;
-}) {
-  return (
-    <div className="flex min-h-32 items-center justify-center rounded-lg bg-slate-50 px-5 text-center text-sm text-slate-600">
-      {children}
-    </div>
-  );
-}
-// HTML labels keep long names, exact values and screen-reader output aligned with their bars.
-export function CategoryChart({
+const slug = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+const percent = (value: number, total: number) => `${((value / total) * 100).toFixed(1)}%`;
+const DISPLAY = [
+  ['count', 'Count'],
+  ['share', 'Share'],
+] as const;
+
+type CardFrame = {
+  title: string;
+  subtitle?: ReactNode;
+  info?: ReactNode;
+  footer?: ReactNode;
+  className?: string;
+  delay?: number;
+};
+
+/**
+ * A ranked list of categories with one bar each. HTML rows keep long names,
+ * exact values and screen-reader output aligned with their bars.
+ */
+export function RankedBarsCard({
   data,
   unit = 'papers',
   money,
+  currency,
   empty,
   expandable = false,
-}: {
+  ...frame
+}: CardFrame & {
   data: ChartPoint[];
   unit?: string;
   money?: (n: number) => string;
+  /** Adds a currency column to the export when the values are money. */
+  currency?: string;
   empty?: string;
   expandable?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [share, setShare] = useState(false);
+  const [display, setDisplay] = useState<'count' | 'share'>('count');
   const total = data.reduce((sum, p) => sum + p.value, 0);
-  const canShare = !money && total > 0 && data.every((p) => p.value >= 0);
+  const hasData = data.length > 0 && data.some((p) => p.value !== 0);
+  const canShare = hasData && !money && total > 0 && data.every((p) => p.value >= 0);
+  const share = canShare && display === 'share';
   const shown = expandable && !expanded ? data.slice(0, 6) : data;
-  if (!data.length || data.every((p) => p.value === 0)) return <EmptyChart>{empty}</EmptyChart>;
   const max = Math.max(1, ...data.map((p) => Math.abs(p.value)));
   const diverging = data.some((p) => p.value < 0);
+
   return (
-    <div className="space-y-4">
-      {canShare && (
-        <div className="flex justify-end gap-1" role="group" aria-label={`${unit} display`}>
-          <button
-            className="analytics-toggle"
-            aria-pressed={!share}
-            onClick={() => setShare(false)}
-          >
-            Count
-          </button>
-          <button className="analytics-toggle" aria-pressed={share} onClick={() => setShare(true)}>
-            Share
-          </button>
+    <ModuleCard
+      {...frame}
+      actions={
+        <>
+          {canShare ? (
+            <Segmented
+              label={`${frame.title} display`}
+              value={display}
+              onChange={setDisplay}
+              options={DISPLAY}
+            />
+          ) : null}
+          <CsvButton
+            title={frame.title}
+            disabled={!hasData}
+            onExport={() =>
+              downloadCsv(`${slug(frame.title)}.csv`, [
+                money ? ['Category', 'Amount', 'Currency'] : ['Category', unit, 'Share'],
+                ...data.map((p) =>
+                  money
+                    ? [p.name, (p.value / 100).toFixed(2), currency ?? '']
+                    : [p.name, p.value, total ? percent(p.value, total) : ''],
+                ),
+              ])
+            }
+          />
+        </>
+      }
+    >
+      {!hasData ? (
+        <EmptyChart>{empty}</EmptyChart>
+      ) : (
+        <div className="space-y-4">
+          <ul className="space-y-3.5" aria-label={`${unit} by category`}>
+            {shown.map((p, i) => (
+              <li key={p.id ?? `${p.name}-${i}`} className="group space-y-1.5">
+                <div className="flex items-start justify-between gap-4 text-sm">
+                  <span className="min-w-0 break-words text-slate-700 group-hover:text-slate-900">
+                    {p.name}
+                  </span>
+                  <span className="shrink-0 font-semibold tabular-nums text-slate-900">
+                    {money ? money(p.value) : share ? percent(p.value, total) : number(p.value)}
+                    <span className="sr-only"> {unit}</span>
+                  </span>
+                </div>
+                <div
+                  className="relative h-2 overflow-hidden rounded-full bg-slate-100"
+                  aria-hidden="true"
+                >
+                  {diverging && <span className="absolute inset-y-0 left-1/2 w-px bg-slate-400" />}
+                  <span
+                    className="analytics-bar absolute inset-y-0 rounded-full opacity-90 transition-opacity group-hover:opacity-100"
+                    style={{
+                      animationDelay: `${i * 40}ms`,
+                      backgroundColor: p.color ?? chartColors.accent,
+                      width: `${(Math.abs(p.value) / max) * (diverging ? 50 : 100)}%`,
+                      left: diverging
+                        ? `${p.value < 0 ? 50 - (Math.abs(p.value) / max) * 50 : 50}%`
+                        : '0%',
+                    }}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+          {share && (
+            <p className="text-xs text-slate-500">
+              Share of the {number(total)} {unit} in this breakdown.
+            </p>
+          )}
+          {expandable && data.length > 6 && (
+            <button
+              type="button"
+              className="rounded text-xs font-medium text-indigo-700 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => setExpanded(!expanded)}
+            >
+              {expanded ? 'Show top 6' : `Show all ${data.length}`}
+            </button>
+          )}
         </div>
       )}
-      <ul className="space-y-4" aria-label={`${unit} by category`}>
-        {shown.map((p, i) => (
-          <li key={p.id ?? `${p.name}-${i}`} className="space-y-1.5">
-            <div className="flex items-start justify-between gap-4 text-sm">
-              <span className="min-w-0 break-words text-slate-700">{p.name}</span>
-              <span className="shrink-0 font-semibold tabular-nums text-slate-900">
-                {money
-                  ? money(p.value)
-                  : share
-                    ? `${((p.value / total) * 100).toFixed(1)}%`
-                    : number(p.value)}
-                <span className="sr-only"> {unit}</span>
-              </span>
-            </div>
-            <div
-              className="relative h-2 overflow-hidden rounded-sm bg-slate-100"
-              aria-hidden="true"
-            >
-              {diverging && <span className="absolute inset-y-0 left-1/2 w-px bg-slate-400" />}
-              <span
-                className="absolute inset-y-0 rounded-sm"
-                style={{
-                  backgroundColor: p.color ?? chartColors.accent,
-                  width: `${(Math.abs(p.value) / max) * (diverging ? 50 : 100)}%`,
-                  left: diverging
-                    ? `${p.value < 0 ? 50 - (Math.abs(p.value) / max) * 50 : 50}%`
-                    : '0%',
-                }}
-              />
-            </div>
-          </li>
-        ))}
-      </ul>
-      {canShare && share && (
-        <p className="text-xs text-slate-600">
-          Share of the {number(total)} {unit} in this breakdown.
-        </p>
-      )}
-      {expandable && data.length > 6 && (
-        <button className="analytics-text-action" onClick={() => setExpanded(!expanded)}>
-          {expanded ? 'Show top 6' : `Show all ${data.length}`}
-        </button>
-      )}
-    </div>
+    </ModuleCard>
   );
 }
-export function ReviewProgressChart({ data, total }: { data: ChartPoint[]; total: number }) {
-  if (!total) return <EmptyChart>No review assignments in the latest cycles yet.</EmptyChart>;
+
+/** Ordered stages shown as a stepper, so the list reads as a pipeline rather than a ranking. */
+export function PipelineCard({
+  data,
+  unit = 'papers',
+  empty,
+  ...frame
+}: CardFrame & { data: ChartPoint[]; unit?: string; empty?: string }) {
+  const [display, setDisplay] = useState<'count' | 'share'>('count');
+  const total = data.reduce((sum, p) => sum + p.value, 0);
+  const hasData = total > 0;
+  const max = Math.max(1, ...data.map((p) => p.value));
+  return (
+    <ModuleCard
+      {...frame}
+      actions={
+        <>
+          {hasData ? (
+            <Segmented
+              label={`${frame.title} display`}
+              value={display}
+              onChange={setDisplay}
+              options={DISPLAY}
+            />
+          ) : null}
+          <CsvButton
+            title={frame.title}
+            disabled={!hasData}
+            onExport={() =>
+              downloadCsv(`${slug(frame.title)}.csv`, [
+                ['Stage', unit, 'Share'],
+                ...data.map((p) => [p.name, p.value, percent(p.value, total)]),
+              ])
+            }
+          />
+        </>
+      }
+    >
+      {!hasData ? (
+        <EmptyChart>{empty}</EmptyChart>
+      ) : (
+        <ol aria-label={`${unit} by stage`}>
+          {data.map((p, i) => (
+            <li key={p.name} className="group relative flex gap-3.5 pb-5 last:pb-0">
+              {i < data.length - 1 ? (
+                <span
+                  className="absolute bottom-0 left-[13px] top-7 w-px bg-slate-200"
+                  aria-hidden
+                />
+              ) : null}
+              <span
+                className="relative mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-xs font-semibold tabular-nums text-indigo-700 ring-1 ring-inset ring-indigo-100 transition-colors group-hover:bg-indigo-600 group-hover:text-white group-hover:ring-indigo-600"
+                aria-hidden
+              >
+                {i + 1}
+              </span>
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <div className="flex items-baseline justify-between gap-3 text-sm">
+                  <span className="min-w-0 break-words text-slate-700">{p.name}</span>
+                  <span className="shrink-0 font-semibold tabular-nums text-slate-900">
+                    {display === 'share' ? percent(p.value, total) : number(p.value)}
+                    <span className="sr-only"> {unit}</span>
+                  </span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-slate-100" aria-hidden>
+                  <span
+                    className="analytics-bar block h-full rounded-full"
+                    style={{
+                      animationDelay: `${i * 60}ms`,
+                      width: `${(p.value / max) * 100}%`,
+                      backgroundColor: chartColors.accent,
+                    }}
+                  />
+                </div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </ModuleCard>
+  );
+}
+
+/**
+ * Parts of one whole in a single bar. Hovering a segment or its legend entry
+ * highlights the pair; every value is also printed in the legend.
+ */
+export function StackedBar({
+  data,
+  total,
+  label,
+  columns = 'grid-cols-2 sm:grid-cols-3',
+}: {
+  data: ChartPoint[];
+  total: number;
+  label: string;
+  columns?: string;
+}) {
+  const [active, setActive] = useState<string | null>(null);
+  const segments = data.filter((p) => p.value > 0);
   return (
     <div className="space-y-5">
-      <div className="flex h-6 overflow-hidden rounded-md bg-slate-100" aria-hidden="true">
-        {data
-          .filter((p) => p.value > 0)
-          .map((p) => (
-            <span
-              key={p.name}
-              style={{ width: `${(p.value / total) * 100}%`, backgroundColor: p.color }}
-            />
-          ))}
+      <div className="flex h-7 gap-0.5" aria-hidden="true">
+        {segments.map((p, i) => (
+          <span
+            key={p.name}
+            title={`${p.name}: ${number(p.value)} (${percent(p.value, total)})`}
+            onMouseEnter={() => setActive(p.name)}
+            onMouseLeave={() => setActive(null)}
+            className={cn(
+              'analytics-bar min-w-1 transition-opacity duration-200',
+              i === 0 ? 'rounded-l-md' : '',
+              i === segments.length - 1 ? 'rounded-r-md' : '',
+              active && active !== p.name ? 'opacity-30' : '',
+            )}
+            style={{
+              animationDelay: `${i * 70}ms`,
+              flexGrow: p.value,
+              flexBasis: 0,
+              backgroundColor: p.color,
+            }}
+          />
+        ))}
       </div>
-      <ul className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
+      <ul className={cn('grid gap-x-6 gap-y-4', columns)} aria-label={label}>
         {data.map((p) => (
-          <li key={p.name} className="text-sm">
+          <li
+            key={p.name}
+            onMouseEnter={() => setActive(p.name)}
+            onMouseLeave={() => setActive(null)}
+            className={cn(
+              'text-sm transition-opacity duration-200',
+              active && active !== p.name ? 'opacity-40' : '',
+            )}
+          >
             <span className="flex items-center gap-2 text-slate-600">
               <span
-                className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                className="size-2.5 shrink-0 rounded-[3px]"
                 style={{ backgroundColor: p.color }}
                 aria-hidden="true"
               />
@@ -147,7 +307,7 @@ export function ReviewProgressChart({ data, total }: { data: ChartPoint[]; total
             </span>
             <span className="mt-1 block pl-[18px] text-lg font-semibold tabular-nums text-slate-900">
               {number(p.value)}{' '}
-              <span className="text-xs font-normal text-slate-600">
+              <span className="text-xs font-normal text-slate-500">
                 {Math.round((p.value / total) * 100)}%
               </span>
             </span>
@@ -157,27 +317,51 @@ export function ReviewProgressChart({ data, total }: { data: ChartPoint[]; total
     </div>
   );
 }
+
 function TrendTooltip({
   active,
   payload,
+  cumulative,
 }: {
   active?: boolean;
   payload?: ReadonlyArray<{ payload?: ActivityPoint; value?: number | string }>;
+  cumulative?: boolean;
 }) {
   const p = payload?.[0]?.payload;
   if (!active || !p) return null;
   return (
-    <div className="max-w-64 rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-sm">
-      <p className="text-slate-600">{p.label}</p>
-      <p className="mt-1 font-semibold text-slate-900">
-        {number(Number(payload?.[0]?.value ?? 0))} papers
+    <div className="max-w-64 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-lg shadow-slate-900/5">
+      <p className="text-xs text-slate-500">{p.label}</p>
+      <p className="mt-0.5 font-semibold tabular-nums text-slate-900">
+        {number(Number(payload?.[0]?.value ?? 0))}{' '}
+        <span className="font-normal text-slate-600">
+          {cumulative ? 'papers so far' : 'papers'}
+        </span>
       </p>
     </div>
   );
 }
-export function SubmissionTrend({ data }: { data: { date: string; count: number }[] }) {
+
+const RANGES = [
+  ['all', 'All'],
+  ['7', '7 days'],
+  ['30', '30 days'],
+  ['custom', 'Custom'],
+] as const;
+const MODES = [
+  ['period', 'Per period'],
+  ['cumulative', 'Cumulative'],
+] as const;
+const DATE_INPUT =
+  'ml-2 min-h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+
+export function SubmissionTrendCard({
+  data,
+  ...frame
+}: CardFrame & { data: { date: string; count: number }[] }) {
+  const gradientId = useId();
   const [mode, setMode] = useState<'period' | 'cumulative'>('period');
-  const [range, setRange] = useState('all');
+  const [range, setRange] = useState<(typeof RANGES)[number][0]>('all');
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
   const series = useMemo(() => activitySeries(data), [data]);
@@ -207,26 +391,14 @@ export function SubmissionTrend({ data }: { data: { date: string; count: number 
   }, [data, rangeStart, rangeEnd]);
   const prior = data.filter((p) => p.date < rangeStart).reduce((sum, p) => sum + p.count, 0);
   const points = filtered.points.map((p) => ({ ...p, cumulative: p.cumulative + prior }));
-  const interval = filtered.interval;
   const total = points.reduce((sum, p) => sum + p.count, 0);
   const peak = points.reduce<ActivityPoint | null>(
     (best, p) => (!best || p.count > best.count ? p : best),
     null,
   );
   const mean = points.length ? total / points.length : 0;
-  if (!series.points.length) return <EmptyChart>No included papers to plot yet.</EmptyChart>;
-  const exportData = () => {
-    const csv = [
-      'Period (UTC),Papers,Cumulative',
-      ...points.map((p) => `${p.date},${p.count},${p.cumulative}`),
-    ].join('\r\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `paper-activity-${rangeStart}-${rangeEnd}.csv`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
+  const hasData = series.points.length > 0;
+
   const common = {
     data: points,
     margin: { top: 12, right: 8, left: -18, bottom: 0 },
@@ -239,7 +411,7 @@ export function SubmissionTrend({ data }: { data: { date: string; count: number 
       axisLine={false}
       tickLine={false}
       minTickGap={36}
-      tick={{ fill: '#475569', fontSize: 12 }}
+      tick={{ fill: '#64748b', fontSize: 12 }}
       height={36}
       tickMargin={12}
     />
@@ -249,210 +421,197 @@ export function SubmissionTrend({ data }: { data: { date: string; count: number 
       allowDecimals={false}
       axisLine={false}
       tickLine={false}
-      tick={{ fill: '#475569', fontSize: 12 }}
+      tick={{ fill: '#64748b', fontSize: 12 }}
       tickFormatter={number}
       width={56}
     />
   );
-  const tooltip = <Tooltip content={<TrendTooltip />} cursor={{ fill: '#edf5f4' }} />;
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="sr-only" htmlFor="activity-range">
-            Paper activity date range
-          </label>
-          <select
-            id="activity-range"
-            className="analytics-select"
-            value={range}
-            onChange={(e) => setRange(e.target.value)}
-          >
-            <option value="all">All activity</option>
-            <option value="7">Latest 7 days</option>
-            <option value="30">Latest 30 days</option>
-            <option value="custom">Custom dates</option>
-          </select>
-          <span className="text-xs text-slate-600">{interval} · UTC</span>
-        </div>
-        <div className="analytics-segment" role="group" aria-label="Activity chart mode">
-          <button
-            className="analytics-toggle"
-            aria-pressed={mode === 'period'}
-            onClick={() => setMode('period')}
-          >
-            Per period
-          </button>
-          <button
-            className="analytics-toggle"
-            aria-pressed={mode === 'cumulative'}
-            onClick={() => setMode('cumulative')}
-          >
-            Cumulative
-          </button>
-        </div>
-      </div>
-      {range === 'custom' && (
-        <div className="flex flex-wrap gap-3">
-          <label className="text-xs text-slate-600">
-            From
-            <input
-              aria-label="Activity start date"
-              type="date"
-              className="analytics-select ml-2"
-              min={first}
-              max={end || last}
-              value={start}
-              onChange={(e) => setStart(e.target.value)}
+    <ModuleCard
+      {...frame}
+      actions={
+        <>
+          {hasData ? (
+            <Segmented
+              label="Activity chart mode"
+              value={mode}
+              onChange={setMode}
+              options={MODES}
             />
-          </label>
-          <label className="text-xs text-slate-600">
-            To
-            <input
-              aria-label="Activity end date"
-              type="date"
-              className="analytics-select ml-2"
-              min={start || first}
-              max={last}
-              value={end}
-              onChange={(e) => setEnd(e.target.value)}
+          ) : null}
+          <CsvButton
+            title={frame.title}
+            disabled={!points.length}
+            onExport={() =>
+              downloadCsv(`paper-activity-${rangeStart}-${rangeEnd}.csv`, [
+                ['Period (UTC)', 'Papers', 'Cumulative'],
+                ...points.map((p) => [p.date, p.count, p.cumulative]),
+              ])
+            }
+          />
+        </>
+      }
+      footer={
+        hasData ? (
+          <>
+            <span>
+              {rangeStart} – {rangeEnd} · {filtered.interval} · UTC
+            </span>
+            <span>
+              {mode === 'period'
+                ? 'Dashed line: period average'
+                : 'Running total from the first paper'}
+            </span>
+          </>
+        ) : undefined
+      }
+    >
+      {!hasData ? (
+        <EmptyChart>No included papers to plot yet.</EmptyChart>
+      ) : (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+            <div
+              className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-xs text-slate-500"
+              aria-live="polite"
+            >
+              <span>
+                <strong className="mr-1.5 text-3xl font-semibold tabular-nums tracking-tight text-slate-900">
+                  {number(total)}
+                </strong>
+                papers in range
+              </span>
+              <span>
+                Peak{' '}
+                <strong className="font-medium text-slate-900">
+                  {peak ? `${peak.count} · ${peak.shortLabel}` : '—'}
+                </strong>
+              </span>
+            </div>
+            <Segmented
+              label="Paper activity date range"
+              value={range}
+              onChange={setRange}
+              options={RANGES}
             />
-          </label>
-        </div>
-      )}
-      <div
-        className="flex flex-wrap items-baseline gap-x-6 gap-y-2 text-xs text-slate-600"
-        aria-live="polite"
-      >
-        <span>
-          <strong className="mr-1 text-2xl font-semibold tabular-nums text-slate-900">
-            {number(total)}
-          </strong>{' '}
-          papers in range
-        </span>
-        <span>
-          Peak{' '}
-          <strong className="font-medium text-slate-900">
-            {peak ? `${peak.count} · ${peak.shortLabel}` : '—'}
-          </strong>
-        </span>
-      </div>
-      {!points.length && (
-        <EmptyChart>No paper activity in this date range. Choose another range.</EmptyChart>
-      )}
-      <div className="h-52 min-w-0" data-testid="submission-trend">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-          {mode === 'period' ? (
-            <BarChart {...common}>
-              {grid}
-              {x}
-              {y}
-              {tooltip}
-              <ReferenceLine y={mean} stroke="#94a3b8" strokeDasharray="4 4" />
-              {points.length > 8 && (
-                <Brush
-                  dataKey="shortLabel"
-                  height={22}
-                  stroke="#94a3b8"
-                  fill="#f8fafc"
-                  travellerWidth={8}
-                  tickFormatter={() => ''}
+          </div>
+          {range === 'custom' && (
+            <div className="flex flex-wrap gap-3 motion-safe:animate-in motion-safe:fade-in">
+              <label className="text-xs text-slate-600">
+                From
+                <input
+                  aria-label="Activity start date"
+                  type="date"
+                  className={DATE_INPUT}
+                  min={first}
+                  max={end || last}
+                  value={start}
+                  onChange={(e) => setStart(e.target.value)}
                 />
-              )}
-              <Bar
-                name="Papers"
-                dataKey="count"
-                fill={chartColors.accent}
-                maxBarSize={28}
-                radius={[3, 3, 0, 0]}
-                isAnimationActive={false}
-              />
-            </BarChart>
-          ) : (
-            <AreaChart {...common}>
-              {grid}
-              {x}
-              {y}
-              {tooltip}
-              {points.length > 8 && (
-                <Brush
-                  dataKey="shortLabel"
-                  height={22}
-                  stroke="#94a3b8"
-                  fill="#f8fafc"
-                  travellerWidth={8}
-                  tickFormatter={() => ''}
+              </label>
+              <label className="text-xs text-slate-600">
+                To
+                <input
+                  aria-label="Activity end date"
+                  type="date"
+                  className={DATE_INPUT}
+                  min={start || first}
+                  max={last}
+                  value={end}
+                  onChange={(e) => setEnd(e.target.value)}
                 />
-              )}
-              <Area
-                name="Papers"
-                type="stepAfter"
-                dataKey="cumulative"
-                stroke={chartColors.accent}
-                strokeWidth={2}
-                fill="#e5f0ef"
-                isAnimationActive={false}
-              />
-            </AreaChart>
+              </label>
+            </div>
           )}
-        </ResponsiveContainer>
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
-        <p className="text-xs text-slate-600">
-          {rangeStart} – {rangeEnd}
-          {mode === 'period'
-            ? ' · Dashed line: period average'
-            : ' · Running total from first paper'}
-        </p>
-        <button
-          className="analytics-text-action inline-flex items-center gap-1.5"
-          disabled={!points.length}
-          onClick={exportData}
-        >
-          <Download className="h-3.5 w-3.5" aria-hidden="true" />
-          Export CSV
-        </button>
-      </div>
-      {points.length > 8 && (
-        <p className="text-xs text-slate-600">
-          Drag the handles below the chart to zoom. Summary and export cover the selected date
-          range.
-        </p>
-      )}
-      <details className="text-sm">
-        <summary className="w-fit cursor-pointer rounded-sm py-1 text-slate-600 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-700">
-          View activity data
-        </summary>
-        <div className="mt-3 max-h-64 overflow-auto">
-          <table className="w-full text-sm">
-            <caption className="sr-only">Included papers by creation period, UTC</caption>
-            <thead className="sticky top-0 bg-white text-left text-slate-600">
-              <tr>
-                <th className="py-2 font-medium" scope="col">
-                  Period
-                </th>
-                <th className="py-2 text-right font-medium" scope="col">
-                  Papers
-                </th>
-                <th className="py-2 text-right font-medium" scope="col">
-                  Cumulative
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {points.map((p) => (
-                <tr key={p.date} className="border-t border-slate-100">
-                  <th scope="row" className="py-2 text-left font-normal text-slate-700">
-                    {p.label}
-                  </th>
-                  <td className="py-2 text-right tabular-nums">{number(p.count)}</td>
-                  <td className="py-2 text-right tabular-nums">{number(p.cumulative)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {!points.length && (
+            <EmptyChart>No paper activity in this date range. Choose another range.</EmptyChart>
+          )}
+          <div className="h-64 min-w-0 sm:h-72" data-testid="submission-trend">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              {mode === 'period' ? (
+                <BarChart {...common}>
+                  {grid}
+                  {x}
+                  {y}
+                  <Tooltip content={<TrendTooltip />} cursor={{ fill: '#eef2ff' }} />
+                  <ReferenceLine y={mean} stroke="#94a3b8" strokeDasharray="4 4" />
+                  <Bar
+                    name="Papers"
+                    dataKey="count"
+                    fill={chartColors.accent}
+                    maxBarSize={32}
+                    radius={[4, 4, 0, 0]}
+                    // Recharts can leave marks at zero height when its container resizes mid-animation.
+                    isAnimationActive={false}
+                  />
+                </BarChart>
+              ) : (
+                <AreaChart {...common}>
+                  <defs>
+                    <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={chartColors.accent} stopOpacity={0.28} />
+                      <stop offset="100%" stopColor={chartColors.accent} stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  {grid}
+                  {x}
+                  {y}
+                  <Tooltip
+                    content={<TrendTooltip cumulative />}
+                    cursor={{ stroke: '#94a3b8', strokeDasharray: '4 4' }}
+                  />
+                  <Area
+                    name="Papers"
+                    type="stepAfter"
+                    dataKey="cumulative"
+                    stroke={chartColors.accent}
+                    strokeWidth={2}
+                    fill={`url(#${gradientId})`}
+                    activeDot={{ r: 4, strokeWidth: 2, stroke: '#fff' }}
+                    // Recharts can leave marks at zero height when its container resizes mid-animation.
+                    isAnimationActive={false}
+                  />
+                </AreaChart>
+              )}
+            </ResponsiveContainer>
+          </div>
+          <details className="text-sm">
+            <summary className="w-fit cursor-pointer rounded py-1 text-xs font-medium text-indigo-700 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              View activity data
+            </summary>
+            <div className="mt-3 max-h-64 overflow-auto rounded-xl border border-slate-100">
+              <table className="w-full text-sm">
+                <caption className="sr-only">Included papers by creation period, UTC</caption>
+                <thead className="sticky top-0 bg-slate-50 text-left text-xs text-slate-600">
+                  <tr>
+                    <th className="px-3 py-2 font-medium" scope="col">
+                      Period
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium" scope="col">
+                      Papers
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium" scope="col">
+                      Cumulative
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {points.map((p) => (
+                    <tr key={p.date} className="border-t border-slate-100">
+                      <th scope="row" className="px-3 py-2 text-left font-normal text-slate-700">
+                        {p.label}
+                      </th>
+                      <td className="px-3 py-2 text-right tabular-nums">{number(p.count)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{number(p.cumulative)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
         </div>
-      </details>
-    </div>
+      )}
+    </ModuleCard>
   );
 }

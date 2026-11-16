@@ -193,6 +193,19 @@ async function mockApi(
     },
   };
 }
+async function openTab(page: Page, name: string) {
+  await page.getByRole('tab', { name, exact: true }).click();
+  await expect(page.getByRole('tab', { name, exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+}
+async function setRange(page: Page, name: string) {
+  await page
+    .getByRole('group', { name: 'Paper activity date range' })
+    .getByRole('button', { name, exact: true })
+    .click();
+}
 async function capture(page: Page, file: string) {
   const previous = await page.evaluate(() => {
     const main = document.querySelector('main')!;
@@ -225,15 +238,22 @@ test('analytics charts render on desktop and mobile', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await capture(page, `.taste-skill/analytics-captures/${prefix}mobile.png`);
   if (!prefix) {
-    for (const [section, name] of [
-      ['#review-health', 'review'],
-      ['#submission-activity', 'activity'],
-      ['#participation', 'people'],
-      ['#registration-finance', 'finance'],
+    for (const [tab, name] of [
+      ['Reviews & decisions', 'review'],
+      ['Papers', 'activity'],
+      ['People', 'people'],
+      ['Finance', 'finance'],
     ]) {
-      await page.locator(section!).evaluate((el) => el.scrollIntoView({ block: 'start' }));
-      await page.screenshot({ path: `.taste-skill/analytics-captures/mobile-${name}.png` });
+      await openTab(page, tab!);
+      await page.screenshot({
+        path: `.taste-skill/analytics-captures/mobile-${name}.png`,
+        fullPage: true,
+      });
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      ).toBe(true);
     }
+    await openTab(page, 'Papers');
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.evaluate(() => {
       document.querySelector('main')!.scrollTo(0, 0);
@@ -276,6 +296,7 @@ test('scope definitions, exact data and chart modes are available', async ({ pag
 test('author search and pagination retain every author', async ({ page }) => {
   await mockApi(page);
   await page.goto(path);
+  await openTab(page, 'People');
   await expect(page.getByText('25 of 25 authors · Page 1 of 3')).toBeVisible();
   await page.getByRole('button', { name: 'Next authors' }).click();
   await expect(page.getByText('25 of 25 authors · Page 2 of 3')).toBeVisible();
@@ -291,9 +312,12 @@ test('empty data distinguishes unavailable percentages from zero activity', asyn
   await mockApi(page, 'empty');
   await page.goto(path);
   await expect(page.getByText('0 included papers.', { exact: true })).toBeVisible();
+  await expect(page.getByText('No included papers to plot yet.')).toBeVisible();
+  await expect(page.getByText('No overdue or under-covered reviews.')).toBeVisible();
+  await openTab(page, 'Reviews & decisions');
   await expect(page.getByText('Acceptance share unavailable', { exact: true })).toBeVisible();
   await expect(page.getByText('No review assignments in the latest cycles yet.')).toBeVisible();
-  await expect(page.getByText('No included papers to plot yet.')).toBeVisible();
+  await expect(page.getByText('No decisions in the latest cycles yet.')).toBeVisible();
 });
 test('failed loads do not fabricate counts, and refresh failures retain a labeled snapshot', async ({
   page,
@@ -319,7 +343,7 @@ test('failed loads do not fabricate counts, and refresh failures retain a labele
 test('activity range filters, cumulative baseline and CSV export agree', async ({ page }) => {
   await mockApi(page);
   await page.goto(path);
-  await page.getByLabel('Paper activity date range').selectOption('7');
+  await setRange(page, '7 days');
   await expect(page.getByText('papers in range')).toContainText('39');
   await page.getByRole('button', { name: 'Cumulative', exact: true }).click();
   await page.getByText('View activity data', { exact: true }).click();
@@ -327,7 +351,7 @@ test('activity range filters, cumulative baseline and CSV export agree', async (
   await expect(table.getByRole('row').last()).toContainText('96');
   await expect(table.getByRole('row')).toHaveCount(8);
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export CSV' }).click();
+  await page.getByRole('button', { name: 'Export Paper activity as CSV' }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe('paper-activity-2026-09-14-2026-09-20.csv');
   const stream = await download.createReadStream();
@@ -336,7 +360,7 @@ test('activity range filters, cumulative baseline and CSV export agree', async (
   const csv = Buffer.concat(chunks).toString('utf8');
   expect(csv.split('\r\n')).toHaveLength(8);
   expect(csv).toContain('2026-09-20,9,96');
-  await page.getByLabel('Paper activity date range').selectOption('all');
+  await setRange(page, 'All');
   await expect(page.getByText('papers in range')).toContainText('96');
 });
 
@@ -345,7 +369,7 @@ test('custom dates retain zero days and category shares use their own denominato
 }) => {
   await mockApi(page);
   await page.goto(path);
-  await page.getByLabel('Paper activity date range').selectOption('custom');
+  await setRange(page, 'Custom');
   await page.getByLabel('Activity start date').fill('2026-09-04');
   await page.getByLabel('Activity end date').fill('2026-09-04');
   await expect(page.getByText('papers in range')).toContainText('0');
@@ -359,6 +383,7 @@ test('custom dates retain zero days and category shares use their own denominato
   await expect(status.getByRole('listitem').filter({ hasText: 'Under review' })).toContainText(
     '55',
   );
+  await openTab(page, 'People');
   const workload = page
     .locator('section')
     .filter({
@@ -377,9 +402,10 @@ test('development preview renders without hydration errors at all screen sizes',
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/dev/analytics');
   await expect(page.getByText('papers in range')).toContainText('96');
+  await expect(page.getByRole('button', { name: 'Export Paper activity as CSV' })).toBeVisible();
+  await openTab(page, 'Finance');
   for (const width of [1440, 768, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await expect(page.getByRole('button', { name: 'Export CSV' })).toBeVisible();
     const currencyPanel = page
       .locator('section')
       .filter({
@@ -407,7 +433,7 @@ test('long histories retain the final partial bucket when changing ranges', asyn
   await mockApi(page, 'normal', data);
   await page.goto(path);
   await expect(page.getByText('papers in range')).toContainText('11');
-  await page.getByLabel('Paper activity date range').selectOption('7');
+  await setRange(page, '7 days');
   await expect(page.getByText('papers in range')).toContainText('9');
   await page.getByText('View activity data', { exact: true }).click();
   const table = page.getByRole('table', { name: 'Included papers by creation period, UTC' });
@@ -456,6 +482,7 @@ test('currency conversion shows original receipts, refunds and converted totals'
   data.excludedCurrencyPayments = 1;
   await mockApi(page, 'normal', data);
   await page.goto(path);
+  await openTab(page, 'Finance');
   const panel = page
     .locator('section')
     .filter({ has: page.getByRole('heading', { name: 'Payments across currencies', exact: true }) })
@@ -476,6 +503,7 @@ test('reporting currency switches all revenue views while retaining original amo
   page,
 }) => {
   await page.goto('/dev/analytics');
+  await openTab(page, 'Finance');
   const selector = page.getByRole('combobox', { name: 'Reporting currency' });
   await expect(selector).toHaveValue('USD');
   await selector.selectOption('INR');
@@ -518,6 +546,7 @@ for (const locale of ['en-IN', 'en-GB', 'de-DE']) {
       const selector = page.getByRole('combobox', { name: 'Reporting currency' });
       await expect(selector).toHaveValue('USD');
       await selector.selectOption('INR');
+      await page.getByRole('tab', { name: 'Finance', exact: true }).click();
       await expect(
         page.getByText('The same INR receipts, grouped by registration audience.'),
       ).toBeVisible();
@@ -527,3 +556,50 @@ for (const locale of ['en-IN', 'en-GB', 'de-DE']) {
     }
   });
 }
+
+test('headline tiles open their tab and counting rules sit behind the info button', async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto(path);
+  await expect(page.getByRole('tab', { name: 'Papers', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await page.getByRole('button', { name: /Net receipts · INR/ }).click();
+  await expect(page.getByRole('tab', { name: 'Finance', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(page).toHaveURL(/#finance$/);
+  await expect(page.getByRole('heading', { name: 'Registration status' })).toBeVisible();
+  await page.getByRole('button', { name: 'About Registration follow-up' }).click();
+  await expect(page.getByRole('note').filter({ hasText: 'Unpaid work includes' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('note').filter({ hasText: 'Unpaid work includes' })).toBeHidden();
+  await page.reload();
+  await expect(page.getByRole('tab', { name: 'Finance', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});
+
+test('every module exports its own data', async ({ page }) => {
+  await mockApi(page);
+  await page.goto(path);
+  await openTab(page, 'Reviews & decisions');
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export Decision outcomes as CSV' }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('decision-outcomes.csv');
+  const stream = await download.createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
+  expect(Buffer.concat(chunks).toString('utf8').split('\r\n')).toEqual([
+    'Outcome,Decisions',
+    'Accept,12',
+    'Minor revision,3',
+    'Major revision,1',
+    'Reject,3',
+  ]);
+});
