@@ -51,6 +51,7 @@ import {
   decisionSchema,
   decisionListSchema,
   makeDecisionSchema,
+  updateDecisionRationaleSchema,
   bulkDecisionSchema,
   notifyDecisionsSchema,
   decisionActionResponseSchema,
@@ -76,6 +77,11 @@ const conferenceParams = z.object({
 const roundParams = z.object({
   conferenceId: z.string().uuid(),
   roundId: z.string().uuid(),
+});
+
+const decisionParams = z.object({
+  conferenceId: z.string().uuid(),
+  decisionId: z.string().uuid(),
 });
 
 const paperParams = z.object({
@@ -630,6 +636,21 @@ export const reviewContract = c.router({
       409: problemEnvelopeSchema,
     },
     summary: 'Record editorial decision for a paper in a round',
+  },
+  updateDecisionRationale: {
+    method: 'PATCH',
+    path: '/conferences/:conferenceId/decisions/:decisionId',
+    pathParams: decisionParams,
+    body: updateDecisionRationaleSchema,
+    responses: {
+      200: decisionSchema,
+      400: problemEnvelopeSchema,
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+      409: problemEnvelopeSchema,
+    },
+    summary: 'Edit the message to authors on a decision that has not been sent',
   },
   bulkDecide: {
     method: 'POST',

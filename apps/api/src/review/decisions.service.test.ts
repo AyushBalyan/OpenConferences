@@ -16,11 +16,22 @@ vi.mock('@openconferences/db', () => ({
       decision: {
         findMany: async () => [{ ...mocks.decision, paper }],
         findFirst: async () => mocks.decision,
-        updateMany: async (args: { data: { notifiedAt: Date } }) => {
+        updateMany: async (args: {
+          where: { version?: number };
+          data: { notifiedAt?: Date; rationale?: string | null };
+        }) => {
           // Model the production policy: no session user means no visible rows.
-          const count = ctx.userId === 'chair' ? 1 : 0;
+          const versionMatches =
+            args.where.version === undefined || args.where.version === mocks.decision?.version;
+          const count = ctx.userId === 'chair' && versionMatches ? 1 : 0;
           mocks.update(args);
-          if (count && mocks.decision) mocks.decision.notifiedAt = args.data.notifiedAt;
+          if (count && mocks.decision) {
+            if (args.data.notifiedAt) mocks.decision.notifiedAt = args.data.notifiedAt;
+            if ('rationale' in args.data) {
+              mocks.decision.rationale = args.data.rationale;
+              mocks.decision.version = Number(mocks.decision.version) + 1;
+            }
+          }
           return { count };
         },
       },
@@ -73,6 +84,8 @@ beforeEach(() => {
     outcome: 'ACCEPT',
     rationale: 'Paper accepted',
     notifiedAt: null,
+    version: 1,
+    decidedById: 'chair',
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -120,6 +133,61 @@ describe('author decision release', () => {
     await expect(service().getPaperDecision('author', 'conf', 'paper', ['AUTHOR'])).rejects.toThrow(
       'Decision not found',
     );
+  });
+});
+
+describe('editing the message to authors', () => {
+  it('saves a trimmed message on an unsent decision and bumps the version', async () => {
+    const updated = await service().updateRationale(
+      'chair',
+      'conf',
+      'decision',
+      { rationale: '  Please address reviewer 2.  ', version: 1 },
+      ['CHAIR'],
+    );
+    expect(updated.rationale).toBe('Please address reviewer 2.');
+    expect(updated.version).toBe(2);
+    expect(mocks.update).toHaveBeenCalledWith({
+      where: { id: 'decision', conferenceId: 'conf', version: 1, notifiedAt: null },
+      data: { rationale: 'Please address reviewer 2.', version: { increment: 1 } },
+    });
+  });
+
+  it('stores an empty message as null', async () => {
+    const updated = await service().updateRationale(
+      'chair',
+      'conf',
+      'decision',
+      { rationale: '   ', version: 1 },
+      ['CHAIR'],
+    );
+    expect(updated.rationale).toBeNull();
+  });
+
+  it('refuses to edit a decision that was already sent', async () => {
+    mocks.decision!.notifiedAt = new Date();
+    await expect(
+      service().updateRationale('chair', 'conf', 'decision', { rationale: 'Late', version: 1 }, [
+        'CHAIR',
+      ]),
+    ).rejects.toThrow('already been sent');
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects a stale version', async () => {
+    await expect(
+      service().updateRationale('chair', 'conf', 'decision', { rationale: 'Stale', version: 0 }, [
+        'CHAIR',
+      ]),
+    ).rejects.toThrow('modified by another request');
+  });
+
+  it('is limited to roles that coordinate review', async () => {
+    await expect(
+      service().updateRationale('chair', 'conf', 'decision', { rationale: 'No', version: 1 }, [
+        'AUTHOR',
+      ]),
+    ).rejects.toThrow('Insufficient permissions');
   });
 });
 

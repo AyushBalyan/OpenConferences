@@ -500,6 +500,22 @@ export class ReviewController {
     });
   }
 
+  @TsRestHandler(reviewContract.updateDecisionRationale)
+  @RequireReviewCoordination()
+  @RequireMembership()
+  updateDecisionRationale(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(reviewContract.updateDecisionRationale, async ({ params, body }) => {
+      const decision = await this.decisions.updateRationale(
+        user.id,
+        params.conferenceId,
+        params.decisionId,
+        body,
+        roles,
+      );
+      return { status: 200 as const, body: decision };
+    });
+  }
+
   @TsRestHandler(reviewContract.bulkDecide)
   @RequireReviewCoordination()
   @RequireMembership()

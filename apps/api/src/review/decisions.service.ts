@@ -20,6 +20,7 @@ import type {
   DecisionListDto,
   MakeDecisionInput,
   NotifyDecisionsInput,
+  UpdateDecisionRationaleInput,
 } from '@openconferences/schemas';
 import {
   paginateItems,
@@ -213,6 +214,62 @@ export class DecisionsService {
       warnings: result.warnings,
       message: 'Decision recorded successfully',
     };
+  }
+
+  /** Edit the message to authors. Allowed only until the decision is sent. */
+  async updateRationale(
+    userId: string,
+    conferenceId: string,
+    decisionId: string,
+    input: UpdateDecisionRationaleInput,
+    roles: RoleKind[],
+  ): Promise<DecisionDto> {
+    if (!canCoordinateReview(roles)) {
+      throw new ForbiddenException('Insufficient permissions to edit decisions');
+    }
+
+    const conference = await this.conferences.loadConference(userId, conferenceId, roles);
+    const rationale = input.rationale?.trim() || null;
+
+    const decision = await withTenantContext(
+      { userId, conferenceId, organizationId: conference.organizationId },
+      async (tx) => {
+        const existing = await tx.decision.findFirst({ where: { id: decisionId, conferenceId } });
+        if (!existing) throw new NotFoundException('Decision not found');
+        if (existing.notifiedAt) {
+          throw new ConflictException(
+            'This decision has already been sent to the author and can no longer be edited',
+          );
+        }
+        // The guard is repeated in the write so a send that lands in between wins.
+        const updated = await tx.decision.updateMany({
+          where: { id: decisionId, conferenceId, version: input.version, notifiedAt: null },
+          data: { rationale, version: { increment: 1 } },
+        });
+        if (updated.count !== 1) {
+          throw new ConflictException('Decision was modified by another request');
+        }
+        const saved = await tx.decision.findFirst({ where: { id: decisionId, conferenceId } });
+        if (!saved) throw new NotFoundException('Decision not found');
+        return saved;
+      },
+    );
+
+    await this.audit.log({
+      actorUserId: userId,
+      organizationId: conference.organizationId,
+      conferenceId,
+      action: 'decision.rationale_updated',
+      entity: 'Decision',
+      entityId: decision.id,
+      diff: {
+        paperId: decision.paperId,
+        roundId: decision.roundId,
+        hasRationale: Boolean(rationale),
+      },
+    });
+
+    return mapDecision(decision);
   }
 
   async bulkDecide(

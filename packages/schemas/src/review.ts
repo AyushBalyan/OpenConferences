@@ -599,6 +599,13 @@ export const makeDecisionSchema = z.object({
 
 export type MakeDecisionInput = z.infer<typeof makeDecisionSchema>;
 
+export const updateDecisionRationaleSchema = z.object({
+  rationale: z.string().max(10000).nullable(),
+  version: z.number().int().nonnegative(),
+});
+
+export type UpdateDecisionRationaleInput = z.infer<typeof updateDecisionRationaleSchema>;
+
 export const bulkDecisionItemSchema = z.object({
   paperId: z.string().uuid(),
   outcome: decisionOutcomeSchema,

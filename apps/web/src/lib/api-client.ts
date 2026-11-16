@@ -1221,6 +1221,22 @@ export async function makeDecision(
   throw new Error('Failed to record decision');
 }
 
+export async function updateDecisionRationale(
+  conferenceId: string,
+  decisionId: string,
+  body: { rationale: string | null; version: number },
+) {
+  const result = await apiClient.review.updateDecisionRationale({
+    params: { conferenceId, decisionId },
+    body,
+  });
+  if (result.status === 200) return result.body;
+  if (result.status === 409 || result.status === 403 || result.status === 404) {
+    throw new Error(result.body.detail ?? 'Could not save the message');
+  }
+  throw new Error('Could not save the message');
+}
+
 export async function bulkDecide(
   conferenceId: string,
   roundId: string | undefined,

@@ -11,6 +11,7 @@ import { useDecisionsWorkspace, type PaperRow } from './decisions-workspace';
 import { ReviewDossier } from './review-dossier';
 import { ReviewReleaseControl, ReviewReleaseWarning } from './review-release';
 import { DecisionConfirmation } from './decision-confirmation';
+import { PaperLinks } from './paper-links';
 import Link from 'next/link';
 
 const OUTCOME_STYLE: Record<
@@ -54,6 +55,13 @@ const OUTCOME_STYLE: Record<
 const ORDERED_OUTCOMES = (Object.keys(OUTCOME_STYLE) as DecisionOutcome[]).filter((value) =>
   DECISION_OPTIONS.some((option) => option.value === value),
 );
+
+const QUEUE_FILTERS = [
+  ['all', 'All'],
+  ['ready', 'Ready'],
+  ['waiting', 'Awaiting reviews'],
+  ['drafted', 'Drafted'],
+] as const;
 
 function isPaperVersionConflict(err: unknown): boolean {
   if (!(err instanceof Error) || (err as Error & { status?: number }).status !== 409) {
@@ -416,6 +424,33 @@ export function DecisionsPendingPanel() {
           </p>
         </details>
       </div>
+      <div role="group" aria-label="Paper queue" className="flex flex-wrap gap-2">
+        {QUEUE_FILTERS.map(([value, label]) => {
+          const pressed = filter === value;
+          return (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={pressed}
+              disabled={busy}
+              onClick={() => {
+                if (pressed) return;
+                setFilter(value);
+                setSelected(new Set());
+                setCompleted(null);
+              }}
+              className={`inline-flex min-h-9 items-center gap-2 rounded-full border px-3.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-60 ${pressed ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50'}`}
+            >
+              {label}
+              <span
+                className={`rounded-full px-1.5 text-xs tabular-nums ${pressed ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}`}
+              >
+                {visiblePapers.filter((paper) => matches(paper, value)).length}
+              </span>
+            </button>
+          );
+        })}
+      </div>
       <Button
         variant="outline"
         className="lg:hidden"
@@ -429,35 +464,6 @@ export function DecisionsPendingPanel() {
           aria-label="Papers awaiting decision"
           className={`${queueOpen ? 'block' : 'hidden'} overflow-hidden rounded-xl border border-slate-200 bg-white lg:block xl:sticky xl:top-4`}
         >
-          <div className="border-b border-slate-100 p-3">
-            <label htmlFor="queue-filter" className="mb-2 block text-sm font-semibold">
-              Paper queue
-            </label>
-            <select
-              id="queue-filter"
-              className="min-h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm"
-              value={filter}
-              disabled={busy}
-              onChange={(event) => {
-                setFilter(event.target.value);
-                setSelected(new Set());
-                setCompleted(null);
-              }}
-            >
-              {(
-                [
-                  ['all', 'All pending'],
-                  ['ready', 'Ready for decision'],
-                  ['waiting', 'Awaiting reviews'],
-                  ['drafted', 'Drafted'],
-                ] as const
-              ).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label} ({visiblePapers.filter((paper) => matches(paper, value)).length})
-                </option>
-              ))}
-            </select>
-          </div>
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
               <input
@@ -581,6 +587,9 @@ export function DecisionsPendingPanel() {
                   <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 [text-wrap:balance]">
                     {active.title}
                   </h2>
+                  <div className="mt-3">
+                    <PaperLinks conferenceId={conferenceId} paperId={active.id} />
+                  </div>
                 </div>
                 <div className="flex shrink-0 gap-1">
                   <Button

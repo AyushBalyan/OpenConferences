@@ -106,6 +106,19 @@ async function mockApi(
     const endpoint = url.pathname.replace('/api/v1', '');
     let body: unknown = { data: [], nextCursor: null };
     let status = 200;
+    if (route.request().method() === 'PATCH' && /\/decisions\/[^/]+$/.test(endpoint)) {
+      const input = route.request().postDataJSON() ?? {};
+      requests.push({ endpoint, body: input });
+      const decision = decisions.find((row) => endpoint.endsWith(row.id))!;
+      decision.rationale = input.rationale;
+      decision.version += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(decision),
+      });
+      return;
+    }
     if (route.request().method() === 'POST') {
       const input = route.request().postDataJSON() ?? {};
       requests.push({ endpoint, body: input });
@@ -347,7 +360,7 @@ async function mockApi(
       },
     });
   });
-  return { requests, logs, rounds };
+  return { requests, logs, rounds, decisions };
 }
 
 test('queue filters show readiness, draft counts, and paper-specific cycles', async ({ page }) => {
@@ -355,14 +368,15 @@ test('queue filters show readiness, draft counts, and paper-specific cycles', as
   await page.goto(`${path}/pending`);
   await expect(page.getByLabel('Review cycle', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Conference progress')).toBeVisible();
-  await page.getByLabel('Paper queue', { exact: true }).selectOption('ready');
+  const filters = page.getByRole('group', { name: 'Paper queue' });
+  await filters.getByRole('button', { name: /^Ready/ }).click();
   await expect(page.getByRole('heading', { name: 'Reliable review systems' })).toBeVisible();
   const queue = page.getByRole('navigation', { name: 'Papers awaiting decision' });
   await expect(queue.getByRole('button')).toHaveCount(1);
   await page.getByRole('radio', { name: /^Accept/ }).click();
-  await page.getByLabel('Paper queue', { exact: true }).selectOption('drafted');
+  await filters.getByRole('button', { name: /^Drafted/ }).click();
   await expect(queue.getByRole('button')).toHaveCount(1);
-  await page.getByLabel('Paper queue', { exact: true }).selectOption('waiting');
+  await filters.getByRole('button', { name: /^Awaiting reviews/ }).click();
   await expect(queue.getByRole('button')).toHaveCount(1);
   await expect(
     page.getByRole('heading', { name: 'Privacy in conference workflows' }),
@@ -485,7 +499,7 @@ test('recorded decisions show truthful delivery state and require recipient conf
   await page.goto(`${path}/recorded`);
   await expect(page.getByRole('table').getByText('Not sent', { exact: true })).toHaveCount(2);
   await expect(page.getByText('By Test Chair')).toHaveCount(2);
-  await page.getByText('View full rationale', { exact: true }).first().click();
+  await page.getByRole('button', { name: 'Details for Recorded reliable systems' }).click();
   await expect(page.getByText('Ready for publication', { exact: true }).first()).toBeVisible();
   await page.getByRole('button', { name: 'Review and send' }).first().click();
   await expect(page.getByRole('dialog')).toContainText('mira@example.test');
@@ -663,10 +677,16 @@ test('recorded decisions support title and code search', async ({ page }) => {
   await page.goto(`${path}/recorded`);
   const search = page.getByRole('searchbox', { name: 'Find a paper' });
   await search.fill('RELIABLE');
-  await expect(page.getByRole('cell', { name: /Recorded reliable systems/ })).toBeVisible();
-  await expect(page.getByRole('cell', { name: /Recorded privacy workflows/ })).toHaveCount(0);
+  await expect(
+    page.getByRole('link', { name: 'Recorded reliable systems', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('link', { name: 'Recorded privacy workflows', exact: true }),
+  ).toHaveCount(0);
   await search.fill('rec-d4');
-  await expect(page.getByRole('cell', { name: /Recorded privacy workflows/ })).toBeVisible();
+  await expect(
+    page.getByRole('link', { name: 'Recorded privacy workflows', exact: true }),
+  ).toBeVisible();
   await search.fill('missing');
   await expect(page.getByRole('status').filter({ hasText: 'No recorded decisions' })).toBeVisible();
   await page.getByRole('button', { name: 'Clear search' }).click();
@@ -780,6 +800,9 @@ test('bulk decisions identify the papers with unreleased reviews', async ({ page
 test('recorded decisions allow releasing feedback and warn before sending', async ({ page }) => {
   await mockApi(page);
   await page.goto(`${path}/recorded`);
+  await expect(page.getByRole('button', { name: 'Release reviews', exact: true })).toHaveCount(0);
+  for (const button of await page.getByRole('button', { name: /^Details for/ }).all())
+    await button.click();
   await expect(page.getByRole('button', { name: 'Release reviews', exact: true })).toHaveCount(2);
   await page.getByRole('button', { name: 'Review and send' }).first().click();
   await expect(page.getByRole('dialog').getByRole('alert')).toContainText(
@@ -899,4 +922,99 @@ test('bulk records unassigned papers without requiring a cycle identifier', asyn
   expect(fixture.requests).toHaveLength(1);
   expect(fixture.requests[0].endpoint).toBe(`/conferences/${conferenceId}/decisions/bulk`);
   expect(fixture.requests[0].body.notify).toBe(false);
+});
+
+test('pending decisions use one-click queue filters and link to the submission', async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto(`${path}/pending`);
+  const filters = page.getByRole('group', { name: 'Paper queue' });
+  await expect(filters.getByRole('button', { name: 'All 2' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(filters.getByRole('button', { name: 'Ready 1' })).toBeVisible();
+  await expect(filters.getByRole('button', { name: 'Awaiting reviews 1' })).toBeVisible();
+  await expect(filters.getByRole('button', { name: 'Drafted 0' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open submission' })).toHaveAttribute(
+    'href',
+    `/dashboard/conferences/${conferenceId}/submissions/${id(10)}`,
+  );
+  await expect(page.getByRole('button', { name: 'View PDF' })).toBeVisible();
+});
+
+test('unsent decisions can be selected and sent together after one confirmation', async ({
+  page,
+}) => {
+  const fixture = await mockApi(page);
+  await page.goto(`${path}/recorded`);
+  await expect(page.getByText('2 decisions not yet sent to authors.')).toBeVisible();
+  await page.getByRole('button', { name: 'Select all unsent' }).click();
+  await page.getByRole('button', { name: 'Send 2 decision emails' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('REC-C3 · Recorded reliable systems');
+  await expect(dialog).toContainText('REC-D4 · Recorded privacy workflows');
+  expect(fixture.requests).toHaveLength(0);
+  await dialog.getByRole('button', { name: 'Send 2 emails', exact: true }).click();
+  await expect(page.getByRole('table').getByText('Queued', { exact: true })).toHaveCount(2);
+  const notified = fixture.requests.filter((request) => request.endpoint.endsWith('/notify'));
+  expect(notified.map((request) => request.body.paperIds)).toEqual([[id(12)], [id(13)]]);
+  expect(notified[0]!.endpoint).toContain(id(2002));
+  expect(notified[1]!.endpoint).toContain(id(2003));
+  await expect(page.getByRole('button', { name: /^Send \d+ decision/ })).toHaveCount(0);
+});
+
+test('recorded decision details show reviews and allow editing an unsent message', async ({
+  page,
+}) => {
+  const fixture = await mockApi(page);
+  await page.goto(`${path}/recorded`);
+  await page.getByRole('button', { name: 'Details for Recorded reliable systems' }).click();
+  const details = page.locator(`#decision-details-${id(3000)}`);
+  await expect(details.getByText('1 Accept · 1 Weak accept')).toBeVisible();
+  await expect(details.getByText('Ada Reviewer')).toBeVisible();
+  await details.getByText('Criterion scores').click();
+  await expect(details.getByRole('cell', { name: 'originality', exact: true })).toBeVisible();
+  await details.getByRole('button', { name: 'Edit message' }).click();
+  await details.getByRole('textbox', { name: 'Message to authors' }).fill('Fix the references.');
+  await details.getByRole('button', { name: 'Save message' }).click();
+  await expect(details.getByText('Fix the references.', { exact: true })).toBeVisible();
+  const patch = fixture.requests.find((request) => request.endpoint.endsWith(id(3000)))!;
+  expect(patch.body).toEqual({ rationale: 'Fix the references.', version: 1 });
+});
+
+test('a sent decision shows its message read-only', async ({ page }) => {
+  const fixture = await mockApi(page);
+  fixture.decisions[0]!.notifiedAt = '2026-10-20T10:01:00Z';
+  fixture.logs.push({
+    id: id(5001),
+    relatedEntity: 'Decision',
+    relatedEntityId: id(3000),
+    status: 'SENT',
+    queuedAt: '2026-10-20T10:00:00Z',
+    sentAt: '2026-10-20T10:01:00Z',
+  });
+  await page.goto(`${path}/recorded`);
+  await page.getByRole('button', { name: 'Details for Recorded reliable systems' }).click();
+  const details = page.locator(`#decision-details-${id(3000)}`);
+  await expect(details.getByText('Ready for publication', { exact: true })).toBeVisible();
+  await expect(details.getByRole('button', { name: 'Edit message' })).toHaveCount(0);
+  await expect(details.getByText('Already sent to the author')).toBeVisible();
+});
+
+test('recorded decisions become cards on a phone without horizontal scrolling', async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${path}/recorded`);
+  await expect(page.getByRole('link', { name: 'Recorded reliable systems' })).toBeVisible();
+  await expect(page.getByRole('table')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Review and send' })).toHaveCount(2);
+  await page.getByRole('button', { name: 'Details for Recorded reliable systems' }).click();
+  await expect(page.getByText('Reviews and scores')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
 });
