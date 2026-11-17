@@ -257,6 +257,66 @@ describe('review phase capabilities', () => {
     expect(updateReview).not.toHaveBeenCalled();
   });
 
+  it('releases only the selected reviews when reviewIds are given', async () => {
+    const now = new Date();
+    reviewLookup.mockResolvedValue([
+      {
+        id: 'review-2',
+        paperId: 'paper',
+        paper: { title: 'Paper', authorships: [{ email: 'author@example.edu' }] },
+      },
+    ]);
+    transitionRound.mockResolvedValue({ count: 1 });
+    readRound.mockResolvedValue({
+      id: 'round',
+      reviewsReleasedAt: now,
+      decisions: [],
+      version: 2,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const result = await service('REVIEWING').releaseReviews(
+      'chair',
+      'conf',
+      'paper',
+      'round',
+      { version: 1, reviewIds: ['review-2'] },
+      ['CHAIR'],
+    );
+
+    expect(result.releasedCount).toBe(1);
+    expect(reviewLookup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ visibility: 'HIDDEN', id: { in: ['review-2'] } }),
+      }),
+    );
+    expect(updateReview).toHaveBeenCalledWith({
+      where: { id: { in: ['review-2'] }, visibility: 'HIDDEN' },
+      data: { visibility: 'AUTHOR_VISIBLE' },
+    });
+    expect(publishReviewReleased).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a selective release when a selected review is not releasable', async () => {
+    reviewLookup.mockResolvedValue([
+      { id: 'review-1', paperId: 'paper', paper: { title: 'Paper', authorships: [] } },
+    ]);
+    transitionRound.mockResolvedValue({ count: 1 });
+    await expect(
+      service('REVIEWING').releaseReviews(
+        'chair',
+        'conf',
+        'paper',
+        'round',
+        { version: 1, reviewIds: ['review-1', 'review-3'] },
+        ['CHAIR'],
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(transitionRound).not.toHaveBeenCalled();
+    expect(updateReview).not.toHaveBeenCalled();
+  });
+
   it.each(['MINOR_REVISION', 'MAJOR_REVISION', 'ACCEPT', 'REJECT'])(
     'releases hidden submitted reviews after a %s decision without reopening the cycle',
     async (outcome) => {

@@ -574,12 +574,13 @@ export const reviewContract = c.router({
     body: releaseReviewsSchema,
     responses: {
       200: releaseReviewsResponseSchema,
+      400: problemEnvelopeSchema,
       401: problemEnvelopeSchema,
       403: problemEnvelopeSchema,
       404: problemEnvelopeSchema,
       409: problemEnvelopeSchema,
     },
-    summary: 'Release reviews to authors and open rebuttal window',
+    summary: 'Release all or selected submitted reviews to authors and open rebuttal window',
   },
   getRebuttal: {
     method: 'GET',

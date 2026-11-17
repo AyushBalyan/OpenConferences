@@ -7,6 +7,7 @@ export default async function verifyLocalDatabase() {
       process.env.ANALYTICS_TEST_DATABASE_URL,
       process.env.IN_APP_UPDATES_TEST_DATABASE_URL,
       process.env.REVIEW_LOCK_TEST_DATABASE_URL,
+      process.env.REVIEW_RELEASE_TEST_DATABASE_URL,
       process.env.REVIEWER_OVERVIEW_TEST_DATABASE_URL,
     ].filter((url): url is string => !!url),
   );

@@ -329,6 +329,7 @@ async function mockApi(
             confidence: 4,
             commentsToAuthors: 'Clear and well supported.',
             commentsToChairs: null,
+            visibility: 'HIDDEN',
             submittedAt: new Date().toISOString(),
           },
           {
@@ -342,6 +343,7 @@ async function mockApi(
             confidence: 3,
             commentsToAuthors: 'Useful contribution.',
             commentsToChairs: null,
+            visibility: 'HIDDEN',
             submittedAt: new Date().toISOString(),
           },
         ],
@@ -777,12 +779,28 @@ test('decisions warn before recording unreleased reviews and release with the cy
   expect(fixture.requests[0]!.endpoint).toContain(
     `/papers/${id(10)}/cycles/${id(2000)}/reviews/release`,
   );
-  expect(fixture.requests[0]!.body).toEqual({ version: 1 });
+  expect(fixture.requests[0]!.body).toEqual({ version: 1, reviewIds: [id(4000), id(4001)] });
   await page.getByRole('button', { name: 'Record accept', exact: true }).click();
   await expect(page.getByRole('dialog')).not.toContainText('Reviews have not been fully released');
   await page.screenshot({ path: '/tmp/decisions-release-desktop.png', fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: '/tmp/decisions-release-mobile.png', fullPage: true });
+});
+
+test('chairs can release a selected subset of reviews', async ({ page }) => {
+  const fixture = await mockApi(page);
+  await page.goto(`${path}/pending`);
+  await page.getByRole('button', { name: 'Release reviews', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('checkbox', { name: 'Release R1 (Ada Reviewer)' })).toBeChecked();
+  await dialog.getByRole('checkbox', { name: 'Release R2 (unnamed@example.test)' }).uncheck();
+  await expect(dialog).toContainText('1 of 2 unreleased submitted reviews selected');
+  await dialog.getByRole('button', { name: 'Clear', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Release reviews', exact: true })).toBeDisabled();
+  await dialog.getByRole('checkbox', { name: 'Release R1 (Ada Reviewer)' }).check();
+  await dialog.getByRole('button', { name: 'Release 1 review', exact: true }).click();
+  await expect.poll(() => fixture.requests.length).toBe(1);
+  expect(fixture.requests[0]!.body).toEqual({ version: 1, reviewIds: [id(4000)] });
 });
 
 test('bulk decisions identify the papers with unreleased reviews', async ({ page }) => {

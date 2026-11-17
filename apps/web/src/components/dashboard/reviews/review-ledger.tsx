@@ -12,7 +12,6 @@ import type {
   ReviewCoordinationDto,
 } from '@openconferences/schemas';
 import { Button } from '@/components/ui/button';
-import { useConfirm } from '@/components/ui/confirm-dialog';
 import { PageHeader } from '@/components/dashboard/page-header';
 import {
   DataTable,
@@ -38,6 +37,7 @@ import {
   type LedgerFilters,
 } from '@/lib/review-ledger';
 import { reviewStageLabel } from '@/lib/review-types';
+import { ReviewReleaseDialog } from './decisions/review-release';
 
 const PAGE_SIZE = 25;
 const MAX_BATCH = 100;
@@ -84,7 +84,6 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const confirm = useConfirm();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
@@ -275,20 +274,22 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
     }
     setBusy(false);
   }
-  async function handleRelease(row: NonNullable<ReviewCoordinationDto['data']>[number]) {
-    if (!row.cycleId || row.cycleVersion == null) return;
-    const confirmed = await confirm({
-      title: 'Release reviews to authors?',
-      description: `${row.submittedReviewCount} submitted ${row.submittedReviewCount === 1 ? 'review' : 'reviews'} for ${row.submissionNumber ?? row.paperTitle} will become visible to its authors.`,
-      confirmLabel: 'Release to authors',
-    });
-    if (!confirmed) return;
+  const [releaseTarget, setReleaseTarget] = useState<
+    NonNullable<ReviewCoordinationDto['data']>[number] | null
+  >(null);
+  async function handleRelease(
+    row: NonNullable<ReviewCoordinationDto['data']>[number],
+    reviewIds: string[],
+  ) {
+    if (!row.cycleId || row.cycleVersion == null || reviewIds.length === 0) return;
     setBusy(true);
     setError(null);
     try {
       const response = await releaseReviews(conferenceId, row.paperId, row.cycleId, {
         version: row.cycleVersion,
+        reviewIds,
       });
+      setReleaseTarget(null);
       setResults([
         {
           id: row.cycleId,
@@ -299,6 +300,7 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
       ]);
       await load();
     } catch (err) {
+      setReleaseTarget(null);
       setError(err instanceof Error ? err.message : 'Could not release reviews');
     }
     setBusy(false);
@@ -306,6 +308,17 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
 
   return (
     <div className="space-y-6">
+      {releaseTarget?.cycleId ? (
+        <ReviewReleaseDialog
+          conferenceId={conferenceId}
+          paperId={releaseTarget.paperId}
+          cycleId={releaseTarget.cycleId}
+          heading={releaseTarget.submissionNumber ?? releaseTarget.paperTitle}
+          busy={busy}
+          onRelease={(reviewIds) => void handleRelease(releaseTarget, reviewIds)}
+          onCancel={() => setReleaseTarget(null)}
+        />
+      ) : null}
       <PageHeader
         title="Paper review ledger"
         description="See coverage, deadlines and blockers across the conference. Browse earlier cycles without changing active reviews."
@@ -767,7 +780,7 @@ export function ReviewLedger({ conferenceId }: { conferenceId: string }) {
                               size="sm"
                               variant="outline"
                               disabled={busy}
-                              onClick={() => void handleRelease(row)}
+                              onClick={() => setReleaseTarget(row)}
                             >
                               Release reviews
                             </Button>

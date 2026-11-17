@@ -606,6 +606,7 @@ export class ReviewsService {
             paperId,
             submittedAt: { not: null },
             visibility: 'HIDDEN',
+            ...(input.reviewIds ? { id: { in: input.reviewIds } } : {}),
           },
           include: {
             paper: {
@@ -619,6 +620,12 @@ export class ReviewsService {
             },
           },
         });
+
+        if (input.reviewIds && hiddenSubmitted.length !== input.reviewIds.length) {
+          throw new BadRequestException(
+            'Some selected reviews are not submitted, are already released, or belong to another cycle',
+          );
+        }
 
         if (hiddenSubmitted.length === 0) {
           throw new BadRequestException('No submitted reviews to release');
@@ -665,7 +672,11 @@ export class ReviewsService {
       action: 'review.released',
       entity: 'ReviewRound',
       entityId: cycleId,
-      diff: { releasedCount: result.submittedReviews.length },
+      diff: {
+        releasedCount: result.submittedReviews.length,
+        releasedReviewIds: result.submittedReviews.map((review) => review.id),
+        selective: Boolean(input.reviewIds),
+      },
     });
 
     for (const review of result.submittedReviews) {
@@ -693,7 +704,10 @@ export class ReviewsService {
           hasNewerCycle: false,
         }),
       ),
-      message: 'Reviews released to authors',
+      message:
+        result.submittedReviews.length === 1
+          ? '1 review released to authors'
+          : `${result.submittedReviews.length} reviews released to authors`,
     };
   }
 

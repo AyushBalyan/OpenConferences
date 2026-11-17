@@ -15,6 +15,7 @@ for (const name of [
   'ANALYTICS_TEST_DATABASE_URL',
   'IN_APP_UPDATES_TEST_DATABASE_URL',
   'REVIEW_LOCK_TEST_DATABASE_URL',
+  'REVIEW_RELEASE_TEST_DATABASE_URL',
   'REVIEWER_OVERVIEW_TEST_DATABASE_URL',
 ]) {
   if (process.env[name]) assertLocalDatabaseUrl(process.env[name]);

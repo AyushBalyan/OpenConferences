@@ -501,6 +501,16 @@ export const myAssignmentsQuerySchema = cursorPaginationQuerySchema;
 export const releaseReviewsSchema = z.object({
   version: z.number().int().nonnegative(),
   rebuttalDueAt: z.string().datetime().optional(),
+  /**
+   * Release only these submitted reviews. Omit to release every hidden submitted
+   * review in the cycle. Every listed review must be submitted and still hidden.
+   */
+  reviewIds: z
+    .array(z.string().uuid())
+    .min(1)
+    .max(100)
+    .refine((ids) => new Set(ids).size === ids.length, 'Review ids must be unique')
+    .optional(),
 });
 
 export type ReleaseReviewsInput = z.infer<typeof releaseReviewsSchema>;

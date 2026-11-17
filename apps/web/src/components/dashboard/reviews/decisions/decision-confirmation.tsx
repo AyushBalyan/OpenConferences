@@ -8,6 +8,7 @@ export function DecisionConfirmation({
   children,
   action,
   busy,
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: {
@@ -15,6 +16,8 @@ export function DecisionConfirmation({
   children: React.ReactNode;
   action: string;
   busy: boolean;
+  /** Blocks confirming (e.g. nothing selected) without blocking Cancel. */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -46,7 +49,7 @@ export function DecisionConfirmation({
         </Button>
         <Button
           className="bg-slate-900 shadow-none hover:bg-slate-800"
-          disabled={busy}
+          disabled={busy || confirmDisabled}
           onClick={onConfirm}
         >
           {busy ? 'Working…' : action}

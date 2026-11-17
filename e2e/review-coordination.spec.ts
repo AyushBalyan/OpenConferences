@@ -150,7 +150,7 @@ async function mockApi(
       ]
     : [grace];
   const assignments: Array<{ reviewerUserId: string; dueAt: string }> = [];
-  const releases: Array<{ cycleId: string; version: number }> = [];
+  const releases: Array<{ cycleId: string; version: number; reviewIds?: string[] }> = [];
   const actions: Array<{
     action: string;
     version: number;
@@ -205,6 +205,33 @@ async function mockApi(
           createdAt: date.toISOString(),
           updatedAt: date.toISOString(),
         },
+      };
+    } else if (/\/papers\/[^/]+\/reviews$/.test(endpoint)) {
+      const paperId = endpoint.split('/').at(-2)!;
+      const roundId = url.searchParams.get('roundId');
+      const now = date.toISOString();
+      body = {
+        data: [
+          {
+            id: '00000000-0000-4000-8000-000000009001',
+            organizationId: conference.organizationId,
+            conferenceId,
+            assignmentId: '00000000-0000-4000-8000-000000009101',
+            roundId,
+            paperId,
+            reviewerName: 'Ada Reviewer',
+            scores: {},
+            recommendation: 'ACCEPT',
+            confidence: 4,
+            commentsToAuthors: 'Clear.',
+            visibility: 'HIDDEN',
+            submittedAt: now,
+            version: 1,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        nextCursor: null,
       };
     } else if (endpoint.endsWith('/intervene')) {
       const input = route.request().postDataJSON();
@@ -309,12 +336,20 @@ for (const history of ['CURRENT', 'HISTORICAL']) {
     row.submittedReviewCount = 1;
     await page.goto(`${path}?history=${history}`);
     await page.getByRole('button', { name: 'Release reviews', exact: true }).click();
-    await page.getByRole('button', { name: 'Release to authors', exact: true }).click();
+    await expect(
+      page.getByRole('dialog').getByRole('checkbox', { name: 'Release R1 (Ada Reviewer)' }),
+    ).toBeChecked();
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Release reviews', exact: true })
+      .click();
     await expect(
       page.getByRole('listitem').filter({ hasText: 'Reviews released to authors' }),
     ).toBeVisible();
     await expect(page.getByRole('button', { name: 'Release reviews', exact: true })).toHaveCount(0);
-    expect(releases).toEqual([{ cycleId: row.cycleId, version: 0 }]);
+    expect(releases).toEqual([
+      { cycleId: row.cycleId, version: 0, reviewIds: ['00000000-0000-4000-8000-000000009001'] },
+    ]);
     await page.getByRole('button', { name: 'Reviewers (1)', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Replace reviewer', exact: true })).toHaveCount(
       0,

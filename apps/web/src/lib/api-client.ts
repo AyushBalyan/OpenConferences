@@ -1138,14 +1138,15 @@ export async function releaseReviews(
   conferenceId: string,
   paperId: string,
   cycleId: string,
-  body: { version: number; rebuttalDueAt?: string },
+  body: { version: number; rebuttalDueAt?: string; reviewIds?: string[] },
 ) {
   const result = await apiClient.review.releaseReviews({
     params: { conferenceId, paperId, cycleId },
     body,
   });
   if (result.status === 200) return result.body;
-  if (result.status === 409) throw new Error(result.body.detail ?? 'Conflict');
+  if (result.status === 400 || result.status === 409)
+    throw new Error(result.body.detail ?? 'Could not release reviews');
   throw new Error('Failed to release reviews');
 }
 
