@@ -573,6 +573,15 @@ test('headline tiles open their tab and counting rules sit behind the info butto
   );
   await expect(page).toHaveURL(/#finance$/);
   await expect(page.getByRole('heading', { name: 'Registration status' })).toBeVisible();
+  // Follow-up figures open the registrations list filtered to the same records.
+  await expect(page.getByRole('link', { name: 'Past the registration deadline' })).toHaveAttribute(
+    'href',
+    `/dashboard/conferences/${id}/registrations/all?status=overdue`,
+  );
+  await expect(page.getByRole('link', { name: 'Due within the next 7 days' })).toHaveAttribute(
+    'href',
+    /status=at-risk$/,
+  );
   await page.getByRole('button', { name: 'About Registration follow-up' }).click();
   await expect(page.getByRole('note').filter({ hasText: 'Unpaid work includes' })).toBeVisible();
   await page.keyboard.press('Escape');

@@ -2,6 +2,7 @@
 
 import { useParams } from 'next/navigation';
 import { RegistrationsWorkspaceProvider } from '@/components/dashboard/registrations/registrations-workspace';
+import { RegistrationsTabs } from '@/components/dashboard/registrations/registrations-tabs';
 import { SectionLayoutFrame } from '@/components/dashboard/section-layout-frame';
 import { SECTION_PAGE_META } from '@/lib/conference-nav';
 
@@ -11,7 +12,11 @@ export default function RegistrationsLayout({ children }: { children: React.Reac
 
   return (
     <RegistrationsWorkspaceProvider conferenceId={params.id}>
-      <SectionLayoutFrame title={meta.title} description={meta.description}>
+      <SectionLayoutFrame
+        title={meta.title}
+        description={meta.description}
+        toolbar={<RegistrationsTabs />}
+      >
         {children}
       </SectionLayoutFrame>
     </RegistrationsWorkspaceProvider>

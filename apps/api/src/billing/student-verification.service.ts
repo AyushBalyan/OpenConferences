@@ -196,7 +196,9 @@ export class StudentVerificationService {
           include: {
             fileAsset: true,
             registration: {
-              include: { paper: { select: { title: true, submittedAt: true } } },
+              include: {
+                paper: { select: { title: true, submittedAt: true, submissionNumber: true } },
+              },
             },
           },
           orderBy: { submittedAt: 'asc' },
@@ -209,6 +211,8 @@ export class StudentVerificationService {
     return {
       data: page.data.map((row) => ({
         ...mapStudentVerification(row),
+        paperId: row.registration.paperId,
+        submissionNumber: row.registration.paper.submissionNumber,
         paperTitle: row.registration.paper.title,
         paperSubmittedAt: row.registration.paper.submittedAt?.toISOString() ?? null,
         registrationAudience: row.registration.audience,
@@ -353,6 +357,11 @@ export class StudentVerificationService {
           });
 
           return registration;
+        }
+
+        // A rejection changes what the author pays, so they are always told why.
+        if (!input.note?.trim()) {
+          throw new BadRequestException('Rejection reason is required');
         }
 
         const feeSchedule = parseFeeSchedule(conference.feeSchedule);

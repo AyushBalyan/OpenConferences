@@ -1359,9 +1359,28 @@ export async function fetchInvoiceDownload(conferenceId: string, paperId: string
   throw new Error('Invoice is not available yet. Refresh registration shortly and try again.');
 }
 
+export type RegistrationListStatusFilter =
+  | 'PENDING'
+  | 'AWAITING_VERIFICATION'
+  | 'ADDITIONAL_PAYMENT_REQUIRED'
+  | 'PAID'
+  | 'CANCELLED'
+  | 'REFUNDED'
+  | 'DISCARDED_NONPAYMENT'
+  | 'at-risk'
+  | 'overdue'
+  | 'unpaid'
+  | 'paid';
+
 export async function fetchRegistrations(
   conferenceId: string,
-  query?: { cursor?: string; limit?: number },
+  query?: {
+    cursor?: string;
+    limit?: number;
+    status?: RegistrationListStatusFilter;
+    audience?: 'REGULAR' | 'STUDENT';
+    search?: string;
+  },
 ) {
   const result = await apiClient.billing.listRegistrations({
     params: { conferenceId },
@@ -1393,7 +1412,11 @@ export async function reviewStudentVerification(
     body,
   });
   if (result.status === 200) return result.body;
-  throw new Error('Failed to review verification');
+  throw new Error(
+    (result.body && typeof result.body === 'object' && 'detail' in result.body
+      ? String(result.body.detail ?? '')
+      : '') || 'Failed to review verification',
+  );
 }
 
 export async function refundRegistration(

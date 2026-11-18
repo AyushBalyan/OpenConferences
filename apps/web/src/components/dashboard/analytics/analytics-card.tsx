@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import Link from 'next/link';
 import { Download, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -216,14 +217,32 @@ export function StatTile({
   label,
   value,
   tone = 'neutral',
+  href,
 }: {
   label: string;
   value: string;
   tone?: keyof typeof STAT_TONE;
+  /** Where the records behind the figure can be seen. */
+  href?: string;
 }) {
   return (
-    <div className="flex flex-col-reverse justify-end rounded-xl bg-slate-50 p-4">
-      <dt className="mt-1 text-xs leading-snug text-slate-600">{label}</dt>
+    <div
+      className={cn(
+        'relative flex flex-col-reverse justify-end rounded-xl bg-slate-50 p-4',
+        href
+          ? 'transition-colors focus-within:ring-2 focus-within:ring-ring hover:bg-slate-100'
+          : '',
+      )}
+    >
+      <dt className="mt-1 text-xs leading-snug text-slate-600">
+        {href ? (
+          <Link href={href} className="after:absolute after:inset-0 focus-visible:outline-none">
+            {label}
+          </Link>
+        ) : (
+          label
+        )}
+      </dt>
       <dd className={cn('text-2xl font-semibold tabular-nums tracking-tight', STAT_TONE[tone])}>
         {value}
       </dd>

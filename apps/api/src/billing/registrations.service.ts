@@ -5,7 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import type { Registration, RoleKind } from '@openconferences/db';
+import type { Prisma, Registration, RoleKind } from '@openconferences/db';
 import { generateId, withTenantContext } from '@openconferences/db';
 import type {
   CreateRegistrationInput,
@@ -33,6 +33,20 @@ import {
   resolveTiming,
 } from './fee-resolver';
 import { lockRegistrationForUpdate } from './paid-state';
+
+type RegistrationListFilterOptions = {
+  status?: Registration['status'] | 'at-risk' | 'overdue' | 'unpaid' | 'paid';
+  audience?: Registration['audience'];
+  search?: string;
+};
+
+/** Registrations that still need money or a verified document. */
+const UNPAID_STATUSES: Registration['status'][] = [
+  'PENDING',
+  'AWAITING_VERIFICATION',
+  'ADDITIONAL_PAYMENT_REQUIRED',
+];
+const AT_RISK_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class RegistrationsService {
@@ -356,10 +370,7 @@ export class RegistrationsService {
     userId: string,
     conferenceId: string,
     roles: RoleKind[],
-    options: CursorPaginationOptions & {
-      status?: Registration['status'] | 'at-risk' | 'unpaid' | 'paid';
-      audience?: Registration['audience'];
-    } = {},
+    options: CursorPaginationOptions & RegistrationListFilterOptions = {},
   ) {
     if (!canCoordinateReview(roles)) {
       throw new ForbiddenException('Insufficient permissions to list registrations');
@@ -367,19 +378,37 @@ export class RegistrationsService {
 
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
     const limit = resolveLimit(options.limit);
+    const now = new Date();
 
-    const rows = await withTenantContext(
+    const { rows, summary } = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
-      async (tx) =>
-        tx.registration.findMany({
+      async (tx) => {
+        const rows = await tx.registration.findMany({
           where: {
             conferenceId,
-            ...this.buildRegistrationListFilters(options),
+            ...this.buildRegistrationListFilters(options, now),
           },
-          include: { paper: { select: { title: true, submittedAt: true } } },
+          include: {
+            paper: { select: { title: true, submittedAt: true, submissionNumber: true } },
+          },
           orderBy: { createdAt: 'desc' },
           ...prismaCursorArgs(options, limit),
-        }),
+        });
+        // Counts describe the whole conference, so they are only needed once per list.
+        if (options.cursor) return { rows, summary: undefined };
+        const count = (status?: RegistrationListFilterOptions['status']) =>
+          tx.registration.count({
+            where: { conferenceId, ...this.buildRegistrationListFilters({ status }, now) },
+          });
+        const [total, paid, unpaid, overdue, atRisk] = await Promise.all([
+          count(),
+          count('paid'),
+          count('unpaid'),
+          count('overdue'),
+          count('at-risk'),
+        ]);
+        return { rows, summary: { total, paid, unpaid, overdue, atRisk } };
+      },
     );
 
     const page = paginateItems(rows, limit, (row) => row.id);
@@ -389,8 +418,10 @@ export class RegistrationsService {
         ...mapRegistration(row),
         paperTitle: row.paper.title,
         paperSubmittedAt: row.paper.submittedAt?.toISOString() ?? null,
+        submissionNumber: row.paper.submissionNumber,
       })),
       nextCursor: page.nextCursor,
+      ...(summary ? { summary } : {}),
     };
   }
 
@@ -543,15 +574,15 @@ export class RegistrationsService {
     };
   }
 
-  private buildRegistrationListFilters(options: {
-    status?: Registration['status'] | 'at-risk' | 'unpaid' | 'paid';
-    audience?: Registration['audience'];
-  }) {
-    const filters: {
-      status?: Registration['status'] | { notIn: Registration['status'][] };
-      audience?: Registration['audience'];
-      deadlineAt?: { lte: Date };
-    } = {};
+  /**
+   * The grouped statuses use the same definitions as conference analytics, so a
+   * count on the analytics page opens a list of the same length.
+   */
+  private buildRegistrationListFilters(
+    options: RegistrationListFilterOptions,
+    now: Date,
+  ): Prisma.RegistrationWhereInput {
+    const filters: Prisma.RegistrationWhereInput = {};
 
     if (options.audience) {
       filters.audience = options.audience;
@@ -560,12 +591,30 @@ export class RegistrationsService {
     if (options.status === 'paid') {
       filters.status = 'PAID';
     } else if (options.status === 'unpaid') {
-      filters.status = { notIn: ['PAID', 'REFUNDED'] };
+      filters.status = { in: UNPAID_STATUSES };
+    } else if (options.status === 'overdue') {
+      filters.status = { in: UNPAID_STATUSES };
+      filters.deadlineAt = { lt: now };
     } else if (options.status === 'at-risk') {
-      filters.status = { notIn: ['PAID', 'CANCELLED', 'REFUNDED', 'DISCARDED_NONPAYMENT'] };
-      filters.deadlineAt = { lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) };
+      filters.status = { in: UNPAID_STATUSES };
+      filters.deadlineAt = { gte: now, lte: new Date(now.getTime() + AT_RISK_WINDOW_MS) };
     } else if (options.status) {
       filters.status = options.status;
+    }
+
+    const search = options.search?.trim();
+    if (search) {
+      // Prisma passes the term into ILIKE as-is, so its wildcards are escaped to match literally.
+      const contains = {
+        contains: search.replace(/[\\%_]/g, '\\$&'),
+        mode: 'insensitive' as const,
+      };
+      filters.OR = [
+        { paper: { title: contains } },
+        { paper: { submissionNumber: contains } },
+        { billingName: contains },
+        { billingEmail: contains },
+      ];
     }
 
     return filters;

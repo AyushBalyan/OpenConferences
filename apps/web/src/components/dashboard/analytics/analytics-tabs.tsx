@@ -382,14 +382,20 @@ export function FinanceTab({ overview, base, money }: TabProps) {
         footer={<ModuleLink href={`${base}/registrations`}>Open registrations</ModuleLink>}
       >
         <dl className="grid grid-cols-2 gap-3">
-          <StatTile label="Unpaid / awaiting verification" value={number(reg.unpaid)} />
+          <StatTile
+            label="Unpaid / awaiting verification"
+            href={`${base}/registrations/all?status=unpaid`}
+            value={number(reg.unpaid)}
+          />
           <StatTile
             label="Past the registration deadline"
+            href={`${base}/registrations/all?status=overdue`}
             value={number(reg.overdue ?? 0)}
             tone={reg.overdue ? 'critical' : 'neutral'}
           />
           <StatTile
             label="Due within the next 7 days"
+            href={`${base}/registrations/all?status=at-risk`}
             value={number(reg.atRisk)}
             tone={reg.atRisk ? 'warning' : 'neutral'}
           />

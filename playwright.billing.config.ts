@@ -3,7 +3,12 @@ import browserConfig from './playwright.bot.config';
 
 export default defineConfig({
   ...browserConfig,
-  testMatch: ['billing.spec.ts', 'camera-ready.spec.ts', 'student-verification.spec.ts'],
+  testMatch: [
+    'billing.spec.ts',
+    'camera-ready.spec.ts',
+    'student-verification.spec.ts',
+    'registrations.spec.ts',
+  ],
   webServer: {
     ...browserConfig.webServer,
     command: 'corepack pnpm --filter @openconferences/web exec next dev --port 3007',

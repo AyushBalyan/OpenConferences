@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import { SubmissionDate } from '@/components/dashboard/submission-date';
@@ -27,6 +27,7 @@ import {
   resendNotification,
 } from '@/lib/api-client';
 import type { NotificationLogDto } from '@openconferences/schemas';
+import { useIsDesktop } from '@/hooks/dashboard/use-is-desktop';
 import { cn } from '@/lib/utils';
 import { useDecisionsWorkspace } from './decisions-workspace';
 import { ReviewReleaseWarning } from './review-release';
@@ -34,25 +35,11 @@ import { DecisionConfirmation } from './decision-confirmation';
 import { RecordedDecisionDetails } from './recorded-decision-details';
 
 const SENDABLE = ['Not sent', 'Failed', 'Bounced'];
-const DESKTOP_QUERY = '(min-width: 768px)';
 
 function displayDate(value: string | null | undefined) {
   return value && !Number.isNaN(Date.parse(value))
     ? new Date(value).toLocaleString()
     : 'Date unavailable';
-}
-
-/** The table needs room for six columns; narrower screens get one card per decision. */
-function useIsDesktop() {
-  return useSyncExternalStore(
-    (onChange) => {
-      const query = window.matchMedia(DESKTOP_QUERY);
-      query.addEventListener('change', onChange);
-      return () => query.removeEventListener('change', onChange);
-    },
-    () => window.matchMedia(DESKTOP_QUERY).matches,
-    () => true,
-  );
 }
 
 export function DecisionsRecordedPanel() {

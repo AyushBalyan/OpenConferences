@@ -92,24 +92,41 @@ export const createRegistrationSchema = z.object({
     .optional(),
 });
 
+/** Conference-wide counts, independent of the list's filters and search. */
+export const registrationListSummarySchema = z.object({
+  total: z.number().int().nonnegative(),
+  paid: z.number().int().nonnegative(),
+  /** Pending payment, awaiting verification or additional payment required. */
+  unpaid: z.number().int().nonnegative(),
+  /** Unpaid and past the registration deadline. */
+  overdue: z.number().int().nonnegative(),
+  /** Unpaid and due within the next 7 days. */
+  atRisk: z.number().int().nonnegative(),
+});
+
 export const registrationListSchema = z.object({
   data: z.array(
     registrationSchema.extend({
       paperTitle: z.string().optional(),
       paperSubmittedAt: z.string().datetime().nullable().optional(),
+      submissionNumber: z.string().nullable().optional(),
     }),
   ),
   nextCursor: z.string().uuid().nullable(),
+  /** Returned with the first page only. */
+  summary: registrationListSummarySchema.optional(),
 });
 
 export const registrationListStatusFilterSchema = z.union([
   registrationStatusSchema,
-  z.enum(['at-risk', 'unpaid', 'paid']),
+  z.enum(['at-risk', 'overdue', 'unpaid', 'paid']),
 ]);
 
 export const registrationListQuerySchema = cursorPaginationQuerySchema.extend({
   status: registrationListStatusFilterSchema.optional(),
   audience: feeAudienceSchema.optional(),
+  /** Matches paper title, paper code, billing name or billing email. */
+  search: z.string().trim().max(200).optional(),
 });
 
 export const paymentSchema = z.object({
@@ -174,6 +191,8 @@ export const studentVerificationSchema = z.object({
 export const studentVerificationListSchema = z.object({
   data: z.array(
     studentVerificationSchema.extend({
+      paperId: z.string().uuid().optional(),
+      submissionNumber: z.string().nullable().optional(),
       paperTitle: z.string().optional(),
       paperSubmittedAt: z.string().datetime().nullable().optional(),
       registrationAudience: feeAudienceSchema.optional(),
@@ -271,6 +290,7 @@ export type InitiatePaymentResponse = z.infer<typeof initiatePaymentResponseSche
 export type VerifyPaymentInput = z.infer<typeof verifyPaymentSchema>;
 export type PaymentQuote = z.infer<typeof paymentQuoteSchema>;
 export type StudentVerificationDto = z.infer<typeof studentVerificationSchema>;
+export type RegistrationListDto = z.infer<typeof registrationListSchema>;
 export type StudentVerificationListDto = z.infer<typeof studentVerificationListSchema>;
 export type ReviewVerificationInput = z.infer<typeof reviewVerificationSchema>;
 export type RefundInput = z.infer<typeof refundSchema>;
