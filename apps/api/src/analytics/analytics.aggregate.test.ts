@@ -141,14 +141,15 @@ describe('analytics aggregates', () => {
     ].map((status, i) => ({
       paperId: `p${i}`,
       status,
-      deadlineAt: i === 2 ? new Date('2026-10-11') : new Date('2026-10-01'),
+      deadlineAt: i === 3 ? new Date('2026-10-11') : new Date('2026-10-01'),
     }));
-    expect(aggregateRegistrations(rows, new Set(['p0', 'p4', 'p6']), now)).toMatchObject({
+    expect(aggregateRegistrations(rows, new Set(['p0', 'p2', 'p4', 'p6']), now)).toMatchObject({
       total: 7,
       paid: 1,
-      unpaid: 3,
+      // Paid at the student rate and awaiting approval (p2) owes nothing.
+      unpaid: 2,
       atRisk: 1,
-      overdue: 2,
+      overdue: 1,
       unpaidAccepted: 2,
     });
   });

@@ -28,6 +28,7 @@ import { ScanQueueService } from './scan-queue.service';
 
 const ALLOWED_MIME = 'application/pdf';
 const STUDENT_DOC_MIMES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
+const INLINE_IMAGE_MIMES = new Set(['image/jpeg', 'image/png']);
 const MAX_UPLOAD_BYTES = 52_428_800;
 const MAX_STUDENT_DOC_BYTES = 10_485_760;
 const PRESIGN_TTL_SECONDS = 900;
@@ -348,7 +349,14 @@ export class FilesService {
         downloadFilename?.trim() ||
           (disposition === 'inline' ? 'manuscript.pdf' : asset.originalFilename),
       ),
-      ...(disposition === 'inline' ? { ResponseContentType: 'application/pdf' } : {}),
+      // Inline files are only ever served as a PDF or a plain image, never as markup.
+      ...(disposition === 'inline'
+        ? {
+            ResponseContentType: INLINE_IMAGE_MIMES.has(asset.mimeType)
+              ? asset.mimeType
+              : 'application/pdf',
+          }
+        : {}),
     });
 
     const downloadUrl = await getSignedUrl(getS3Client(), command, {

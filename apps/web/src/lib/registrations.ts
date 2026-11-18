@@ -14,7 +14,7 @@ export const REGISTRATION_STATUS: Record<
   { label: string; tone: WorkflowTone }
 > = {
   PENDING: { label: 'Pending payment', tone: 'pending' },
-  AWAITING_VERIFICATION: { label: 'Awaiting verification', tone: 'info' },
+  AWAITING_VERIFICATION: { label: 'Paid · student approval pending', tone: 'info' },
   ADDITIONAL_PAYMENT_REQUIRED: { label: 'Additional payment required', tone: 'pending' },
   PAID: { label: 'Paid', tone: 'success' },
   CANCELLED: { label: 'Cancelled', tone: 'neutral' },
@@ -22,15 +22,19 @@ export const REGISTRATION_STATUS: Record<
   DISCARDED_NONPAYMENT: { label: 'Discarded for non-payment', tone: 'danger' },
 };
 
-/** Statuses that still need money or a verified document. Matches conference analytics. */
-const UNPAID: ReadonlySet<string> = new Set([
-  'PENDING',
-  'AWAITING_VERIFICATION',
-  'ADDITIONAL_PAYMENT_REQUIRED',
-]);
+/** Statuses that still owe money. Matches conference analytics. */
+const UNPAID: ReadonlySet<string> = new Set(['PENDING', 'ADDITIONAL_PAYMENT_REQUIRED']);
 
 export function isUnpaidRegistration(status: string) {
   return UNPAID.has(status);
+}
+
+/**
+ * A student registration only reaches this status once its payment is captured,
+ * so the money is in and only the student document is outstanding.
+ */
+export function isPaidAwaitingStudentApproval(status: string) {
+  return status === 'AWAITING_VERIFICATION';
 }
 
 export function registrationStatusView(status: string): { label: string; tone: WorkflowTone } {
@@ -54,8 +58,8 @@ export type DeadlineState = {
 };
 
 /**
- * How a registration deadline should read. Only unpaid registrations have a
- * live deadline; for the rest the date is history and gets no urgency label.
+ * How a registration deadline should read. Only registrations that still owe
+ * money have a live deadline; for the rest the date gets no urgency label.
  */
 export function registrationDeadlineState(
   status: string,

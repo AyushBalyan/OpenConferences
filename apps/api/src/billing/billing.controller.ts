@@ -169,15 +169,19 @@ export class BillingController {
   @RequireReviewCoordination()
   @RequireMembership()
   downloadStudentVerification(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
-    return tsRestHandler(billingContract.downloadStudentVerification, async ({ params }) => ({
-      status: 200 as const,
-      body: await this.studentVerification.downloadDocument(
-        user.id,
-        params.conferenceId,
-        params.verificationId,
-        roles,
-      ),
-    }));
+    return tsRestHandler(
+      billingContract.downloadStudentVerification,
+      async ({ params, query }) => ({
+        status: 200 as const,
+        body: await this.studentVerification.downloadDocument(
+          user.id,
+          params.conferenceId,
+          params.verificationId,
+          roles,
+          query.disposition,
+        ),
+      }),
+    );
   }
 
   @TsRestHandler(billingContract.reviewStudentVerification)

@@ -2,7 +2,15 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Download, FileCheck2, FileWarning, Hourglass } from 'lucide-react';
+import {
+  ChevronDown,
+  Download,
+  ExternalLink,
+  FileCheck2,
+  FileText,
+  FileWarning,
+  Hourglass,
+} from 'lucide-react';
 import { SubmissionDate } from '@/components/dashboard/submission-date';
 import {
   DataTable,
@@ -25,8 +33,14 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/toast';
 import { useIsDesktop } from '@/hooks/dashboard/use-is-desktop';
-import { downloadStudentVerification, reviewStudentVerification } from '@/lib/api-client';
+import {
+  currentPaperPdfUrl,
+  downloadStudentVerification,
+  reviewStudentVerification,
+} from '@/lib/api-client';
+import { openInNewTab } from '@/lib/open-in-tab';
 import { isReviewableVerification, verificationStatusView } from '@/lib/registrations';
+import { cn } from '@/lib/utils';
 
 type Action = 'APPROVE' | 'CLARIFY' | 'REJECT';
 const DONE: Record<Action, string> = {
@@ -50,6 +64,15 @@ export default function RegistrationsVerificationsPage() {
   const [view, setView] = useState<'pending' | 'all'>('pending');
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+
+  function toggleExpanded(id: string) {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }
 
   const rows =
     view === 'pending'
@@ -111,6 +134,18 @@ export default function RegistrationsVerificationsPage() {
     }
   }
 
+  /** Show a file in a new tab, so the queue stays open beside it. */
+  async function open(row: VerificationRow, resolveUrl: () => Promise<string>) {
+    setBusyId(row.id);
+    try {
+      await openInNewTab(resolveUrl);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not open the file.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   function paper(row: VerificationRow) {
     return (
       <>
@@ -148,17 +183,76 @@ export default function RegistrationsVerificationsPage() {
       </p>
     );
   }
-  function downloadButton(row: VerificationRow) {
+  function fileButtons(row: VerificationRow) {
+    const busy = busyId === row.id;
+    const clean = row.scanStatus === 'CLEAN';
     return (
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={busyId === row.id || row.scanStatus !== 'CLEAN'}
-        onClick={() => void download(row)}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          className="bg-white"
+          disabled={busy || !row.paperId}
+          onClick={() => void open(row, () => currentPaperPdfUrl(conferenceId, row.paperId!))}
+        >
+          <FileText className="mr-1.5 size-4" aria-hidden />
+          Open paper PDF
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="bg-white"
+          disabled={busy || !clean}
+          onClick={() =>
+            void open(row, () => downloadStudentVerification(conferenceId, row.id, 'inline'))
+          }
+        >
+          <ExternalLink className="mr-1.5 size-4" aria-hidden />
+          Open student document
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="bg-white"
+          disabled={busy || !clean}
+          onClick={() => void download(row)}
+        >
+          <Download className="mr-1.5 size-4" aria-hidden />
+          Download document
+        </Button>
+      </div>
+    );
+  }
+  function detailsToggle(row: VerificationRow) {
+    const open = expanded.has(row.id);
+    return (
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={`verification-details-${row.id}`}
+        aria-label={`${isReviewableVerification(row.status) ? 'Review' : 'Details for'} ${title(row)}`}
+        onClick={() => toggleExpanded(row.id)}
+        className="inline-flex min-h-9 items-center gap-1 whitespace-nowrap rounded-md px-2 text-sm font-medium text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <Download className="mr-1.5 size-4" aria-hidden />
-        Download document
-      </Button>
+        {isReviewableVerification(row.status) ? 'Review' : 'Details'}
+        <ChevronDown
+          className={cn('size-4 transition-transform', open ? 'rotate-180' : '')}
+          aria-hidden
+        />
+      </button>
+    );
+  }
+  /** Everything behind a row: the files, then the decision or its outcome. */
+  function details(row: VerificationRow) {
+    return (
+      <div className="space-y-4">
+        {fileButtons(row)}
+        {isReviewableVerification(row.status)
+          ? review(row)
+          : (outcomeNote(row) ?? (
+              <p className="text-xs text-slate-500">No note was sent to the author.</p>
+            ))}
+      </div>
     );
   }
   /** The note and decision buttons for a row that still needs a decision. */
@@ -294,36 +388,34 @@ export default function RegistrationsVerificationsPage() {
                   <DataTableHead>Submission date</DataTableHead>
                   <DataTableHead>Status</DataTableHead>
                   <DataTableHead>Document</DataTableHead>
+                  <DataTableHead>
+                    <span className="sr-only">Details</span>
+                  </DataTableHead>
                 </tr>
               </DataTableHeader>
               <DataTableBody>
-                {rows.flatMap((row) => {
-                  const detail = isReviewableVerification(row.status)
-                    ? review(row)
-                    : outcomeNote(row);
-                  return [
-                    <DataTableRow key={row.id} className="align-top">
-                      <DataTableCell>{paper(row)}</DataTableCell>
-                      <DataTableCell>
-                        <SubmissionDate value={row.paperSubmittedAt} />
-                      </DataTableCell>
-                      <DataTableCell>{statusBadge(row)}</DataTableCell>
-                      <DataTableCell>
-                        <div className="space-y-2">
-                          {documentLine(row)}
-                          {downloadButton(row)}
-                        </div>
-                      </DataTableCell>
-                    </DataTableRow>,
-                    detail ? (
-                      <tr key={`${row.id}:detail`} data-verification={row.id}>
-                        <td colSpan={4} className="bg-slate-50/70 px-4 py-4">
-                          {detail}
-                        </td>
-                      </tr>
-                    ) : null,
-                  ];
-                })}
+                {rows.flatMap((row) => [
+                  <DataTableRow key={row.id} className="align-top">
+                    <DataTableCell>{paper(row)}</DataTableCell>
+                    <DataTableCell>
+                      <SubmissionDate value={row.paperSubmittedAt} />
+                    </DataTableCell>
+                    <DataTableCell>{statusBadge(row)}</DataTableCell>
+                    <DataTableCell>{documentLine(row)}</DataTableCell>
+                    <DataTableCell className="text-right">{detailsToggle(row)}</DataTableCell>
+                  </DataTableRow>,
+                  expanded.has(row.id) ? (
+                    <tr
+                      key={`${row.id}:detail`}
+                      id={`verification-details-${row.id}`}
+                      data-verification={row.id}
+                    >
+                      <td colSpan={5} className="border-t border-slate-100 bg-slate-50 px-6 py-5">
+                        {details(row)}
+                      </td>
+                    </tr>
+                  ) : null,
+                ])}
               </DataTableBody>
             </DataTable>
           ) : (
@@ -341,14 +433,18 @@ export default function RegistrationsVerificationsPage() {
                     <p className="mt-3 text-xs text-slate-500">
                       Submitted <SubmissionDate value={row.paperSubmittedAt} />
                     </p>
-                    <div className="mt-3 space-y-2">
-                      {documentLine(row)}
-                      {downloadButton(row)}
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
+                      <div className="min-w-0">{documentLine(row)}</div>
+                      {detailsToggle(row)}
                     </div>
-                    {isReviewableVerification(row.status) ? (
-                      <div className="mt-4 border-t border-slate-100 pt-4">{review(row)}</div>
-                    ) : row.note ? (
-                      <div className="mt-4 border-t border-slate-100 pt-3">{outcomeNote(row)}</div>
+                    {expanded.has(row.id) ? (
+                      <div
+                        id={`verification-details-${row.id}`}
+                        data-verification={row.id}
+                        className="mt-3 border-t border-slate-100 pt-4"
+                      >
+                        {details(row)}
+                      </div>
                     ) : null}
                   </li>
                 ))}

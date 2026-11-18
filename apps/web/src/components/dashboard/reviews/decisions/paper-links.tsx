@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { ExternalLink, FileText } from 'lucide-react';
-import { downloadPaperVersion, fetchPaper } from '@/lib/api-client';
-import { paperHasCleanDownload } from '@/lib/submission-types';
+import { currentPaperPdfUrl } from '@/lib/api-client';
+import { openInNewTab } from '@/lib/open-in-tab';
 import { useToast } from '@/components/ui/toast';
 
 const LINK_CLASS =
@@ -16,28 +16,10 @@ export function PaperLinks({ conferenceId, paperId }: { conferenceId: string; pa
   const [opening, setOpening] = useState(false);
 
   async function viewPdf() {
-    // Open the tab during the click so pop-up blockers allow it, then point it
-    // at the signed URL once that has been fetched.
-    const tab = window.open('', '_blank');
     setOpening(true);
     try {
-      const paper = await fetchPaper(conferenceId, paperId);
-      if (!paper.currentVersionId || !paperHasCleanDownload(paper)) {
-        throw new Error('No clean PDF is available for this paper yet.');
-      }
-      const { downloadUrl } = await downloadPaperVersion(
-        conferenceId,
-        paperId,
-        paper.currentVersionId,
-        'inline',
-      );
-      if (!tab) {
-        throw new Error('The PDF could not open in a new tab. Allow pop-ups for this site.');
-      }
-      tab.opener = null;
-      tab.location.href = downloadUrl;
+      await openInNewTab(() => currentPaperPdfUrl(conferenceId, paperId));
     } catch (error) {
-      tab?.close();
       toast.error(error instanceof Error ? error.message : 'Could not open the PDF.');
     } finally {
       setOpening(false);

@@ -27,6 +27,7 @@ import { fetchRegistrations, type RegistrationListStatusFilter } from '@/lib/api
 import {
   audienceLabel,
   formatRegistrationMoney,
+  isPaidAwaitingStudentApproval,
   isUnpaidRegistration,
   REGISTRATION_STATUS,
   registrationDeadlineState,
@@ -44,7 +45,14 @@ const VIEWS = [
   { status: 'overdue', label: 'Past deadline', count: 'overdue', tone: 'text-rose-700' },
   { status: 'at-risk', label: 'Due within 7 days', count: 'atRisk', tone: 'text-amber-700' },
   { status: 'paid', label: 'Paid', count: 'paid', tone: 'text-emerald-700' },
+  {
+    status: 'AWAITING_VERIFICATION',
+    label: 'Paid, student not approved',
+    count: 'awaitingVerification',
+    tone: 'text-sky-700',
+  },
 ] as const;
+const VIEW_STATUSES = new Set<string>(VIEWS.map((view) => view.status));
 const STATUS_VALUES = new Set<string>([
   ...VIEWS.map((view) => view.status),
   ...Object.keys(REGISTRATION_STATUS),
@@ -135,7 +143,7 @@ export default function RegistrationsAllPage() {
 
   const filtered = Boolean(status || audience || search);
   // Only the grouped views have a count; an exact status is chosen from the menu.
-  const exactStatus = status in REGISTRATION_STATUS ? status : '';
+  const exactStatus = status in REGISTRATION_STATUS && !VIEW_STATUSES.has(status) ? status : '';
 
   async function exportCsv() {
     setExporting(true);
@@ -209,6 +217,7 @@ export default function RegistrationsAllPage() {
     return <WorkflowBadge label={view.label} tone={view.tone} />;
   }
   function amount(row: RegistrationRow) {
+    const awaitingApproval = isPaidAwaitingStudentApproval(row.status);
     const unpaid = isUnpaidRegistration(row.status);
     if (unpaid && row.amountDueMinor === 0)
       return <span className="text-xs text-slate-500">Fee not set yet</span>;
@@ -218,7 +227,13 @@ export default function RegistrationsAllPage() {
           {formatRegistrationMoney(row.amountDueMinor, row.currency)}
         </span>
         <span className="mt-0.5 block text-xs text-slate-500">
-          {row.status === 'PAID' ? 'Paid' : unpaid ? 'Due' : 'Registration fee'}
+          {row.status === 'PAID'
+            ? 'Paid'
+            : awaitingApproval
+              ? 'Paid at student rate'
+              : unpaid
+                ? 'Due'
+                : 'Registration fee'}
         </span>
       </>
     );
@@ -255,7 +270,7 @@ export default function RegistrationsAllPage() {
       <div
         role="group"
         aria-label="Registration views"
-        className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
+        className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6"
       >
         {VIEWS.map((view) => {
           const pressed = status === view.status;

@@ -15,7 +15,7 @@ describe('registration status', () => {
     expect(registrationStatusView('PAID')).toEqual({ label: 'Paid', tone: 'success' });
     expect(registrationStatusView('PENDING').tone).toBe('pending');
     expect(registrationStatusView('AWAITING_VERIFICATION')).toEqual({
-      label: 'Awaiting verification',
+      label: 'Paid · student approval pending',
       tone: 'info',
     });
     expect(registrationStatusView('ADDITIONAL_PAYMENT_REQUIRED').tone).toBe('pending');
@@ -47,9 +47,14 @@ describe('registration deadline', () => {
       label: '30 days left',
       tone: 'ok',
     });
-    expect(registrationDeadlineState('AWAITING_VERIFICATION', '2026-11-18T20:00:00Z', now)).toEqual(
-      { label: 'Due today', tone: 'soon' },
-    );
+    expect(registrationDeadlineState('PENDING', '2026-11-18T20:00:00Z', now)).toEqual({
+      label: 'Due today',
+      tone: 'soon',
+    });
+    // Paid at the student rate: nothing is owed, so the deadline carries no urgency.
+    expect(
+      registrationDeadlineState('AWAITING_VERIFICATION', '2026-11-16T11:00:00Z', now),
+    ).toBeNull();
     expect(registrationDeadlineState('PENDING', '2026-11-19T13:00:00Z', now)?.label).toBe(
       '1 day left',
     );

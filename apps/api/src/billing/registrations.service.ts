@@ -40,12 +40,11 @@ type RegistrationListFilterOptions = {
   search?: string;
 };
 
-/** Registrations that still need money or a verified document. */
-const UNPAID_STATUSES: Registration['status'][] = [
-  'PENDING',
-  'AWAITING_VERIFICATION',
-  'ADDITIONAL_PAYMENT_REQUIRED',
-];
+/**
+ * Registrations that still owe money. AWAITING_VERIFICATION is left out: it is
+ * only reached once the student-rate payment has been captured.
+ */
+const UNPAID_STATUSES: Registration['status'][] = ['PENDING', 'ADDITIONAL_PAYMENT_REQUIRED'];
 const AT_RISK_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 @Injectable()
@@ -400,14 +399,15 @@ export class RegistrationsService {
           tx.registration.count({
             where: { conferenceId, ...this.buildRegistrationListFilters({ status }, now) },
           });
-        const [total, paid, unpaid, overdue, atRisk] = await Promise.all([
+        const [total, paid, awaitingVerification, unpaid, overdue, atRisk] = await Promise.all([
           count(),
           count('paid'),
+          count('AWAITING_VERIFICATION'),
           count('unpaid'),
           count('overdue'),
           count('at-risk'),
         ]);
-        return { rows, summary: { total, paid, unpaid, overdue, atRisk } };
+        return { rows, summary: { total, paid, awaitingVerification, unpaid, overdue, atRisk } };
       },
     );
 

@@ -290,17 +290,20 @@ describe.skipIf(!url)('registration list and student verification in real Postgr
       submissionNumber: `${tag}-1`,
       billingName: 'Asha Rao',
     });
-    expect(result.summary).toEqual({ total: 6, paid: 1, unpaid: 4, overdue: 1, atRisk: 2 });
+    expect(result.summary).toEqual({
+      total: 6,
+      paid: 1,
+      awaitingVerification: 1,
+      unpaid: 3,
+      overdue: 1,
+      atRisk: 2,
+    });
   });
 
   it('groups statuses with the same definitions as conference analytics', async () => {
     expect(keys(await list({ status: 'paid' }))).toEqual(['paid']);
-    expect(keys(await list({ status: 'unpaid' }))).toEqual([
-      'additional',
-      'dueSoon',
-      'overdue',
-      'student',
-    ]);
+    expect(keys(await list({ status: 'unpaid' }))).toEqual(['additional', 'dueSoon', 'overdue']);
+    expect(keys(await list({ status: 'AWAITING_VERIFICATION' }))).toEqual(['student']);
     expect(keys(await list({ status: 'overdue' }))).toEqual(['overdue']);
     expect(keys(await list({ status: 'at-risk' }))).toEqual(['additional', 'dueSoon']);
     expect(keys(await list({ status: 'CANCELLED' }))).toEqual(['cancelled']);
@@ -310,7 +313,14 @@ describe.skipIf(!url)('registration list and student verification in real Postgr
   it('keeps the summary conference-wide while the list is filtered', async () => {
     const result = await list({ status: 'paid', search: 'graph' });
     expect(keys(result)).toEqual(['paid']);
-    expect(result.summary).toEqual({ total: 6, paid: 1, unpaid: 4, overdue: 1, atRisk: 2 });
+    expect(result.summary).toEqual({
+      total: 6,
+      paid: 1,
+      awaitingVerification: 1,
+      unpaid: 3,
+      overdue: 1,
+      atRisk: 2,
+    });
   });
 
   it('searches title, paper code, billing name and billing email without case', async () => {

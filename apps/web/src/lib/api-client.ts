@@ -1,5 +1,6 @@
 import { initClient } from '@ts-rest/core';
 import { apiContract } from '@openconferences/contracts';
+import { paperHasCleanDownload } from '@/lib/submission-types';
 import { MFA_REQUIRED_DETAIL, MfaRequiredError } from '@/lib/mfa-errors';
 
 const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1';
@@ -650,6 +651,21 @@ export async function downloadPaperVersion(
   if (result.status === 403) throw new Error(result.body.detail ?? 'Download not available');
   if (result.status === 404) throw new Error('Paper version not found');
   throw new Error('Failed to download paper');
+}
+
+/** A short-lived link that shows a paper's current PDF in the browser. */
+export async function currentPaperPdfUrl(conferenceId: string, paperId: string) {
+  const paper = await fetchPaper(conferenceId, paperId);
+  if (!paper.currentVersionId || !paperHasCleanDownload(paper)) {
+    throw new Error('No clean PDF is available for this paper yet.');
+  }
+  const { downloadUrl } = await downloadPaperVersion(
+    conferenceId,
+    paperId,
+    paper.currentVersionId,
+    'inline',
+  );
+  return downloadUrl;
 }
 
 export async function uploadPaperPdf(
@@ -1695,9 +1711,14 @@ export async function sendReviewerDigest(
   );
 }
 
-export async function downloadStudentVerification(conferenceId: string, verificationId: string) {
+export async function downloadStudentVerification(
+  conferenceId: string,
+  verificationId: string,
+  disposition: 'attachment' | 'inline' = 'attachment',
+) {
   const result = await apiClient.billing.downloadStudentVerification({
     params: { conferenceId, verificationId },
+    query: { disposition },
   });
   if (result.status === 200) return result.body.downloadUrl;
   throw new Error(

@@ -10,7 +10,8 @@ import { minimumReviewsFromConfig } from '../review/review-stage';
 const TOP_NAMES = 12;
 export const EXCLUDED_PAPER_STATUSES = ['DRAFT', 'WITHDRAWN', 'WITHDRAWN_NONPAYMENT'] as const;
 const excluded = new Set<string>(EXCLUDED_PAPER_STATUSES);
-const unpaidStatuses = new Set(['PENDING', 'AWAITING_VERIFICATION', 'ADDITIONAL_PAYMENT_REQUIRED']);
+// AWAITING_VERIFICATION is not here: it is only reached once the student-rate payment is captured.
+const unpaidStatuses = new Set(['PENDING', 'ADDITIONAL_PAYMENT_REQUIRED']);
 export function topPaperCounts(rows: { key: string; paperId: string }[], limit = TOP_NAMES) {
   const grouped = new Map<string, { name: string; papers: Set<string> }>();
   for (const row of rows) {
@@ -209,9 +210,12 @@ export function aggregateRegistrations(
     overdue = 0,
     atRisk = 0;
   const paidPapers = new Set<string>();
+  const settledPapers = new Set<string>();
   for (const row of rows) {
     counts.set(row.status, (counts.get(row.status) ?? 0) + 1);
     if (row.status === 'PAID') paidPapers.add(row.paperId);
+    if (row.status === 'PAID' || row.status === 'AWAITING_VERIFICATION')
+      settledPapers.add(row.paperId);
     if (!unpaidStatuses.has(row.status)) continue;
     unpaid++;
     if (row.deadlineAt < now) overdue++;
@@ -224,7 +228,7 @@ export function aggregateRegistrations(
     overdue,
     atRisk,
     byStatus: [...counts].map(([status, count]) => ({ status, count })),
-    unpaidAccepted: [...accepted].filter((id) => !paidPapers.has(id)).length,
+    unpaidAccepted: [...accepted].filter((id) => !settledPapers.has(id)).length,
   };
 }
 

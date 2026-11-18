@@ -378,12 +378,12 @@ export function FinanceTab({ overview, base, money }: TabProps) {
         delay={1}
         title="Registration follow-up"
         subtitle="Unpaid and at-risk registrations"
-        info="Unpaid work includes pending payment, verification and additional-payment requests."
+        info="Unpaid work includes pending payment and additional-payment requests. Student registrations that are paid and awaiting approval are not counted."
         footer={<ModuleLink href={`${base}/registrations`}>Open registrations</ModuleLink>}
       >
         <dl className="grid grid-cols-2 gap-3">
           <StatTile
-            label="Unpaid / awaiting verification"
+            label="Unpaid"
             href={`${base}/registrations/all?status=unpaid`}
             value={number(reg.unpaid)}
           />

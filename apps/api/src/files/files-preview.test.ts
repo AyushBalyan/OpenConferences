@@ -50,6 +50,31 @@ describe('PDF preview response headers', () => {
       ResponseContentType: 'application/pdf',
     });
   });
+  it('previews a student document image with its own type', async () => {
+    lookup.mockResolvedValue({
+      bucket: 'papers',
+      objectKey: 'id.png',
+      originalFilename: 'student-id.png',
+      mimeType: 'image/png',
+      scanStatus: 'CLEAN',
+    });
+    await service.presignDownload('asset', 'user', 'org', 'inline', 'student-id.png');
+    expect(sign.mock.calls[0]?.[1].input).toMatchObject({
+      ResponseContentDisposition: 'inline; filename="student-id.png"',
+      ResponseContentType: 'image/png',
+    });
+  });
+  it('never previews other file types as themselves', async () => {
+    lookup.mockResolvedValue({
+      bucket: 'papers',
+      objectKey: 'page.html',
+      originalFilename: 'page.html',
+      mimeType: 'text/html',
+      scanStatus: 'CLEAN',
+    });
+    await service.presignDownload('asset', 'user', 'org', 'inline');
+    expect(sign.mock.calls[0]?.[1].input.ResponseContentType).toBe('application/pdf');
+  });
   it('does not sign a preview for an unscanned asset', async () => {
     lookup.mockResolvedValue({ scanStatus: 'PENDING_SCAN' });
     await expect(service.presignDownload('asset', 'user', 'org', 'inline')).rejects.toMatchObject({

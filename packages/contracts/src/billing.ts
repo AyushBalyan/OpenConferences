@@ -175,6 +175,7 @@ export const billingContract = c.router({
     method: 'GET',
     path: '/conferences/:conferenceId/student-verifications/:verificationId/download',
     pathParams: verificationParams,
+    query: z.object({ disposition: z.enum(['attachment', 'inline']).optional() }),
     responses: {
       200: z.object({ downloadUrl: z.string().url(), expiresInSeconds: z.number() }),
       401: problemEnvelopeSchema,

@@ -228,6 +228,7 @@ export class StudentVerificationService {
     conferenceId: string,
     verificationId: string,
     roles: RoleKind[],
+    disposition: 'attachment' | 'inline' = 'attachment',
   ) {
     if (!canCoordinateReview(roles))
       throw new ForbiddenException('Only organizers and chairs can download student documents');
@@ -245,6 +246,8 @@ export class StudentVerificationService {
       verification.fileAssetId,
       userId,
       conference.organizationId,
+      disposition,
+      verification.fileAsset.originalFilename,
     );
     await this.audit.log({
       actorUserId: userId,

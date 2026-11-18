@@ -96,7 +96,9 @@ export const createRegistrationSchema = z.object({
 export const registrationListSummarySchema = z.object({
   total: z.number().int().nonnegative(),
   paid: z.number().int().nonnegative(),
-  /** Pending payment, awaiting verification or additional payment required. */
+  /** Paid at the student rate, with the student document not yet approved. */
+  awaitingVerification: z.number().int().nonnegative(),
+  /** Pending payment or additional payment required: money is still owed. */
   unpaid: z.number().int().nonnegative(),
   /** Unpaid and past the registration deadline. */
   overdue: z.number().int().nonnegative(),

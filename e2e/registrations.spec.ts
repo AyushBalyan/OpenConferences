@@ -4,7 +4,7 @@ const conf = '00000000-0000-4000-8000-000000000001';
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const path = `/dashboard/conferences/${conf}/registrations/all`;
 const DAY = 86_400_000;
-const UNPAID = ['PENDING', 'AWAITING_VERIFICATION', 'ADDITIONAL_PAYMENT_REQUIRED'];
+const UNPAID = ['PENDING', 'ADDITIONAL_PAYMENT_REQUIRED'];
 
 function fixtures() {
   const now = Date.now();
@@ -94,6 +94,8 @@ async function mockApi(page: Page, rows = fixtures()) {
               summary: {
                 total: rows.length,
                 paid: rows.filter((row) => matches(row, 'paid')).length,
+                awaitingVerification: rows.filter((row) => matches(row, 'AWAITING_VERIFICATION'))
+                  .length,
                 unpaid: rows.filter((row) => matches(row, 'unpaid')).length,
                 overdue: rows.filter((row) => matches(row, 'overdue')).length,
                 atRisk: rows.filter((row) => matches(row, 'at-risk')).length,
@@ -123,10 +125,11 @@ test('rows show real statuses, money, deadlines and who to contact', async ({ pa
   await expect(tabs.getByRole('link', { name: /Student verifications/ })).toContainText('1');
 
   await expect(view(page, /^All/)).toContainText('7');
-  await expect(view(page, /^Unpaid/)).toContainText('4');
+  await expect(view(page, /^Unpaid/)).toContainText('3');
   await expect(view(page, /^Past deadline/)).toContainText('1');
   await expect(view(page, /^Due within 7 days/)).toContainText('2');
-  await expect(view(page, /^Paid/)).toContainText('1');
+  await expect(view(page, /^Paid\s*\d/)).toContainText('1');
+  await expect(view(page, /^Paid, student not approved/)).toContainText('1');
 
   const paid = row(page, 'Graph neural routing');
   await expect(paid.getByRole('link', { name: 'Graph neural routing' })).toHaveAttribute(
@@ -147,9 +150,11 @@ test('rows show real statuses, money, deadlines and who to contact', async ({ pa
   await expect(row(page, 'Soon-due storage engines')).toContainText('No billing contact yet');
 
   const student = row(page, 'Student verification pending');
-  await expect(student).toContainText('Awaiting verification');
+  // Money is in; only the student document is outstanding, so there is no countdown.
+  await expect(student).toContainText('Paid · student approval pending');
+  await expect(student).toContainText('Paid at student rate');
   await expect(student.getByRole('cell', { name: 'Student', exact: true })).toBeVisible();
-  await expect(student).toContainText('30 days left');
+  await expect(student).not.toContainText('days left');
   await expect(row(page, 'Additional payment needed')).toContainText('Additional payment required');
   await expect(row(page, 'Discarded entry')).toContainText('Discarded for non-payment');
   await expect(row(page, 'Cancelled graph study')).not.toContainText('Overdue');
@@ -169,6 +174,13 @@ test('views, status, audience and search filter through the API and stay in the 
   expect(api.requests.at(-1)!.get('status')).toBe('overdue');
   // Counts describe the whole conference, not the filtered list.
   await expect(view(page, /^All/)).toContainText('7');
+
+  await view(page, /^Paid, student not approved/).click();
+  await expect(page).toHaveURL(/\?status=AWAITING_VERIFICATION$/);
+  await expect(view(page, /^Paid, student not approved/)).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('row')).toHaveCount(2);
+  await expect(row(page, 'Student verification pending')).toBeVisible();
+  expect(api.requests.at(-1)!.get('status')).toBe('AWAITING_VERIFICATION');
 
   await page.getByLabel('Filter by exact status').selectOption('CANCELLED');
   await expect(page).toHaveURL(/\?status=CANCELLED$/);
@@ -244,13 +256,13 @@ test('export downloads every row of the current view, across pages', async ({ pa
   expect(lines[0]).toBe(
     'Paper code,Paper,Billing name,Billing email,Audience,Status,Amount,Currency,Deadline,Submitted',
   );
-  expect(lines).toHaveLength(1 + 4 + 120);
+  expect(lines).toHaveLength(1 + 3 + 120);
   expect(lines.some((line) => line.startsWith('BULK-7,"Bulk paper, ""quoted"" 7",Bola Ade,'))).toBe(
     true,
   );
   expect(lines.some((line) => line.includes('Graph neural routing'))).toBe(false);
   await expect(
-    page.getByRole('status').filter({ hasText: 'Exported 124 registrations.' }),
+    page.getByRole('status').filter({ hasText: 'Exported 123 registrations.' }),
   ).toBeVisible();
 });
 
