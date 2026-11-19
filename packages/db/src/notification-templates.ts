@@ -540,6 +540,7 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
     ],
     extraParagraphs: [
       'Congratulations on this achievement!',
+      '{{rationaleBlock}}',
       'For all accepted manuscripts, at least one author must register for the conference to present the paper and ensure its further consideration for inclusion in the conference proceedings.',
       'Please ensure that your camera-ready manuscript follows the conference manuscript format and incorporates the reviewers’ suggestions, if any.',
       'For registration and further details, kindly log in to your account using the link provided below:',
@@ -557,6 +558,7 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
       'conferenceName',
       'submissionNumber',
       'paperTitle',
+      'rationaleBlock',
       'registrationUrl',
     ],
   }),

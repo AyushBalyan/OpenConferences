@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { renderEmailTemplate } from './email-render.js';
 import { PLATFORM_NOTIFICATION_TEMPLATES } from './notification-templates.js';
 
 const PRODUCT_NAMES = /OpenConferences|FresiCMT|\bFresi\b/i;
@@ -116,6 +117,30 @@ describe('platform notification templates', () => {
     }
     for (const key of ['decision.accepted', 'decision.notified']) {
       expect(body(key), key).toContain('Dear {{authorName}},');
+    }
+  });
+
+  it('carries the committee note in the acceptance letter only when there is one', () => {
+    const template = PLATFORM_NOTIFICATION_TEMPLATES.find(
+      (row) => row.key === 'decision.accepted',
+    )!;
+    const context = {
+      authorName: 'Mira Sharma',
+      conferenceName: 'Example Conference 2026',
+      submissionNumber: 'EXC2026-K7Q4',
+      paperTitle: 'Graph neural routing',
+      registrationUrl: 'https://app.example.org/r',
+      contactEmail: 'help@example.org',
+    };
+    const note = 'Committee note: Please shorten section 3.';
+    for (const mode of ['html', 'text'] as const) {
+      const source = mode === 'html' ? template.bodyHtml : template.bodyText;
+      expect(renderEmailTemplate(source, { ...context, rationaleBlock: note }, mode)).toContain(
+        note,
+      );
+      const without = renderEmailTemplate(source, { ...context, rationaleBlock: '' }, mode);
+      expect(without).not.toContain('Committee note');
+      expect(without).not.toMatch(mode === 'html' ? /<p\b[^>]*>\s*<\/p>/ : /\n{3,}/);
     }
   });
 
