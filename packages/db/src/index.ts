@@ -116,12 +116,20 @@ export { conferenceCodePrefix, generateSubmissionNumber } from './submission-num
 export { rollupOutreachCampaignCounts } from './outreach-rollup.js';
 export { syncPlatformNotificationTemplates } from './sync-notification-templates.js';
 export { PLATFORM_NOTIFICATION_TEMPLATES } from './notification-templates.js';
+export {
+  emailValue,
+  escapeEmailHtml,
+  formatEmailDate,
+  nameWithoutTitle,
+  renderEmailTemplate,
+} from './email-render.js';
+export type { EmailRenderMode } from './email-render.js';
 export type { PlatformNotificationTemplate } from './notification-templates.js';
 export { syncPlatformOutreachTemplates } from './sync-outreach-templates.js';
 export { PLATFORM_OUTREACH_TEMPLATES } from './outreach-templates.js';
 export type { PlatformOutreachTemplate } from './outreach-templates.js';
 export { applyScanResult, applyScanResultInTransaction } from './scan.js';
-export { MAIL_DISCLAIMER, withMailDisclaimer } from './mail-disclaimer.js';
+export { mailDisclaimer, withMailDisclaimer } from './mail-disclaimer.js';
 export type { ApplyScanResultInput } from './scan.js';
 export type {
   RoleKind,

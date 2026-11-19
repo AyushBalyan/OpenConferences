@@ -22,10 +22,17 @@ export type LayoutOptions = {
   extraParagraphs?: string[];
   afterCtaParagraphs?: string[];
   steps?: string[];
+  /** Heading above the numbered steps. */
+  stepsTitle?: string;
   otp?: { code: string; expiresLabel: string };
   secondaryNote?: string;
   brand?: string | null;
   showBrandHeader?: boolean;
+  /**
+   * Closing lines. Conference mail signs off as the organising committee unless
+   * a template writes its own closing or sets this to false.
+   */
+  signOff?: string | false;
 };
 
 type LetterInput = LayoutOptions & {
@@ -44,8 +51,15 @@ const SURFACE = '#fafafa';
 const PAGE = '#f4f4f5';
 const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 const MONO = 'ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace';
+/** The address is filled in when the email is sent, so it is not tied to one conference. */
 const MAIL_DISCLAIMER =
-  'This is a system generated mail. For any queries contact: icamcds2026@fresi.org';
+  'This is a system generated mail. For any queries contact: {{contactEmail}}';
+const CONFERENCE_SIGN_OFF = 'Regards,<br>Organising Committee<br>{{conferenceName}}';
+
+function signOffFor(options: LayoutOptions, brand: string | null): string {
+  if (options.signOff === false) return '';
+  return options.signOff ?? (brand ? CONFERENCE_SIGN_OFF : '');
+}
 
 function p(inner: string): string {
   return `<p style="margin:0 0 16px;font-size:15px;line-height:1.65;color:${BODY};">${inner}</p>`;
@@ -86,7 +100,7 @@ export function buildEmailHtml(options: LayoutOptions): string {
   const stepsHtml = options.steps?.length
     ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 20px;background:${SURFACE};border:1px solid ${LINE};border-radius:8px;">
 <tr><td style="padding:18px 20px;">
-<p style="margin:0 0 12px;font-size:11px;line-height:1.4;letter-spacing:0.08em;text-transform:uppercase;color:${MUTED};">How to accept</p>
+<p style="margin:0 0 12px;font-size:11px;line-height:1.4;letter-spacing:0.08em;text-transform:uppercase;color:${MUTED};">${options.stepsTitle ?? 'Steps'}</p>
 ${options.steps
   .map(
     (step, index) =>
@@ -123,9 +137,10 @@ ${options.steps
 </table>`
     : '';
 
-  const footer = brand
-    ? `This message was sent by ${brand}.`
-    : 'This is an automated message. Please do not reply.';
+  const signOff = signOffFor(options, brand);
+  const signOffHtml = signOff ? p(signOff).replace('margin:0 0 16px', 'margin:0') : '';
+
+  const footer = brand ? `This message was sent by ${brand}.` : 'This is an automated message.';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -148,6 +163,7 @@ ${stepsHtml}
 ${otpHtml}
 ${ctaHtml}
 ${afterCtaHtml}
+${signOffHtml}
 ${noteHtml}
 </td></tr>
 </table>
@@ -187,7 +203,7 @@ function plainText(parts: LayoutOptions): string {
     lines.push(toPlainText(extra), '');
   }
   if (parts.steps?.length) {
-    lines.push('How to accept');
+    lines.push(parts.stepsTitle ?? 'Steps');
     parts.steps.forEach((step, index) => {
       lines.push(`${index + 1}. ${step}`);
     });
@@ -202,13 +218,17 @@ function plainText(parts: LayoutOptions): string {
   for (const paragraph of parts.afterCtaParagraphs ?? []) {
     lines.push(toPlainText(paragraph), '');
   }
+  const signOff = signOffFor(parts, brand);
+  if (signOff) {
+    lines.push(toPlainText(signOff), '');
+  }
   if (parts.secondaryNote) {
     lines.push(parts.secondaryNote, '');
   }
   if (brand) {
     lines.push(`This message was sent by ${brand}.`);
   } else {
-    lines.push('This is an automated message. Please do not reply.');
+    lines.push('This is an automated message.');
   }
   lines.push('', MAIL_DISCLAIMER);
   return lines.join('\n').trim();
@@ -223,17 +243,20 @@ function letter(input: LetterInput): PlatformNotificationTemplate {
     extraParagraphs: input.extraParagraphs,
     afterCtaParagraphs: input.afterCtaParagraphs,
     steps: input.steps,
+    stepsTitle: input.stepsTitle,
     otp: input.otp,
     secondaryNote: input.secondaryNote,
     brand: input.brand,
     showBrandHeader: input.showBrandHeader,
+    signOff: input.signOff,
   };
   return {
     key: input.key,
     subject: input.subject,
     bodyHtml: buildEmailHtml(layout),
     bodyText: plainText(layout),
-    variables: input.variables,
+    // Every layout ends with the contact line.
+    variables: [...input.variables, 'contactEmail'],
   };
 }
 
@@ -250,7 +273,7 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
     ],
     cta: { label: 'Open your reviews', url: '{{reviewUrl}}' },
     secondaryNote:
-      'Deadlines below are shown in UTC. Please contact the organisers if you need an extension.',
+      'Deadlines are shown in UTC. Please contact the organisers if you need an extension.',
     variables: ['conferenceName', 'reviewerName', 'reviewItems', 'reviewUrl'],
   }),
   letter({
@@ -316,10 +339,12 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
       { label: 'Affiliation', value: '{{authorAffiliation}}' },
       { label: 'Authors', value: '{{authorList}}' },
     ],
+    cta: { label: 'View your submission', url: '{{paperUrl}}' },
     secondaryNote:
       'You will receive further updates by email as this submission moves through review.',
     variables: [
       'paperTitle',
+      'paperUrl',
       'conferenceName',
       'authorName',
       'authorEmail',
@@ -347,6 +372,7 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
         { label: 'Corresponding author', value: '{{authorName}}' },
       ],
       cta: { label: 'View revised submission', url: '{{paperUrl}}' },
+      signOff: audience === 'ops_alert' ? false : undefined,
       variables: ['conferenceName', 'submissionNumber', 'paperTitle', 'authorName', 'paperUrl'],
     }),
   ),
@@ -356,12 +382,14 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
     headline: 'New paper submission',
     paragraphs: ['A new paper has been submitted.'],
     details: [
+      { label: 'Paper ID', value: '{{submissionNumber}}' },
       { label: 'Paper title', value: '{{paperTitle}}' },
-      { label: 'Corresponding author', value: '{{authorEmail}}' },
+      { label: 'Corresponding author email', value: '{{authorEmail}}' },
     ],
     cta: { label: 'View submission', url: '{{paperUrl}}' },
+    signOff: false,
     secondaryNote: 'This is an operations alert for every new submission.',
-    variables: ['paperTitle', 'conferenceName', 'authorEmail', 'paperUrl'],
+    variables: ['paperTitle', 'conferenceName', 'authorEmail', 'paperUrl', 'submissionNumber'],
   }),
   letter({
     key: 'paper.withdrawn',
@@ -369,14 +397,15 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
     headline: 'Submission withdrawn',
     paragraphs: [
       'The paper below has been withdrawn from {{conferenceName}}.',
-      'This cannot be undone from the submission. Contact the organizers if this was a mistake.',
+      'This cannot be undone from the submission. Contact the organisers if this was a mistake.',
     ],
     details: [
+      { label: 'Paper ID', value: '{{submissionNumber}}' },
       { label: 'Paper', value: '{{paperTitle}}' },
-      { label: 'Submission code', value: '{{submissionNumber}}' },
       { label: 'Reason', value: '{{reason}}' },
     ],
-    variables: ['paperTitle', 'conferenceName', 'submissionNumber', 'reason'],
+    cta: { label: 'View the submission', url: '{{paperUrl}}' },
+    variables: ['paperTitle', 'conferenceName', 'submissionNumber', 'reason', 'paperUrl'],
   }),
   letter({
     key: 'paper.withdrawn.organizer',
@@ -384,13 +413,16 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
     headline: 'A paper was withdrawn',
     paragraphs: ['{{actorName}} withdrew a paper from {{conferenceName}}.'],
     details: [
+      { label: 'Paper ID', value: '{{submissionNumber}}' },
       { label: 'Paper', value: '{{paperTitle}}' },
-      { label: 'Submission code', value: '{{submissionNumber}}' },
       { label: 'Reason', value: '{{reason}}' },
       { label: 'Paid registration needs a refund', value: '{{refundNeeded}}' },
     ],
+    cta: { label: 'View the submission', url: '{{paperUrl}}' },
+    signOff: false,
     variables: [
       'paperTitle',
+      'paperUrl',
       'conferenceName',
       'submissionNumber',
       'reason',
@@ -419,8 +451,9 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
     headline: 'Reviewer invitation',
     paragraphs: [
       'Dear Professor,',
-      'You have been invited to serve as a reviewer for {{conferenceName}}. The program organizers would value your expertise in evaluating submissions for this conference.',
+      'You have been invited to serve as a reviewer for {{conferenceName}}. The programme organisers would value your expertise in evaluating submissions for this conference.',
     ],
+    stepsTitle: 'How to accept',
     steps: [
       'Open the invitation link below.',
       'Sign in with the same email address that received this message. If you are new, you will be asked to choose a name and password.',
@@ -435,24 +468,38 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
   letter({
     key: 'assignment.notified',
     subject: 'Review request: {{paperTitle}}',
-    headline: 'Dear Prof. {{reviewerName}}',
+    headline: 'Review request',
     paragraphs: [
+      'Dear Dr. {{reviewerName}},',
       'Thank you for serving as a member of the Technical Programme Committee of the conference {{conferenceName}}.',
-      'We would be grateful if you could review the assigned conference paper "<strong>{{paperTitle}}</strong>".',
-      'Please complete the review and submit your comments/recommendations by <strong>{{dueAt}}</strong> (UTC).',
-      'Your valuable feedback will help us ensure the quality of the conference programme and assist the authors in improving their work.',
-      'Thank you for your time and valuable contribution to the conference.',
-      'You can access the review portal by going on the given link: <a href="{{reviewUrl}}">View Review Portal</a>',
-      'This manuscript is confidential and is shared with you only for review. Please do not copy, forward, or discuss it with anyone outside the review, and do not use its unpublished ideas in your own work. Kindly review the file as received, without altering it.',
+      'We would be grateful if you could review the paper below and submit your comments and recommendation by <strong>{{dueAt}}</strong>.',
     ],
-    extraParagraphs: ['With regards,', 'Organizing Committee', '({{conferenceName}})'],
-    variables: ['reviewerName', 'paperTitle', 'conferenceName', 'dueAt', 'reviewUrl'],
+    details: [
+      { label: 'Paper', value: '{{paperTitle}}' },
+      { label: 'Review cycle', value: '{{roundNumber}}' },
+      { label: 'Review due', value: '{{dueAt}}' },
+    ],
+    extraParagraphs: [
+      'Your valuable feedback will help us ensure the quality of the conference programme and assist the authors in improving their work.',
+      'This manuscript is confidential and is shared with you only for review. Please do not copy, forward, or discuss it with anyone outside the review, and do not use its unpublished ideas in your own work. Kindly review the file as received, without altering it.',
+      'Thank you for your time and valuable contribution to the conference.',
+    ],
+    cta: { label: 'Open your review', url: '{{reviewUrl}}' },
+    variables: [
+      'reviewerName',
+      'paperTitle',
+      'conferenceName',
+      'roundNumber',
+      'dueAt',
+      'reviewUrl',
+    ],
   }),
   letter({
     key: 'review.reminder',
     subject: 'Review reminder: {{paperTitle}}',
     headline: 'Review reminder',
     paragraphs: [
+      'Dear Dr. {{reviewerName}},',
       'This is a reminder to complete your review for {{conferenceName}}.',
       'Your current deadline is shown below. If it has passed, please submit your review or contact the chair.',
     ],
@@ -462,20 +509,20 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
     ],
     cta: { label: 'Open review assignments', url: '{{reviewUrl}}' },
     secondaryNote: 'Late reviews may delay editorial decisions for authors.',
-    variables: ['paperTitle', 'dueAt', 'conferenceName', 'reviewUrl'],
+    variables: ['reviewerName', 'paperTitle', 'dueAt', 'conferenceName', 'reviewUrl'],
   }),
   letter({
     key: 'review.thank_you',
-    subject: 'Thank you for your review — {{conferenceName}}',
+    subject: 'Thank you for your review: {{paperTitle}}',
     headline: 'Thank you for your review',
     paragraphs: [
-      'Dear {{reviewerName}},',
+      'Dear Dr. {{reviewerName}},',
       'Thank you for submitting your review of "{{paperTitle}}" for {{conferenceName}}.',
-      'Your comments have been received. The program committee will use them when it reaches a decision.',
+      'Your comments have been received. The programme committee will use them when it reaches a decision.',
     ],
     details: [
+      { label: 'Paper ID', value: '{{submissionNumber}}' },
       { label: 'Paper', value: '{{paperTitle}}' },
-      { label: 'Submission', value: '{{submissionNumber}}' },
     ],
     variables: ['reviewerName', 'paperTitle', 'conferenceName', 'submissionNumber'],
   }),
@@ -484,11 +531,11 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
     subject: 'Paper accepted — {{submissionNumber}} | {{conferenceName}}',
     headline: 'Manuscript accepted for presentation',
     paragraphs: [
-      'Dear Dr {{authorName}},',
-      'We are pleased to inform you that your manuscript has been <strong>accepted for presentation</strong> at <em>{{conferenceName}}</em>, subject to the incorporation of reviewers’ comments.',
+      'Dear {{authorName}},',
+      'We are pleased to inform you that your manuscript has been <strong>accepted for presentation</strong> at <em>{{conferenceName}}</em>, subject to the incorporation of reviewers’ comments, if any.',
     ],
     details: [
-      { label: 'PaperID', value: '{{submissionNumber}}' },
+      { label: 'Paper ID', value: '{{submissionNumber}}' },
       { label: 'Paper Title', value: '{{paperTitle}}' },
     ],
     extraParagraphs: [
@@ -496,16 +543,15 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
       'For all accepted manuscripts, at least one author must register for the conference to present the paper and ensure its further consideration for inclusion in the conference proceedings.',
       'Please ensure that your camera-ready manuscript follows the conference manuscript format and incorporates the reviewers’ suggestions, if any.',
       'For registration and further details, kindly log in to your account using the link provided below:',
-      '<strong>Login Link:</strong>',
     ],
     cta: { label: 'Login to registration', url: '{{registrationUrl}}' },
     afterCtaParagraphs: [
-      'If the above link does not open directly, please copy and paste it into your web browser. Alternatively, you may access your account through the <strong>Registration</strong> tab on the conference website.',
+      'You may also access your account through the <strong>Registration</strong> tab on the conference website.',
       'If you encounter any difficulty accessing your account or retrieving your details, please feel free to reply to this email. We will be happy to assist you.',
       'Further details regarding the presentation schedule and other relevant instructions will be communicated to you in due course.',
       'We look forward to your active participation in {{conferenceName}}.',
-      'Best regards,<br>Organizing Committee<br>{{conferenceName}}',
     ],
+    signOff: 'Best regards,<br>Organising Committee<br>{{conferenceName}}',
     variables: [
       'authorName',
       'conferenceName',
@@ -516,15 +562,29 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
   }),
   letter({
     key: 'decision.notified',
-    subject: 'Editorial decision — {{outcomeLabel}}: {{paperTitle}}',
-    headline: 'Editorial decision: {{outcomeLabel}}',
-    paragraphs: ['The program committee has reached an editorial decision on your submission.'],
+    subject: 'Decision on your submission: {{paperTitle}}',
+    headline: 'Decision on your submission',
+    paragraphs: [
+      'Dear {{authorName}},',
+      'The programme committee has reached a decision on your submission to {{conferenceName}}.',
+    ],
     details: [
+      { label: 'Paper ID', value: '{{submissionNumber}}' },
       { label: 'Paper', value: '{{paperTitle}}' },
       { label: 'Decision', value: '{{outcomeLabel}}' },
     ],
     extraParagraphs: ['{{rationaleBlock}}', '{{acceptBlock}}'],
-    variables: ['paperTitle', 'outcomeLabel', 'rationaleBlock', 'acceptBlock', 'conferenceName'],
+    cta: { label: 'View your submission', url: '{{paperUrl}}' },
+    variables: [
+      'authorName',
+      'submissionNumber',
+      'paperTitle',
+      'outcomeLabel',
+      'rationaleBlock',
+      'acceptBlock',
+      'paperUrl',
+      'conferenceName',
+    ],
   }),
   letter({
     key: 'review.released',
@@ -535,7 +595,8 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
       'You may read the released reviews and, if allowed, submit a rebuttal before the deadline.',
     ],
     details: [{ label: 'Paper', value: '{{paperTitle}}' }],
-    variables: ['paperTitle', 'conferenceName'],
+    cta: { label: 'Read the reviews', url: '{{paperUrl}}' },
+    variables: ['paperTitle', 'conferenceName', 'paperUrl'],
   }),
   letter({
     key: 'cameraready.reminder',
@@ -549,40 +610,25 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
       { label: 'Paper', value: '{{paperTitle}}' },
       { label: 'Deadline', value: '{{deadlineAt}}' },
     ],
+    cta: { label: 'Upload camera-ready PDF', url: '{{paperUrl}}' },
     secondaryNote: 'Missing the camera-ready deadline may affect publication of your paper.',
-    variables: ['paperTitle', 'deadlineAt', 'conferenceName'],
-  }),
-  letter({
-    key: 'registration.window_open',
-    subject: 'Registration now open — {{paperTitle}}',
-    headline: 'Registration is now open',
-    paragraphs: [
-      'Congratulations — your paper has been accepted to {{conferenceName}}.',
-      'Registration is now open. Please complete registration and payment before the deadline to confirm your participation.',
-    ],
-    details: [
-      { label: 'Paper', value: '{{paperTitle}}' },
-      { label: 'Registration deadline', value: '{{deadlineAt}}' },
-    ],
-    cta: { label: 'Complete registration', url: '{{registrationUrl}}' },
-    secondaryNote:
-      'Papers that remain unpaid after the registration deadline may be withdrawn from the program.',
-    variables: ['paperTitle', 'deadlineAt', 'conferenceName', 'registrationUrl'],
+    variables: ['paperTitle', 'deadlineAt', 'conferenceName', 'paperUrl'],
   }),
   letter({
     key: 'registration.early_bird_ending',
-    subject: 'Early-bird registration ends soon',
+    subject: 'Early-bird registration ends soon: {{paperTitle}}',
     headline: 'Early-bird registration ending soon',
     paragraphs: [
-      'Early-bird registration pricing for your accepted paper will end soon.',
+      'Early-bird registration pricing for your accepted paper at {{conferenceName}} will end soon.',
       'Complete your registration before the early-bird deadline to lock in the reduced rate.',
     ],
     details: [
       { label: 'Paper', value: '{{paperTitle}}' },
       { label: 'Early-bird ends', value: '{{earlyBirdEndsAt}}' },
     ],
+    cta: { label: 'Complete registration', url: '{{registrationUrl}}' },
     secondaryNote: 'After this date, standard registration fees will apply.',
-    variables: ['paperTitle', 'earlyBirdEndsAt', 'conferenceName'],
+    variables: ['paperTitle', 'earlyBirdEndsAt', 'conferenceName', 'registrationUrl'],
   }),
   letter({
     key: 'registration.confirmed',
@@ -609,18 +655,34 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
   }),
   letter({
     key: 'registration.verification_approved',
-    subject: 'Student verification approved',
+    subject: 'Student verification approved: {{paperTitle}}',
     headline: 'Student verification approved',
     paragraphs: [
       'Your student status documentation has been reviewed and approved.',
       'Your registration now reflects the approved student rate. No further action is required.',
     ],
     details: [{ label: 'Paper', value: '{{paperTitle}}' }],
-    variables: ['paperTitle', 'conferenceName'],
+    cta: { label: 'View registration', url: '{{registrationUrl}}' },
+    variables: ['paperTitle', 'conferenceName', 'registrationUrl'],
+  }),
+  letter({
+    key: 'registration.student_rate_rejected',
+    subject: 'Student rate not approved: {{paperTitle}}',
+    headline: 'Student rate not approved',
+    paragraphs: [
+      'Your student document for the paper below was reviewed, and the student rate was not approved.',
+      '{{nextStep}}',
+    ],
+    details: [
+      { label: 'Paper', value: '{{paperTitle}}' },
+      { label: 'Reason', value: '{{reason}}' },
+    ],
+    cta: { label: 'Open registration', url: '{{registrationUrl}}' },
+    variables: ['paperTitle', 'reason', 'nextStep', 'conferenceName', 'registrationUrl'],
   }),
   letter({
     key: 'registration.clarification_requested',
-    subject: 'Action needed: student verification',
+    subject: 'Action needed: student verification for {{paperTitle}}',
     headline: 'Student verification — clarification needed',
     paragraphs: [
       'We need additional documents to complete your student verification.',
@@ -630,26 +692,37 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
       { label: 'Paper', value: '{{paperTitle}}' },
       { label: 'Committee note', value: '{{note}}' },
     ],
+    cta: { label: 'Upload documents', url: '{{registrationUrl}}' },
     secondaryNote: 'Your registration may remain on hold until verification is complete.',
-    variables: ['paperTitle', 'note', 'conferenceName'],
+    variables: ['paperTitle', 'note', 'conferenceName', 'registrationUrl'],
   }),
   letter({
     key: 'registration.additional_payment_required',
-    subject: 'Additional registration payment required',
+    subject: 'Additional registration payment required: {{paperTitle}}',
     headline: 'Additional payment required',
     paragraphs: [
-      'Your student verification was not approved at the discounted rate.',
-      'An additional registration payment is required to complete your registration.',
+      'Your student document was reviewed, and the student rate was not approved.',
+      'The regular fee now applies. Please pay the remaining amount below to complete your registration.',
     ],
     details: [
       { label: 'Paper', value: '{{paperTitle}}' },
-      { label: 'Amount due', value: '{{amountFormatted}}' },
+      { label: 'Reason', value: '{{reason}}' },
+      { label: 'Additional amount due', value: '{{amountFormatted}}' },
+      { label: 'Pay by', value: '{{deadlineAt}}' },
     ],
-    variables: ['paperTitle', 'amountFormatted', 'conferenceName'],
+    cta: { label: 'Pay the remaining amount', url: '{{registrationUrl}}' },
+    variables: [
+      'paperTitle',
+      'reason',
+      'amountFormatted',
+      'deadlineAt',
+      'conferenceName',
+      'registrationUrl',
+    ],
   }),
   letter({
     key: 'registration.deadline_reminder',
-    subject: 'Registration deadline approaching',
+    subject: 'Registration deadline approaching: {{paperTitle}}',
     headline: 'Registration deadline approaching',
     paragraphs: [
       'Your accepted paper still requires completed registration and payment.',
@@ -659,19 +732,21 @@ export const PLATFORM_NOTIFICATION_TEMPLATES: PlatformNotificationTemplate[] = [
       { label: 'Paper', value: '{{paperTitle}}' },
       { label: 'Registration deadline', value: '{{deadlineAt}}' },
     ],
+    cta: { label: 'Complete registration', url: '{{registrationUrl}}' },
     secondaryNote:
       'Papers with unpaid registration after the deadline may be withdrawn for non-payment.',
-    variables: ['paperTitle', 'deadlineAt', 'conferenceName'],
+    variables: ['paperTitle', 'deadlineAt', 'conferenceName', 'registrationUrl'],
   }),
   letter({
     key: 'registration.discarded',
-    subject: 'Registration discarded — payment not received',
+    subject: 'Registration discarded, payment not received: {{paperTitle}}',
     headline: 'Registration discarded',
     paragraphs: [
       'Your registration has been discarded because payment was not received by the deadline.',
-      'If you believe this is a mistake, please contact the conference organizers.',
+      'If you believe this is a mistake, please contact the conference organisers.',
     ],
     details: [{ label: 'Paper', value: '{{paperTitle}}' }],
-    variables: ['paperTitle', 'conferenceName'],
+    cta: { label: 'View the submission', url: '{{paperUrl}}' },
+    variables: ['paperTitle', 'conferenceName', 'paperUrl'],
   }),
 ];

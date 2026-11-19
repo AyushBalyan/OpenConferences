@@ -1,3 +1,4 @@
+import { getConfig } from '@openconferences/config/env';
 import {
   rollupOutreachCampaignCounts,
   withMailDisclaimer,
@@ -114,7 +115,11 @@ export async function processOutreachCampaignJob(
 
     const context = { name: recipient.name, topic: recipient.topic, paper: recipient.paper };
     const subject = renderOutreachTemplate(subjectTemplate, context);
-    const html = withMailDisclaimer(renderOutreachTemplate(bodyTemplate, context), 'html');
+    const html = withMailDisclaimer(
+      renderOutreachTemplate(bodyTemplate, context),
+      'html',
+      getConfig().mail.contactEmail,
+    );
 
     try {
       await withTenantContext({}, async (tx) =>

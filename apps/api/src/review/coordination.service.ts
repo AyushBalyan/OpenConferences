@@ -427,6 +427,7 @@ export class ReviewCoordinationService {
         conferenceId,
         organizationId: conference.organizationId,
         conferenceName: conference.name,
+        reviewerName: outcome.assignment.reviewer.name,
         paperTitle: outcome.assignment.paper.title,
         dueAt: outcome.dueAt.toISOString(),
         assignmentId,

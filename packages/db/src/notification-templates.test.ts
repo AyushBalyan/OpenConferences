@@ -20,7 +20,6 @@ describe('platform notification templates', () => {
     for (const template of PLATFORM_NOTIFICATION_TEMPLATES) {
       const haystack = [template.subject, template.bodyHtml, template.bodyText]
         .join('\n')
-        .replaceAll('icamcds2026@fresi.org', '')
         .replaceAll('app.fresi.org', '');
       expect(haystack, template.key).not.toMatch(PRODUCT_NAMES);
     }
@@ -32,7 +31,6 @@ describe('platform notification templates', () => {
         .join('\n')
         .replace(/https?:\/\/\S+/gi, '')
         .replace(/\{\{\w+Url\}\}/g, '')
-        .replace(/review portal/gi, '')
         .replace(/the dashboard may appear empty at first/gi, '');
       expect(haystack, template.key).not.toMatch(PRODUCT_UI);
     }
@@ -43,10 +41,88 @@ describe('platform notification templates', () => {
       expect(template.bodyHtml, template.key).toContain('max-width:600px');
       expect(template.bodyHtml, template.key).toContain('border-radius:10px');
       expect(template.bodyHtml, template.key).toContain('width=device-width');
+      // The contact address is filled in when the email is sent, never baked in.
       expect(template.bodyHtml, template.key).toContain(
-        'This is a system generated mail. For any queries contact: icamcds2026@fresi.org',
+        'This is a system generated mail. For any queries contact: {{contactEmail}}',
       );
+      expect(template.bodyText, template.key).toContain('contact: {{contactEmail}}');
+      expect(template.variables, template.key).toContain('contactEmail');
+      expect(template.bodyHtml, template.key).not.toMatch(/@fresi\.org/);
     }
+  });
+
+  it('declares every variable it uses', () => {
+    for (const template of PLATFORM_NOTIFICATION_TEMPLATES) {
+      const used = [template.subject, template.bodyHtml, template.bodyText]
+        .join('\n')
+        .matchAll(/\{\{(\w+)\}\}/g);
+      for (const match of used) {
+        expect(template.variables, `${template.key} uses ${match[1]}`).toContain(match[1]);
+      }
+    }
+  });
+
+  it('names the paper in every subject about a paper', () => {
+    for (const template of PLATFORM_NOTIFICATION_TEMPLATES) {
+      // A draft may still be untitled, so its reminder names the conference instead.
+      if (!template.variables.includes('paperTitle') || template.key === 'draft.reminder') continue;
+      expect(template.subject, template.key).toMatch(/\{\{(paperTitle|submissionNumber)\}\}/);
+    }
+  });
+
+  it('gives the reader a link wherever it asks them to act', () => {
+    for (const key of [
+      'decision.notified',
+      'review.released',
+      'cameraready.reminder',
+      'registration.early_bird_ending',
+      'registration.deadline_reminder',
+      'registration.clarification_requested',
+      'registration.additional_payment_required',
+      'registration.student_rate_rejected',
+      'registration.discarded',
+      'submission.confirmed',
+      'paper.withdrawn',
+    ]) {
+      const template = PLATFORM_NOTIFICATION_TEMPLATES.find((row) => row.key === key);
+      expect(template?.bodyHtml, key).toMatch(/<a href="\{\{(paperUrl|registrationUrl)\}\}"/);
+    }
+  });
+
+  it('tells the author why a student rate was refused', () => {
+    for (const key of [
+      'registration.student_rate_rejected',
+      'registration.additional_payment_required',
+    ]) {
+      const template = PLATFORM_NOTIFICATION_TEMPLATES.find((row) => row.key === key);
+      expect(template?.bodyHtml, key).toContain('{{reason}}');
+      expect(template?.bodyText, key).toContain('Reason: {{reason}}');
+    }
+  });
+
+  it('uses one label for the paper code and one spelling', () => {
+    for (const template of PLATFORM_NOTIFICATION_TEMPLATES) {
+      const body = [template.subject, template.bodyText].join('\n');
+      expect(body, template.key).not.toMatch(/PaperID|Submission code|\bSubmission: /);
+      expect(body, template.key).not.toMatch(/organiz|\bprogram\b/i);
+    }
+  });
+
+  it('greets reviewers as Dr. and authors by the name they entered', () => {
+    const body = (key: string) =>
+      PLATFORM_NOTIFICATION_TEMPLATES.find((row) => row.key === key)!.bodyText;
+    for (const key of ['assignment.notified', 'review.reminder', 'review.thank_you']) {
+      expect(body(key), key).toContain('Dear Dr. {{reviewerName}},');
+    }
+    for (const key of ['decision.accepted', 'decision.notified']) {
+      expect(body(key), key).toContain('Dear {{authorName}},');
+    }
+  });
+
+  it('no longer ships the registration-open email nothing sends', () => {
+    expect(
+      PLATFORM_NOTIFICATION_TEMPLATES.some((row) => row.key === 'registration.window_open'),
+    ).toBe(false);
   });
 
   it('stays on the black, white and grey palette', () => {
@@ -103,6 +179,10 @@ describe('platform notification templates', () => {
     expect(template?.bodyHtml).toContain('Open the invitation link below.');
     expect(template?.bodyHtml).toContain('choose a name and password');
     expect(template?.bodyHtml).toContain('Dear Professor,');
+    // Only the invitation calls its steps "How to accept".
+    expect(
+      PLATFORM_NOTIFICATION_TEMPLATES.filter((row) => row.bodyHtml.includes('How to accept')),
+    ).toHaveLength(1);
     expect(template?.bodyHtml).toContain(
       'the dashboard may appear empty at first. Please wait until a paper is assigned to you.',
     );
@@ -123,9 +203,9 @@ describe('platform notification templates', () => {
       if (template.key.startsWith('auth.')) {
         expect(template.variables, template.key).not.toContain('conferenceName');
         expect(template.bodyHtml, template.key).not.toContain('{{conferenceName}}');
-        expect(template.bodyText, template.key).toContain(
-          'This is an automated message. Please do not reply.',
-        );
+        expect(template.bodyText, template.key).toContain('This is an automated message.');
+        // A contact address follows, so the email must not also say not to reply.
+        expect(template.bodyText, template.key).not.toContain('do not reply');
         continue;
       }
 

@@ -131,8 +131,16 @@ describe.skipIf(!url)('registration list and student verification in real Postgr
     {} as never,
     { log: audit } as never,
   );
-  // Notifications are not under test; any publish call is accepted.
-  const notifications = new Proxy({}, { get: () => vi.fn(async () => undefined) });
+  // Every publish call is accepted and recorded, so a test can read what would be emailed.
+  const published: Array<{ method: string; payload: Record<string, unknown> }> = [];
+  const notifications = new Proxy(
+    {},
+    {
+      get: (_target, method) => async (payload: Record<string, unknown>) => {
+        published.push({ method: String(method), payload });
+      },
+    },
+  );
   const verifications = new StudentVerificationService(
     conferences as never,
     {} as never,
@@ -396,6 +404,16 @@ describe.skipIf(!url)('registration list and student verification in real Postgr
       { action: 'REJECT', note: 'The ID has expired.' },
       ['CHAIR'],
     );
+    // The author is emailed the reason, as the confirmation dialog promises.
+    expect(published.at(-1)).toEqual({
+      method: 'publishStudentRateRejected',
+      payload: expect.objectContaining({
+        paperId: byKey.student!.paperId,
+        paperTitle: 'Student verification pending',
+        reason: 'The ID has expired.',
+        paidInFull: false,
+      }),
+    });
     const verification = await db.studentVerification.findUniqueOrThrow({
       where: { id: verificationId },
     });

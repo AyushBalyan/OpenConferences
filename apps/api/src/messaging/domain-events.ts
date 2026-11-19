@@ -8,7 +8,6 @@ export const DomainEvents = {
   REVIEWER_ASSIGNED: 'notification.reviewer.assigned',
   REVIEW_RELEASED: 'notification.review.released',
   DECISION_NOTIFIED: 'notification.decision.notified',
-  REGISTRATION_WINDOW_OPEN: 'notification.registration.window_open',
   PAYMENT_CAPTURED: 'notification.payment.captured',
   REGISTRATION_VERIFICATION_APPROVED: 'notification.registration.verification_approved',
   REGISTRATION_CLARIFICATION_REQUESTED: 'notification.registration.clarification_requested',
@@ -62,6 +61,7 @@ export type PaperSubmittedPayload = {
   authorName?: string;
   authorAffiliation?: string;
   authorList?: string;
+  submissionNumber?: string | null;
   idempotencyKey: string;
 };
 
@@ -122,22 +122,12 @@ export type DecisionNotifiedPayload = {
   authorName?: string;
   submissionNumber?: string;
   registrationUrl?: string;
+  /** Where the author can read the decision and any released reviews. */
+  paperUrl?: string;
   outcomeLabel: string;
   rationaleBlock: string;
   acceptBlock: string;
   decisionId: string;
-  idempotencyKey: string;
-};
-
-export type RegistrationWindowOpenPayload = {
-  to: string;
-  conferenceId: string;
-  organizationId: string;
-  paperTitle: string;
-  conferenceName?: string;
-  deadlineAt: string;
-  registrationUrl: string;
-  registrationId: string;
   idempotencyKey: string;
 };
 
@@ -157,6 +147,7 @@ export type RegistrationVerificationApprovedPayload = {
   to: string;
   conferenceId: string;
   organizationId: string;
+  paperId: string;
   paperTitle: string;
   verificationId: string;
   idempotencyKey: string;
@@ -166,8 +157,23 @@ export type RegistrationClarificationPayload = {
   to: string;
   conferenceId: string;
   organizationId: string;
+  paperId: string;
   paperTitle: string;
   note: string;
+  verificationId: string;
+  idempotencyKey: string;
+};
+
+/** The student rate was refused and no further payment is being asked for by this email. */
+export type RegistrationStudentRateRejectedPayload = {
+  to: string;
+  conferenceId: string;
+  organizationId: string;
+  paperId: string;
+  paperTitle: string;
+  reason: string;
+  /** True when the payment already made covers the regular fee. */
+  paidInFull: boolean;
   verificationId: string;
   idempotencyKey: string;
 };
@@ -176,8 +182,14 @@ export type RegistrationAdditionalPaymentPayload = {
   to: string;
   conferenceId: string;
   organizationId: string;
+  paperId: string;
   paperTitle: string;
+  /** Why the student rate was refused. */
+  reason: string;
+  /** The difference still owed, not the whole fee. */
   amountFormatted: string;
+  /** ISO time the remaining amount must be paid by. */
+  deadlineAt: string;
   registrationId: string;
   idempotencyKey: string;
 };
@@ -186,6 +198,7 @@ export type RegistrationDiscardedPayload = {
   to: string;
   conferenceId: string;
   organizationId: string;
+  paperId: string;
   paperTitle: string;
   registrationId: string;
   idempotencyKey: string;

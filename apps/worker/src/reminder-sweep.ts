@@ -1,24 +1,13 @@
 import type PgBoss from 'pg-boss';
 import { getConfig } from '@openconferences/config/env';
-import { generateId, withTenantContext } from '@openconferences/db';
+import {
+  generateId,
+  nameWithoutTitle,
+  renderEmailTemplate,
+  withTenantContext,
+} from '@openconferences/db';
 import type { ReminderSweepJobPayload } from '@openconferences/schemas';
 import { NOTIFICATION_SEND_JOB_NAME, effectiveReviewDeadline } from '@openconferences/schemas';
-
-function escapeHtml(value: unknown): string {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function renderTemplate(template: string, context: Record<string, unknown>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
-    if (!(key in context)) return '';
-    return escapeHtml(context[key]);
-  });
-}
 
 async function enqueueDirect(
   boss: PgBoss,
@@ -56,9 +45,12 @@ async function enqueueDirect(
     });
     if (!template) return null;
 
-    const subject = renderTemplate(template.subject, input.context);
-    const html = renderTemplate(template.bodyHtml, input.context);
-    const text = template.bodyText ? renderTemplate(template.bodyText, input.context) : undefined;
+    const context = { contactEmail: getConfig().mail.contactEmail, ...input.context };
+    const subject = renderEmailTemplate(template.subject, context, 'subject');
+    const html = renderEmailTemplate(template.bodyHtml, context, 'html');
+    const text = template.bodyText
+      ? renderEmailTemplate(template.bodyText, context, 'text')
+      : undefined;
     const logId = generateId();
 
     await tx.notificationLog.create({
@@ -116,6 +108,9 @@ export async function processReminderSweepJob(
 
   let enqueued = 0;
   const now = new Date();
+  const webUrl = getConfig().webUrl.replace(/\/$/, '');
+  const registrationUrl = (registration: { conferenceId: string; paperId: string }) =>
+    `${webUrl}/dashboard/conferences/${registration.conferenceId}/submissions/${registration.paperId}?section=registration`;
   const inThreeDays = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
   for (const kind of kinds) {
@@ -130,7 +125,7 @@ export async function processReminderSweepJob(
             ...(payload.conferenceId ? { conferenceId: payload.conferenceId } : {}),
           },
           include: {
-            reviewer: { select: { email: true } },
+            reviewer: { select: { email: true, name: true } },
             paper: {
               select: {
                 title: true,
@@ -156,10 +151,11 @@ export async function processReminderSweepJob(
           templateKey: 'review.reminder',
           to: assignment.reviewer.email,
           context: {
+            reviewerName: nameWithoutTitle(assignment.reviewer.name) || 'Reviewer',
             paperTitle: assignment.paper.title,
             dueAt: dueAt.toISOString(),
             conferenceName: assignment.conference.name,
-            reviewUrl: `${getConfig().webUrl.replace(/\/$/, '')}/dashboard/conferences/${assignment.conferenceId}/reviews/my-assignments`,
+            reviewUrl: `${webUrl}/dashboard/conferences/${assignment.conferenceId}/reviews/my-assignments`,
           },
           organizationId: assignment.organizationId,
           conferenceId: assignment.conferenceId,
@@ -199,6 +195,7 @@ export async function processReminderSweepJob(
             paperTitle: paper.title,
             deadlineAt: deadlineAt.toISOString(),
             conferenceName: paper.conference.name,
+            paperUrl: `${webUrl}/dashboard/conferences/${paper.conferenceId}/submissions/${paper.id}`,
           },
           organizationId: paper.organizationId,
           conferenceId: paper.conferenceId,
@@ -214,7 +211,8 @@ export async function processReminderSweepJob(
       const registrations = await withTenantContext({}, async (tx) =>
         tx.registration.findMany({
           where: {
-            status: { in: ['PENDING', 'AWAITING_VERIFICATION', 'ADDITIONAL_PAYMENT_REQUIRED'] },
+            // Only registrations that still owe money; a paid student awaiting approval does not.
+            status: { in: ['PENDING', 'ADDITIONAL_PAYMENT_REQUIRED'] },
             ...(payload.conferenceId ? { conferenceId: payload.conferenceId } : {}),
             deadlineAt: { lte: inThreeDays, gte: now },
           },
@@ -238,6 +236,7 @@ export async function processReminderSweepJob(
             paperTitle: registration.paper.title,
             deadlineAt: registration.deadlineAt.toISOString(),
             conferenceName: registration.conference.name,
+            registrationUrl: registrationUrl(registration),
           },
           organizationId: registration.organizationId,
           conferenceId: registration.conferenceId,
@@ -267,7 +266,9 @@ export async function processReminderSweepJob(
           tx.registration.findMany({
             where: {
               conferenceId: conference.id,
-              status: { in: ['PENDING', 'AWAITING_VERIFICATION', 'ADDITIONAL_PAYMENT_REQUIRED'] },
+              // Not yet paid and no price locked in: the only ones the early-bird rate can still help.
+              status: 'PENDING',
+              lockedTiming: null,
             },
             include: {
               paper: { include: { authorships: true } },
@@ -289,6 +290,7 @@ export async function processReminderSweepJob(
               paperTitle: registration.paper.title,
               earlyBirdEndsAt: earlyBirdEndsAt.toISOString(),
               conferenceName: registration.conference.name,
+              registrationUrl: registrationUrl(registration),
             },
             organizationId: registration.organizationId,
             conferenceId: registration.conferenceId,
@@ -322,7 +324,6 @@ export async function processReminderSweepJob(
         }),
       );
 
-      const webUrl = getConfig().webUrl.replace(/\/$/, '');
       for (const paper of drafts) {
         if (!isAbandonedDraft(paper, now)) continue;
         const email = paper.submittedBy.email?.trim();

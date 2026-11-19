@@ -12,7 +12,6 @@ import {
   type RegistrationClarificationPayload,
   type RegistrationDiscardedPayload,
   type RegistrationVerificationApprovedPayload,
-  type RegistrationWindowOpenPayload,
   type ReviewReleasedPayload,
   type ReviewerAssignedPayload,
   type ReviewerInvitationPayload,
@@ -64,11 +63,6 @@ export class NotificationSubscriber {
   @OnEvent(DomainEvents.DECISION_NOTIFIED, { async: true })
   async onDecisionNotified(payload: DecisionNotifiedPayload): Promise<void> {
     await this.publisher.publishDecisionNotified(payload);
-  }
-
-  @OnEvent(DomainEvents.REGISTRATION_WINDOW_OPEN, { async: true })
-  async onRegistrationWindowOpen(payload: RegistrationWindowOpenPayload): Promise<void> {
-    await this.publisher.publishRegistrationWindowOpen(payload);
   }
 
   @OnEvent(DomainEvents.PAYMENT_CAPTURED, { async: true })

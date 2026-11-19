@@ -191,6 +191,7 @@ async function mockApi(
       const rendered = renderReviewerDigest(
         PLATFORM_NOTIFICATION_TEMPLATES.find((t) => t.key === 'reviewer.reminder_digest')!,
         { reviewerName: r.name, conferenceName: conference.name, reviewUrl, items },
+        { contactEmail: 'help@example.test' },
       );
       body = {
         templateId: id(400),
@@ -201,8 +202,8 @@ async function mockApi(
         reviewUrl,
         items,
         ...rendered,
-        html: withMailDisclaimer(rendered.html, 'html'),
-        text: withMailDisclaimer(rendered.text, 'text'),
+        html: withMailDisclaimer(rendered.html, 'html', 'help@example.test'),
+        text: withMailDisclaimer(rendered.text, 'text', 'help@example.test'),
         preparedAt: new Date().toISOString(),
         previewToken: 'a'.repeat(64),
         dailyLimit: 'One per UTC day',

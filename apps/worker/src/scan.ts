@@ -71,6 +71,7 @@ export async function processFileScanJob(
       enqueueRevisionNotifications(tx, boss, payload.paperId, payload.paperVersionId, {
         webUrl: getConfig().webUrl,
         alertEmail: getConfig().mail.submissionAlertEmail,
+        contactEmail: getConfig().mail.contactEmail,
       }),
   );
 }

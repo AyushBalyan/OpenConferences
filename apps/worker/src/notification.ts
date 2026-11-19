@@ -16,9 +16,17 @@ export async function processNotificationJob(payload: NotificationJobPayload): P
     const result = await mailer.send({
       to: payload.to,
       subject: payload.subject,
-      html: withMailDisclaimer(openInvitationMail(payload.html, getConfig().auth.secret), 'html'),
+      html: withMailDisclaimer(
+        openInvitationMail(payload.html, getConfig().auth.secret),
+        'html',
+        getConfig().mail.contactEmail,
+      ),
       text: payload.text
-        ? withMailDisclaimer(openInvitationMail(payload.text, getConfig().auth.secret), 'text')
+        ? withMailDisclaimer(
+            openInvitationMail(payload.text, getConfig().auth.secret),
+            'text',
+            getConfig().mail.contactEmail,
+          )
         : undefined,
       replyTo: payload.replyTo,
       tags: payload.tags,

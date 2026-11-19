@@ -2,24 +2,33 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { processReminderSweepJob } from './reminder-sweep.js';
 const mocks = vi.hoisted(() => ({ assignments: vi.fn(), create: vi.fn(), send: vi.fn() }));
 vi.mock('@openconferences/config/env', () => ({
-  getConfig: () => ({ webUrl: 'http://localhost:3000' }),
+  getConfig: () => ({
+    webUrl: 'http://localhost:3000',
+    mail: { contactEmail: 'help@example.test' },
+  }),
 }));
-vi.mock('@openconferences/db', () => ({
-  generateId: () => 'log-id',
-  withTenantContext: (_: unknown, callback: (tx: unknown) => unknown) =>
-    callback({
-      reviewerAssignment: { findMany: mocks.assignments },
-      emailSuppression: { findUnique: async () => null },
-      notificationLog: { findUnique: async () => null, create: mocks.create },
-      notificationTemplate: {
-        findFirst: async () => ({
-          subject: 'Reminder',
-          bodyHtml: '{{dueAt}} {{reviewUrl}}',
-          version: 2,
-        }),
-      },
-    }),
-}));
+vi.mock('@openconferences/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@openconferences/db')>();
+  return {
+    // The real renderer and name helper, so the test reads what is actually sent.
+    renderEmailTemplate: actual.renderEmailTemplate,
+    nameWithoutTitle: actual.nameWithoutTitle,
+    generateId: () => 'log-id',
+    withTenantContext: (_: unknown, callback: (tx: unknown) => unknown) =>
+      callback({
+        reviewerAssignment: { findMany: mocks.assignments },
+        emailSuppression: { findUnique: async () => null },
+        notificationLog: { findUnique: async () => null, create: mocks.create },
+        notificationTemplate: {
+          findFirst: async () => ({
+            subject: 'Reminder',
+            bodyHtml: 'Dear Dr. {{reviewerName}}, {{dueAt}} {{reviewUrl}}',
+            version: 2,
+          }),
+        },
+      }),
+  };
+});
 const now = new Date('2026-10-06T10:00:00Z');
 function assignment(id: string, roundId = 'current', dueAt = new Date('2026-10-08T10:00:00Z')) {
   return {
@@ -29,7 +38,8 @@ function assignment(id: string, roundId = 'current', dueAt = new Date('2026-10-0
     roundId,
     createdAt: new Date('2026-09-01'),
     dueAt,
-    reviewer: { email: `${id}@example.test` },
+    // A title the reviewer typed is not repeated after the greeting's own.
+    reviewer: { email: `${id}@example.test`, name: 'Dr. Arun Mehta' },
     paper: { title: 'Paper', reviewRounds: [{ id: 'current' }] },
     round: { reviewDueAt: new Date('2026-10-01') },
     conference: { name: 'Conference', reviewDueAt: new Date('2026-10-01') },
@@ -57,7 +67,10 @@ describe('scheduled review reminders', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           toEmail: 'extended@example.test',
-          renderedHtml: expect.stringContaining('2026-10-08T10:00:00.000Z'),
+          // A readable date, addressed to the reviewer (or a neutral fallback).
+          renderedHtml: expect.stringContaining(
+            'Dear Dr. Arun Mehta, October 8, 2026 at 10:00 AM UTC',
+          ),
         }),
       }),
     );

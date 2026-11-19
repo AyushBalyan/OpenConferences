@@ -397,6 +397,7 @@ export class PapersService {
         authorName: corresponding.fullName,
         authorAffiliation: corresponding.affiliation?.trim() || undefined,
         authorList: formatAuthorList(paper.authorships),
+        submissionNumber: paper.submissionNumber,
         idempotencyKey: `submission-confirmed-${paperId}`,
       });
     }

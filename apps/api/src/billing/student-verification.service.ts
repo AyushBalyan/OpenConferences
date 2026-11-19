@@ -273,6 +273,8 @@ export class StudentVerificationService {
 
     const conference = await this.conferences.loadConference(userId, conferenceId, roles);
     const config = getConfig();
+    // What a rejection leaves the author owing, for the email sent afterwards.
+    let balance: { dueMinor: number; payBy: Date } | null = null;
 
     const updatedRegistration = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
@@ -421,6 +423,7 @@ export class StudentVerificationService {
           });
         }
 
+        balance = { dueMinor: regularDue - paidState.netMinor, payBy: graceUntil };
         return updated;
       },
     );
@@ -435,18 +438,22 @@ export class StudentVerificationService {
       diff: { note: input.note },
     });
 
-    const context = await withTenantContext({}, async (tx) =>
-      tx.studentVerification.findFirst({
-        where: { id: verificationId },
-        include: {
-          registration: {
-            include: {
-              paper: { include: { authorships: true } },
-              payer: { select: { email: true } },
+    // Read as the reviewer: with no tenant context, row-level security hides the
+    // verification and the author would never be emailed.
+    const context = await withTenantContext(
+      { userId, conferenceId, organizationId: conference.organizationId },
+      async (tx) =>
+        tx.studentVerification.findFirst({
+          where: { id: verificationId },
+          include: {
+            registration: {
+              include: {
+                paper: { include: { authorships: true } },
+                payer: { select: { email: true } },
+              },
             },
           },
-        },
-      }),
+        }),
     );
 
     if (context) {
@@ -459,9 +466,11 @@ export class StudentVerificationService {
           to,
           conferenceId,
           organizationId: conference.organizationId,
+          paperId: reg.paperId,
           paperTitle: reg.paper.title,
           verificationId,
         };
+        const owed = balance as { dueMinor: number; payBy: Date } | null;
 
         if (input.action === 'APPROVE') {
           await this.notifications.publishVerificationApproved({
@@ -474,18 +483,22 @@ export class StudentVerificationService {
             note: input.note ?? '',
             idempotencyKey: `verification-clarify-${verificationId}`,
           });
-        } else if (!reg.lockedTiming) {
-          await this.notifications.publishClarificationRequested({
+        } else if (owed) {
+          // Paid at the student rate: ask only for the difference, and say why.
+          await this.notifications.publishAdditionalPaymentRequired({
             ...base,
-            note: 'Your student proof was rejected. Your registration category is now Regular. Please review the updated fee before payment.',
+            reason: input.note ?? '',
+            amountFormatted: `${(owed.dueMinor / 100).toFixed(2)} ${reg.currency}`,
+            deadlineAt: owed.payBy.toISOString(),
+            registrationId: reg.id,
             idempotencyKey: `verification-reject-${verificationId}`,
           });
         } else {
-          const amountFormatted = `${reg.amountDueMinor / 100} ${reg.currency}`;
-          await this.notifications.publishAdditionalPaymentRequired({
+          // Not paid yet, or the payment already covers the regular fee.
+          await this.notifications.publishStudentRateRejected({
             ...base,
-            amountFormatted,
-            registrationId: reg.id,
+            reason: input.note ?? '',
+            paidInFull: updatedRegistration.status === 'PAID',
             idempotencyKey: `verification-reject-${verificationId}`,
           });
         }

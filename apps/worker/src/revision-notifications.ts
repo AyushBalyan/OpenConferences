@@ -1,19 +1,11 @@
 import type PgBoss from 'pg-boss';
-import { generateId, prismaQueueAdapter, type Prisma } from '@openconferences/db';
+import {
+  generateId,
+  prismaQueueAdapter,
+  renderEmailTemplate,
+  type Prisma,
+} from '@openconferences/db';
 import { NOTIFICATION_SEND_JOB_NAME } from '@openconferences/schemas';
-
-function render(value: string, context: Record<string, string>, html = false) {
-  return value.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
-    const text = context[key] ?? '';
-    return html
-      ? text.replace(
-          /[&<>"']/g,
-          (char) =>
-            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!,
-        )
-      : text;
-  });
-}
 
 /** Called inside the scan transaction: cycle, inbox update, email logs and jobs commit together. */
 export async function enqueueRevisionNotifications(
@@ -21,7 +13,7 @@ export async function enqueueRevisionNotifications(
   boss: Pick<PgBoss, 'send'>,
   paperId: string,
   versionId: string,
-  options: { webUrl: string; alertEmail?: string },
+  options: { webUrl: string; alertEmail?: string; contactEmail?: string },
 ) {
   const paper = await tx.paper.findUniqueOrThrow({
     where: { id: paperId },
@@ -36,6 +28,7 @@ export async function enqueueRevisionNotifications(
   )
     recipients.push({ to: options.alertEmail, key: 'revision.ops_alert' });
   const context = {
+    contactEmail: options.contactEmail ?? '',
     conferenceName: paper.conference.name,
     submissionNumber: paper.submissionNumber || paper.id,
     paperTitle: paper.title,
@@ -58,9 +51,11 @@ export async function enqueueRevisionNotifications(
     const template =
       templates.find((item) => item.organizationId === paper.organizationId) ?? templates[0];
     if (!template) throw new Error(`Missing notification template: ${recipient.key}`);
-    const subject = render(template.subject, context);
-    const html = render(template.bodyHtml, context, true);
-    const text = template.bodyText ? render(template.bodyText, context) : undefined;
+    const subject = renderEmailTemplate(template.subject, context, 'subject');
+    const html = renderEmailTemplate(template.bodyHtml, context, 'html');
+    const text = template.bodyText
+      ? renderEmailTemplate(template.bodyText, context, 'text')
+      : undefined;
     const logId = generateId();
     await tx.notificationLog.create({
       data: {

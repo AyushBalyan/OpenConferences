@@ -81,6 +81,11 @@ const baseEnvSchema = z.object({
     (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
     z.string().email().optional(),
   ),
+  /** Address shown in every email footer for questions, and used as the acceptance reply-to. */
+  MAIL_CONTACT_EMAIL: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.string().email().default('icamcds2026@fresi.org'),
+  ),
   TURNSTILE_SECRET_KEY: z.string().optional(),
   CLAMAV_ENABLED: z
     .string()
@@ -148,6 +153,7 @@ export type AppConfig = {
     zeptoWebhookSecret?: string;
     retentionDays: number;
     submissionAlertEmail?: string;
+    contactEmail: string;
   };
   turnstileSecretKey?: string;
   clamav: {
@@ -301,6 +307,7 @@ function parseEnv(env: Record<string, string | undefined> = process.env): AppCon
       zeptoWebhookSecret: data.ZEPTO_WEBHOOK_SECRET,
       retentionDays: data.NOTIFICATION_RETENTION_DAYS,
       submissionAlertEmail: data.SUBMISSION_ALERT_EMAIL,
+      contactEmail: data.MAIL_CONTACT_EMAIL,
     },
     turnstileSecretKey: data.TURNSTILE_SECRET_KEY,
     clamav: {

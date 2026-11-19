@@ -269,14 +269,16 @@ export class ReviewerOverviewService {
       reviewUrl: `${getConfig().webUrl.replace(/\/$/, '')}/dashboard/conferences/${conferenceId}/reviews/my-assignments`,
       items: validated.items,
     };
-    const rendered = renderReviewerDigest(template, data);
+    const rendered = renderReviewerDigest(template, data, {
+      contactEmail: getConfig().mail.contactEmail,
+    });
     return {
       templateId: template.id,
       templateVersion: template.version,
       ...data,
       ...rendered,
-      html: withMailDisclaimer(rendered.html, 'html'),
-      text: withMailDisclaimer(rendered.text, 'text'),
+      html: withMailDisclaimer(rendered.html, 'html', getConfig().mail.contactEmail),
+      text: withMailDisclaimer(rendered.text, 'text', getConfig().mail.contactEmail),
       preparedAt: new Date().toISOString(),
     };
   }

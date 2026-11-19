@@ -8,6 +8,7 @@ vi.mock('@openconferences/config/env', () => ({
   getConfig: () => ({
     isTest: true,
     auth: { secret: 'synthetic-mail-test-secret-1234567890123456' },
+    mail: { contactEmail: 'help@example.test' },
   }),
 }));
 vi.mock('@openconferences/db', async (importOriginal) => ({

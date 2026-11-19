@@ -2,9 +2,8 @@ import { sealInvitationMail } from '@openconferences/db';
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { getConfig } from '@openconferences/config/env';
 import type { NotificationLog, NotificationStatus, Prisma } from '@openconferences/db';
-import { generateId, withTenantContext } from '@openconferences/db';
+import { generateId, renderEmailTemplate, withTenantContext } from '@openconferences/db';
 import type { NotificationLogListDto, NotificationLogDto } from '@openconferences/schemas';
-import { renderTemplate } from './template-renderer';
 import { TemplateService } from './template.service';
 import { QueueService } from '../queue/queue.service';
 
@@ -103,9 +102,11 @@ export class NotificationService {
     );
 
     const context = await this.withConferenceBrand(input);
-    const subject = renderTemplate(template.subject, context);
-    let html = renderTemplate(template.bodyHtml, context);
-    let text = template.bodyText ? renderTemplate(template.bodyText, context) : undefined;
+    const subject = renderEmailTemplate(template.subject, context, 'subject');
+    let html = renderEmailTemplate(template.bodyHtml, context, 'html');
+    let text = template.bodyText
+      ? renderEmailTemplate(template.bodyText, context, 'text')
+      : undefined;
     // Existing organization templates keep their wording and branding. The new
     // response action must remain available before their next template revision.
     if (
@@ -114,15 +115,19 @@ export class NotificationService {
       context.declineUrl
     ) {
       if (!/\{\{\s*declineUrl\s*\}\}/.test(template.bodyHtml))
-        html += renderTemplate(
+        html += renderEmailTemplate(
           '<p>To decline this invitation, <a href="{{declineUrl}}">open the decline confirmation page</a>. No login is needed.</p>',
           context,
+          'html',
         );
       if (text && !/\{\{\s*declineUrl\s*\}\}/.test(template.bodyText ?? ''))
-        text += renderTemplate(
-          '\n\nTo decline this invitation, open {{declineUrl}}. You will be asked to confirm; no login is needed.',
-          context,
-        );
+        text +=
+          '\n\n' +
+          renderEmailTemplate(
+            'To decline this invitation, open {{declineUrl}}. You will be asked to confirm; no login is needed.',
+            context,
+            'text',
+          );
     }
 
     if (getConfig().isTest) {
@@ -196,7 +201,11 @@ export class NotificationService {
   private async withConferenceBrand(
     input: EnqueueNotificationInput,
   ): Promise<Record<string, unknown>> {
-    const context = { ...input.context };
+    // The footer of every email names where questions should go.
+    const context: Record<string, unknown> = {
+      contactEmail: getConfig().mail.contactEmail,
+      ...input.context,
+    };
     if (!input.conferenceId || String(context.conferenceName ?? '').trim()) {
       return context;
     }

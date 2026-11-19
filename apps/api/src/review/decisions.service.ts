@@ -13,7 +13,7 @@ import type {
   ReviewRound,
   RoleKind,
 } from '@openconferences/db';
-import { generateId, withTenantContext } from '@openconferences/db';
+import { formatEmailDate, generateId, withTenantContext } from '@openconferences/db';
 import type {
   BulkDecisionInput,
   DecisionDto,
@@ -653,6 +653,7 @@ export class DecisionsService {
               authorName: corresponding.fullName,
               submissionNumber: paper.submissionNumber || paper.id,
               registrationUrl: `${getConfig().webUrl.replace(/\/$/, '')}/dashboard/conferences/${paper.conferenceId}/submissions/${paper.id}?section=registration`,
+              paperUrl: `${getConfig().webUrl.replace(/\/$/, '')}/dashboard/conferences/${paper.conferenceId}/submissions/${paper.id}`,
               outcomeLabel,
               rationaleBlock: decision.rationale?.trim()
                 ? `Committee note: ${decision.rationale.trim()}`
@@ -679,14 +680,15 @@ export class DecisionsService {
     if (outcome === 'REJECT') {
       return 'Thank you for your submission. We encourage you to consider the reviewer feedback when preparing future work.';
     }
-    const deadline = revisionDueAt ? ` before ${revisionDueAt.toISOString()}` : '';
+    const deadline = revisionDueAt ? ` before ${formatEmailDate(revisionDueAt)}` : '';
     return `Next steps: upload a revised PDF on this submission${deadline}.`;
   }
 
   private outcomeLabel(outcome: DecisionOutcome): string {
     const labels: Record<DecisionOutcome, string> = {
       ACCEPT: 'Accept',
-      REJECT: 'Reject',
+      // Shown to authors in the decision email.
+      REJECT: 'Not accepted',
       MINOR_REVISION: 'Minor revision',
       MAJOR_REVISION: 'Major revision',
     };

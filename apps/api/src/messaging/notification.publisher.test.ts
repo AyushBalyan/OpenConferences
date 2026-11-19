@@ -216,34 +216,6 @@ describe('review coordination notifications', () => {
   });
 });
 
-describe('registration opening email', () => {
-  it('renders a direct registration tab link in HTML and plain text', async () => {
-    const enqueue = vi.fn().mockResolvedValue('notification-id');
-    const publisher = new NotificationPublisher({ enqueue } as never);
-    const registrationUrl =
-      'https://example.test/dashboard/conferences/conference/submissions/paper?section=registration';
-    await publisher.publishRegistrationWindowOpen({
-      to: 'author@example.test',
-      conferenceId: 'conference',
-      organizationId: 'organization',
-      paperTitle: 'Accepted paper',
-      conferenceName: 'Test Conference',
-      deadlineAt: '2026-12-01T00:00:00.000Z',
-      registrationUrl,
-      registrationId: 'registration',
-      idempotencyKey: 'registration-window-registration',
-    });
-    const mail = enqueue.mock.calls[0]![0];
-    const template = PLATFORM_NOTIFICATION_TEMPLATES.find((t) => t.key === mail.templateKey)!;
-    const context = mail.context;
-    expect(context.conferenceName).toBe('Test Conference');
-    expect(renderTemplate(template.bodyHtml, context)).toContain(`href="${registrationUrl}"`);
-    expect(renderTemplate(template.bodyText, context)).toContain(
-      `Complete registration: ${registrationUrl}`,
-    );
-  });
-});
-
 describe('combined acceptance email', () => {
   const registrationUrl =
     'https://example.test/dashboard/conferences/conf/submissions/paper?section=registration';
@@ -263,6 +235,10 @@ describe('combined acceptance email', () => {
     idempotencyKey: 'decision-paper-round',
   };
   it('sends one acceptance email with dynamic branding, personal paper details, and registration link', async () => {
+    getConfigMock.mockReturnValue({
+      mail: { contactEmail: 'help@example.test' },
+      webUrl: 'https://example.test',
+    });
     const enqueue = vi.fn().mockResolvedValue('notification');
     await new NotificationPublisher({ enqueue } as never).publishDecisionNotified(payload);
     expect(enqueue).toHaveBeenCalledOnce();
@@ -270,7 +246,8 @@ describe('combined acceptance email', () => {
     expect(input).toMatchObject({
       templateKey: 'decision.accepted',
       relatedEntity: 'Decision',
-      replyTo: 'icamcds2026@fresi.org',
+      // Replies go to the configured contact address, not one fixed conference.
+      replyTo: 'help@example.test',
     });
     const template = PLATFORM_NOTIFICATION_TEMPLATES.find((t) => t.key === input.templateKey)!;
     expect(renderTemplate(template.subject, input.context)).toBe(
@@ -278,12 +255,13 @@ describe('combined acceptance email', () => {
     );
     for (const body of [template.bodyHtml, template.bodyText]) {
       const rendered = renderTemplate(body, input.context);
-      expect(rendered).toContain('Dear Dr Mira Sharma,');
+      // The name is used as the author wrote it; no title is assumed.
+      expect(rendered).toContain('Dear Dr. Mira Sharma,');
       expect(rendered).toContain('Safe &lt;Research&gt;');
       expect(rendered).toContain('CONF-A1');
       expect(rendered).toContain(registrationUrl);
       expect(rendered).toContain('This message was sent by Example Research Conference.');
-      expect(rendered).toContain('subject to the incorporation of reviewers’ comments.');
+      expect(rendered).toContain('subject to the incorporation of reviewers’ comments, if any.');
       expect(rendered).not.toContain('15–17 December 2026');
       expect(rendered).toContain('active participation in Example Research Conference.');
       expect(rendered).not.toContain('ICAMCDS-2026');
@@ -316,5 +294,129 @@ describe('combined acceptance email', () => {
       }),
     ).rejects.toThrow('requires the paper registration link');
     expect(enqueue).not.toHaveBeenCalled();
+  });
+});
+
+describe('student-rate rejection emails', () => {
+  const base = {
+    to: 'author@example.test',
+    conferenceId: 'conf',
+    organizationId: 'org',
+    paperId: 'paper',
+    paperTitle: 'Accepted paper',
+    verificationId: 'verification',
+    idempotencyKey: 'verification-reject-verification',
+  };
+  const render = async (mail: { templateKey: string; context: Record<string, unknown> }) => {
+    const { renderEmailTemplate } = await import('@openconferences/db');
+    const template = PLATFORM_NOTIFICATION_TEMPLATES.find((t) => t.key === mail.templateKey)!;
+    const context = { conferenceName: 'Example Conference', ...mail.context };
+    return {
+      subject: renderEmailTemplate(template.subject, context, 'subject'),
+      html: renderEmailTemplate(template.bodyHtml, context, 'html'),
+      text: renderEmailTemplate(template.bodyText, context, 'text'),
+    };
+  };
+  beforeEach(() => {
+    getConfigMock.mockReturnValue({
+      mail: { contactEmail: 'help@example.test' },
+      webUrl: 'https://example.test/',
+    });
+  });
+
+  it('tells an unpaid author why, that the regular rate applies, and where to go', async () => {
+    const enqueue = vi.fn().mockResolvedValue('notification');
+    await new NotificationPublisher({ enqueue } as never).publishStudentRateRejected({
+      ...base,
+      reason: 'The ID has expired.\nPlease use a current one next time.',
+      paidInFull: false,
+    });
+    const mail = enqueue.mock.calls[0]![0];
+    expect(mail.templateKey).toBe('registration.student_rate_rejected');
+    const { subject, html, text } = await render(mail);
+    expect(subject).toBe('Student rate not approved: Accepted paper');
+    // The reason keeps its line break instead of running together.
+    expect(html).toContain('The ID has expired.<br>Please use a current one next time.');
+    expect(html).toContain('now at the regular rate');
+    expect(html).toContain(
+      'href="https://example.test/dashboard/conferences/conf/submissions/paper?section=registration"',
+    );
+    expect(text).toContain('Reason: The ID has expired.');
+    expect(html).not.toContain('We need additional documents');
+  });
+
+  it('does not ask for money when the payment already covers the regular fee', async () => {
+    const enqueue = vi.fn().mockResolvedValue('notification');
+    await new NotificationPublisher({ enqueue } as never).publishStudentRateRejected({
+      ...base,
+      reason: 'Not a student document.',
+      paidInFull: true,
+    });
+    const { text } = await render(enqueue.mock.calls[0]![0]);
+    expect(text).toContain('no further payment is needed');
+  });
+
+  it('asks a paid author only for the difference, with the reason and a readable deadline', async () => {
+    const enqueue = vi.fn().mockResolvedValue('notification');
+    await new NotificationPublisher({ enqueue } as never).publishAdditionalPaymentRequired({
+      ...base,
+      reason: 'Not a student document.',
+      amountFormatted: '50.00 USD',
+      deadlineAt: '2026-12-01T18:29:59.000Z',
+      registrationId: 'registration',
+    });
+    const mail = enqueue.mock.calls[0]![0];
+    expect(mail.templateKey).toBe('registration.additional_payment_required');
+    const { subject, text, html } = await render(mail);
+    expect(subject).toBe('Additional registration payment required: Accepted paper');
+    expect(text).toContain('Reason: Not a student document.');
+    expect(text).toContain('Additional amount due: 50.00 USD');
+    expect(text).toContain('Pay by: December 1, 2026 at 6:29 PM UTC');
+    expect(text).not.toContain('2026-12-01T');
+    expect(html).toContain('?section=registration"');
+  });
+});
+
+describe('decision email for a paper that was not accepted', () => {
+  it('greets the author, links to the submission and leaves no gap when there is no note', async () => {
+    getConfigMock.mockReturnValue({
+      mail: { contactEmail: 'help@example.test' },
+      webUrl: 'https://example.test',
+    });
+    const enqueue = vi.fn().mockResolvedValue('notification');
+    await new NotificationPublisher({ enqueue } as never).publishDecisionNotified({
+      to: 'author@example.test',
+      conferenceId: 'conf',
+      organizationId: 'org',
+      paperTitle: 'Graphs & trees',
+      conferenceName: 'Example Conference',
+      authorName: 'Mira Sharma',
+      submissionNumber: 'CONF-A1',
+      paperUrl: 'https://example.test/dashboard/conferences/conf/submissions/paper',
+      outcomeLabel: 'Not accepted',
+      rationaleBlock: '',
+      acceptBlock: 'Thank you for your submission.',
+      decisionId: 'decision',
+      idempotencyKey: 'decision-paper-round',
+    });
+    const mail = enqueue.mock.calls[0]![0];
+    expect(mail.templateKey).toBe('decision.notified');
+    const { renderEmailTemplate } = await import('@openconferences/db');
+    const template = PLATFORM_NOTIFICATION_TEMPLATES.find((t) => t.key === mail.templateKey)!;
+    const context = { contactEmail: 'help@example.test', ...mail.context };
+    // Subjects are plain text, so an ampersand is not turned into an entity.
+    expect(renderEmailTemplate(template.subject, context, 'subject')).toBe(
+      'Decision on your submission: Graphs & trees',
+    );
+    const html = renderEmailTemplate(template.bodyHtml, context, 'html');
+    expect(html).toContain('Dear Mira Sharma,');
+    expect(html).toContain('CONF-A1');
+    expect(html).toContain('Not accepted');
+    expect(html).toContain(
+      'href="https://example.test/dashboard/conferences/conf/submissions/paper"',
+    );
+    expect(html).toContain('For any queries contact: help@example.test');
+    expect(html).not.toMatch(/<p\b[^>]*>\s*<\/p>/);
+    expect(html).not.toContain('{{');
   });
 });

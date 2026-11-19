@@ -14,29 +14,12 @@
 import PgBoss from 'pg-boss';
 import { getConfig } from '@openconferences/config/env';
 import type { NotificationTemplate } from '@openconferences/db';
-import { generateId, withTenantContext } from '@openconferences/db';
+import { generateId, renderEmailTemplate, withTenantContext } from '@openconferences/db';
 import { NOTIFICATION_SEND_JOB_NAME, type NotificationJobPayload } from '@openconferences/schemas';
 import { createMailerAdapter } from './mailer.js';
 import { processNotificationJob } from './notification.js';
 
 type SendMode = 'send' | 'queue' | 'full';
-
-const HTML_ESCAPE_MAP: Record<string, string> = {
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '"': '&quot;',
-  "'": '&#39;',
-};
-
-function renderTemplate(template: string, context: Record<string, unknown>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
-    if (!(key in context)) {
-      return '';
-    }
-    return String(context[key] ?? '').replace(/[&<>"']/g, (char) => HTML_ESCAPE_MAP[char] ?? char);
-  });
-}
 
 async function resolveActiveTemplate(
   organizationId: string | null | undefined,
@@ -169,11 +152,6 @@ function buildSampleContext(templateKey: string, webUrl: string): Record<string,
     'cameraready.reminder': {
       paperTitle: 'Deliverability Test Paper',
       deadlineAt: deadline,
-    },
-    'registration.window_open': {
-      paperTitle: 'Deliverability Test Paper',
-      deadlineAt: deadline,
-      registrationUrl: `${base}/dashboard/conferences/test-conference/submissions/test-paper?section=registration`,
     },
     'registration.early_bird_ending': {
       paperTitle: 'Deliverability Test Paper',
@@ -360,10 +338,15 @@ async function main(): Promise<void> {
   }
 
   const template = await resolveActiveTemplate(args.organizationId ?? null, args.templateKey);
-  const context = buildSampleContext(args.templateKey, config.webUrl);
-  const subject = renderTemplate(template.subject, context);
-  const html = renderTemplate(template.bodyHtml, context);
-  const text = template.bodyText ? renderTemplate(template.bodyText, context) : undefined;
+  const context = {
+    contactEmail: config.mail.contactEmail,
+    ...buildSampleContext(args.templateKey, config.webUrl),
+  };
+  const subject = renderEmailTemplate(template.subject, context, 'subject');
+  const html = renderEmailTemplate(template.bodyHtml, context, 'html');
+  const text = template.bodyText
+    ? renderEmailTemplate(template.bodyText, context, 'text')
+    : undefined;
   const tags = [args.templateKey, 'mail-test'];
   const logId = generateId();
 

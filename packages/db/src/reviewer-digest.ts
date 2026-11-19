@@ -90,6 +90,7 @@ const escape = (s: string) =>
 export function renderReviewerDigest(
   template: { subject: string; bodyHtml: string; bodyText: string | null },
   data: Pick<ReviewerDigestSnapshot, 'conferenceName' | 'reviewerName' | 'reviewUrl' | 'items'>,
+  options: { contactEmail?: string } = {},
 ) {
   const url = new URL(data.reviewUrl);
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Invalid review link');
@@ -107,6 +108,7 @@ export function renderReviewerDigest(
     conferenceName: data.conferenceName,
     reviewerName: data.reviewerName,
     reviewUrl: data.reviewUrl,
+    contactEmail: options.contactEmail ?? '',
   };
   const scalar = (s: string, html: boolean, includeItems = false) =>
     s.replace(/\{\{(\w+)\}\}/g, (_m, k: string) =>

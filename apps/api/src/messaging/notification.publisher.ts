@@ -1,4 +1,4 @@
-import type { Prisma } from '@openconferences/db';
+import { nameWithoutTitle, type Prisma } from '@openconferences/db';
 import { Injectable, Logger } from '@nestjs/common';
 import { getConfig } from '@openconferences/config/env';
 import {
@@ -13,7 +13,7 @@ import {
   type RegistrationClarificationPayload,
   type RegistrationDiscardedPayload,
   type RegistrationVerificationApprovedPayload,
-  type RegistrationWindowOpenPayload,
+  type RegistrationStudentRateRejectedPayload,
   type ReviewReleasedPayload,
   type ReviewThankYouPayload,
   type ReviewerAssignedPayload,
@@ -30,6 +30,12 @@ export class NotificationPublisher {
   private readonly logger = new Logger(NotificationPublisher.name);
 
   constructor(private readonly notifications: NotificationService) {}
+
+  /** Link to a paper's page, optionally opened on one of its sections. */
+  private paperUrl(conferenceId: string, paperId: string, section?: 'registration'): string {
+    const base = `${getConfig().webUrl.replace(/\/$/, '')}/dashboard/conferences/${conferenceId}/submissions/${paperId}`;
+    return section ? `${base}?section=${section}` : base;
+  }
 
   async publishAuthEmailVerify(payload: AuthEmailVerifyPayload): Promise<void> {
     await this.notifications.enqueue({
@@ -81,6 +87,7 @@ export class NotificationPublisher {
         authorEmail: payload.authorEmail ?? payload.to,
         authorAffiliation: payload.authorAffiliation || '—',
         authorList: payload.authorList ?? payload.authorName ?? '',
+        paperUrl: this.paperUrl(payload.conferenceId, payload.paperId),
       },
       organizationId: payload.organizationId,
       conferenceId: payload.conferenceId,
@@ -97,7 +104,7 @@ export class NotificationPublisher {
       return;
     }
 
-    const paperUrl = `${config.webUrl.replace(/\/$/, '')}/dashboard/conferences/${payload.conferenceId}/submissions/${payload.paperId}`;
+    const paperUrl = this.paperUrl(payload.conferenceId, payload.paperId);
 
     await this.notifications.enqueue({
       templateKey: 'submission.ops_alert',
@@ -107,6 +114,7 @@ export class NotificationPublisher {
         conferenceName: payload.conferenceName,
         authorEmail,
         paperUrl,
+        submissionNumber: payload.submissionNumber || 'Not assigned',
       },
       organizationId: payload.organizationId,
       conferenceId: payload.conferenceId,
@@ -130,6 +138,7 @@ export class NotificationPublisher {
         reason: payload.reason,
         actorName: payload.actorName || 'An author',
         refundNeeded: payload.refundNeeded ? 'Yes' : 'No',
+        paperUrl: this.paperUrl(payload.conferenceId, payload.paperId),
       },
       organizationId: payload.organizationId,
       conferenceId: payload.conferenceId,
@@ -168,7 +177,7 @@ export class NotificationPublisher {
       templateKey: 'assignment.notified',
       to: payload.to,
       context: {
-        reviewerName: payload.reviewerName,
+        reviewerName: nameWithoutTitle(payload.reviewerName) || 'Reviewer',
         conferenceName: payload.conferenceName,
         paperTitle: payload.paperTitle,
         roundNumber: payload.roundNumber,
@@ -190,6 +199,7 @@ export class NotificationPublisher {
     conferenceId: string;
     organizationId: string;
     conferenceName: string;
+    reviewerName?: string | null;
     paperTitle: string;
     dueAt: string;
     assignmentId: string;
@@ -200,6 +210,7 @@ export class NotificationPublisher {
       to: payload.to,
       context: {
         conferenceName: payload.conferenceName,
+        reviewerName: nameWithoutTitle(payload.reviewerName) || 'Reviewer',
         paperTitle: payload.paperTitle,
         dueAt: payload.dueAt,
         reviewUrl: `${getConfig().webUrl.replace(/\/$/, '')}/dashboard/conferences/${payload.conferenceId}/reviews/my-assignments`,
@@ -219,7 +230,7 @@ export class NotificationPublisher {
       templateKey: 'review.thank_you',
       to: payload.to,
       context: {
-        reviewerName: payload.reviewerName,
+        reviewerName: nameWithoutTitle(payload.reviewerName) || 'Reviewer',
         conferenceName: payload.conferenceName,
         paperTitle: payload.paperTitle,
         submissionNumber: payload.submissionNumber,
@@ -237,7 +248,10 @@ export class NotificationPublisher {
     await this.notifications.enqueue({
       templateKey: 'review.released',
       to: payload.to,
-      context: { paperTitle: payload.paperTitle },
+      context: {
+        paperTitle: payload.paperTitle,
+        paperUrl: this.paperUrl(payload.conferenceId, payload.paperId),
+      },
       organizationId: payload.organizationId,
       conferenceId: payload.conferenceId,
       idempotencyKey: payload.idempotencyKey,
@@ -262,9 +276,10 @@ export class NotificationPublisher {
       context: {
         paperTitle: payload.paperTitle,
         conferenceName: payload.conferenceName,
-        authorName: (payload.authorName || 'Author').replace(/^(?:Dr\.?|Prof\.?)\s+/i, ''),
+        authorName: payload.authorName?.trim() || 'Author',
         submissionNumber: payload.submissionNumber || '',
         registrationUrl: payload.registrationUrl,
+        paperUrl: payload.paperUrl ?? '',
         outcomeLabel: payload.outcomeLabel,
         rationaleBlock: payload.rationaleBlock,
         acceptBlock: payload.acceptBlock,
@@ -272,32 +287,13 @@ export class NotificationPublisher {
       organizationId: payload.organizationId,
       conferenceId: payload.conferenceId,
       idempotencyKey: payload.idempotencyKey,
-      replyTo: accepted ? 'icamcds2026@fresi.org' : undefined,
+      replyTo: accepted ? getConfig().mail.contactEmail : undefined,
       tags: [templateKey],
       relatedEntity: 'Decision',
       relatedEntityId: payload.decisionId,
     };
     if (transaction) await this.notifications.enqueue(input, transaction);
     else await this.notifications.enqueue(input);
-  }
-
-  async publishRegistrationWindowOpen(payload: RegistrationWindowOpenPayload): Promise<void> {
-    await this.notifications.enqueue({
-      templateKey: 'registration.window_open',
-      to: payload.to,
-      context: {
-        paperTitle: payload.paperTitle,
-        conferenceName: payload.conferenceName,
-        deadlineAt: payload.deadlineAt,
-        registrationUrl: payload.registrationUrl,
-      },
-      organizationId: payload.organizationId,
-      conferenceId: payload.conferenceId,
-      idempotencyKey: payload.idempotencyKey,
-      tags: ['registration.window_open'],
-      relatedEntity: 'Registration',
-      relatedEntityId: payload.registrationId,
-    });
   }
 
   async publishPaymentCaptured(payload: PaymentCapturedPayload): Promise<void> {
@@ -325,7 +321,10 @@ export class NotificationPublisher {
     await this.notifications.enqueue({
       templateKey: 'registration.verification_approved',
       to: payload.to,
-      context: { paperTitle: payload.paperTitle },
+      context: {
+        paperTitle: payload.paperTitle,
+        registrationUrl: this.paperUrl(payload.conferenceId, payload.paperId, 'registration'),
+      },
       organizationId: payload.organizationId,
       conferenceId: payload.conferenceId,
       idempotencyKey: payload.idempotencyKey,
@@ -339,11 +338,36 @@ export class NotificationPublisher {
     await this.notifications.enqueue({
       templateKey: 'registration.clarification_requested',
       to: payload.to,
-      context: { paperTitle: payload.paperTitle, note: payload.note },
+      context: {
+        paperTitle: payload.paperTitle,
+        note: payload.note,
+        registrationUrl: this.paperUrl(payload.conferenceId, payload.paperId, 'registration'),
+      },
       organizationId: payload.organizationId,
       conferenceId: payload.conferenceId,
       idempotencyKey: payload.idempotencyKey,
       tags: ['registration.clarification_requested'],
+      relatedEntity: 'StudentVerification',
+      relatedEntityId: payload.verificationId,
+    });
+  }
+
+  async publishStudentRateRejected(payload: RegistrationStudentRateRejectedPayload): Promise<void> {
+    await this.notifications.enqueue({
+      templateKey: 'registration.student_rate_rejected',
+      to: payload.to,
+      context: {
+        paperTitle: payload.paperTitle,
+        reason: payload.reason,
+        nextStep: payload.paidInFull
+          ? 'Your payment already covers the regular fee, so no further payment is needed.'
+          : 'Your registration is now at the regular rate. Please review the updated fee before you pay.',
+        registrationUrl: this.paperUrl(payload.conferenceId, payload.paperId, 'registration'),
+      },
+      organizationId: payload.organizationId,
+      conferenceId: payload.conferenceId,
+      idempotencyKey: payload.idempotencyKey,
+      tags: ['registration.student_rate_rejected'],
       relatedEntity: 'StudentVerification',
       relatedEntityId: payload.verificationId,
     });
@@ -357,7 +381,10 @@ export class NotificationPublisher {
       to: payload.to,
       context: {
         paperTitle: payload.paperTitle,
+        reason: payload.reason,
         amountFormatted: payload.amountFormatted,
+        deadlineAt: payload.deadlineAt,
+        registrationUrl: this.paperUrl(payload.conferenceId, payload.paperId, 'registration'),
       },
       organizationId: payload.organizationId,
       conferenceId: payload.conferenceId,
@@ -372,7 +399,10 @@ export class NotificationPublisher {
     await this.notifications.enqueue({
       templateKey: 'registration.discarded',
       to: payload.to,
-      context: { paperTitle: payload.paperTitle },
+      context: {
+        paperTitle: payload.paperTitle,
+        paperUrl: this.paperUrl(payload.conferenceId, payload.paperId),
+      },
       organizationId: payload.organizationId,
       conferenceId: payload.conferenceId,
       idempotencyKey: payload.idempotencyKey,

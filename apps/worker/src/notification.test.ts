@@ -2,7 +2,10 @@ import { it, expect, vi, beforeEach } from 'vitest';
 const fixture = vi.hoisted(() => ({ send: vi.fn(), update: vi.fn().mockResolvedValue({}) }));
 vi.mock('./mailer.js', () => ({ createMailerAdapter: () => ({ send: fixture.send }) }));
 vi.mock('@openconferences/config/env', () => ({
-  getConfig: () => ({ auth: { secret: 'synthetic-worker-mail-secret-1234567890123456' } }),
+  getConfig: () => ({
+    auth: { secret: 'synthetic-worker-mail-secret-1234567890123456' },
+    mail: { contactEmail: 'help@example.test' },
+  }),
 }));
 vi.mock('@openconferences/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@openconferences/db')>()),

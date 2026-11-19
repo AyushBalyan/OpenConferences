@@ -117,6 +117,7 @@ export class DiscardSweepService {
           to: author.email,
           conferenceId: registration.conferenceId,
           organizationId: registration.organizationId,
+          paperId: registration.paperId,
           paperTitle: registration.paper.title,
           registrationId: registration.id,
           idempotencyKey: `registration-discarded-${registration.id}`,
