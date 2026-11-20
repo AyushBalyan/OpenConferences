@@ -64,7 +64,8 @@ const SORTS: Record<
   { label: string; first: 'asc' | 'desc' }
 > = {
   paper: { label: 'Paper', first: 'asc' },
-  submitted: { label: 'Submitted', first: 'desc' },
+  // Same header as every other table that shows this date.
+  submitted: { label: 'Submission date', first: 'desc' },
   registered: { label: 'Registered', first: 'desc' },
   amount: { label: 'Amount', first: 'desc' },
   deadline: { label: 'Deadline', first: 'asc' },
@@ -303,7 +304,7 @@ export default function RegistrationsAllPage() {
         <WorkflowBadge
           label={view.label}
           tone={view.tone}
-          className="w-max max-w-[10.5rem] whitespace-normal rounded-xl text-left leading-snug"
+          className="w-max max-w-[9.5rem] whitespace-normal rounded-xl text-left leading-snug"
         />
         {note ? (
           <span
@@ -378,7 +379,7 @@ export default function RegistrationsAllPage() {
           type="button"
           onClick={() => sortBy(key)}
           className={cn(
-            '-mx-1.5 inline-flex items-center gap-1 whitespace-nowrap rounded px-1.5 py-1 uppercase tracking-[0.1em] hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            '-mx-1.5 inline-flex items-center gap-1 rounded text-left px-1.5 py-1 uppercase tracking-[0.1em] hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             active ? 'text-slate-900' : '',
           )}
         >
