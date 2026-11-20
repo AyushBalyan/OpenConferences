@@ -257,10 +257,12 @@ export async function processReminderSweepJob(
 
       for (const conference of conferences) {
         const feeSchedule = conference.feeSchedule as { earlyBirdEndsAt?: string };
-        const earlyBirdEndsAt = feeSchedule.earlyBirdEndsAt
+        const conferenceEndsAt = feeSchedule.earlyBirdEndsAt
           ? new Date(feeSchedule.earlyBirdEndsAt)
           : null;
-        if (!earlyBirdEndsAt || earlyBirdEndsAt > inThreeDays || earlyBirdEndsAt < now) continue;
+        const endingSoon = (date: Date | null): date is Date =>
+          Boolean(date && date <= inThreeDays && date >= now);
+        const conferenceEndingSoon = endingSoon(conferenceEndsAt);
 
         const registrations = await withTenantContext({}, async (tx) =>
           tx.registration.findMany({
@@ -269,6 +271,10 @@ export async function processReminderSweepJob(
               // Not yet paid and no price locked in: the only ones the early-bird rate can still help.
               status: 'PENDING',
               lockedTiming: null,
+              // Outside the conference's own window, only papers given their own cut-off qualify.
+              ...(conferenceEndingSoon
+                ? {}
+                : { earlyBirdExtendedUntil: { gte: now, lte: inThreeDays } }),
             },
             include: {
               paper: { include: { authorships: true } },
@@ -283,6 +289,14 @@ export async function processReminderSweepJob(
             registration.paper.authorships[0];
           if (!author?.email) continue;
 
+          // A paper's own cut-off applies when it is later than the conference's.
+          const extendedUntil = registration.earlyBirdExtendedUntil;
+          const extended = Boolean(
+            extendedUntil && (!conferenceEndsAt || extendedUntil > conferenceEndsAt),
+          );
+          const earlyBirdEndsAt = extended ? extendedUntil : conferenceEndsAt;
+          if (!endingSoon(earlyBirdEndsAt)) continue;
+
           const sent = await enqueueDirect(boss, {
             templateKey: 'registration.early_bird_ending',
             to: author.email,
@@ -294,7 +308,10 @@ export async function processReminderSweepJob(
             },
             organizationId: registration.organizationId,
             conferenceId: registration.conferenceId,
-            idempotencyKey: `early-bird-${registration.id}`,
+            // A new cut-off earns its own reminder, even if the first one was sent.
+            idempotencyKey: extended
+              ? `early-bird-${registration.id}-${earlyBirdEndsAt.toISOString()}`
+              : `early-bird-${registration.id}`,
             relatedEntity: 'Registration',
             relatedEntityId: registration.id,
           });

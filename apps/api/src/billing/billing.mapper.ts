@@ -29,6 +29,7 @@ export function mapRegistration(reg: Registration): RegistrationDto {
     windowOpensAt: reg.windowOpensAt.toISOString(),
     deadlineAt: reg.deadlineAt.toISOString(),
     additionalGraceUntil: reg.additionalGraceUntil?.toISOString() ?? null,
+    earlyBirdExtendedUntil: reg.earlyBirdExtendedUntil?.toISOString() ?? null,
     createdAt: reg.createdAt.toISOString(),
     updatedAt: reg.updatedAt.toISOString(),
   };

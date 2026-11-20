@@ -18,14 +18,20 @@ import {
   DataTableSkeleton,
 } from '@/components/dashboard/data-table';
 import { downloadCsv } from '@/components/dashboard/analytics/analytics-card';
+import { EarlyBirdDialog } from '@/components/dashboard/registrations/early-bird-dialog';
 import { WorkflowBadge } from '@/components/dashboard/workflow-badge';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
 import { useCursorList } from '@/hooks/dashboard/use-cursor-list';
 import { useIsDesktop } from '@/hooks/dashboard/use-is-desktop';
-import { fetchRegistrations, type RegistrationListStatusFilter } from '@/lib/api-client';
+import {
+  extendEarlyBird,
+  fetchRegistrations,
+  type RegistrationListStatusFilter,
+} from '@/lib/api-client';
 import {
   audienceLabel,
+  earlyBirdNote,
   formatRegistrationMoney,
   isPaidAwaitingStudentApproval,
   isUnpaidRegistration,
@@ -93,6 +99,10 @@ export default function RegistrationsAllPage() {
   const [searchText, setSearchText] = useState(search);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [conferenceEarlyBirdEndsAt, setConferenceEarlyBirdEndsAt] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [extending, setExtending] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const setFilter = useCallback(
     (patch: Record<string, string>) => {
@@ -131,6 +141,8 @@ export default function RegistrationsAllPage() {
         ...(cursor ? { cursor } : {}),
       });
       if (result.summary) setSummary(result.summary);
+      if (result.earlyBirdEndsAt !== undefined)
+        setConferenceEarlyBirdEndsAt(result.earlyBirdEndsAt);
       return { data: result.data, nextCursor: result.nextCursor };
     },
     [conferenceId, filters],
@@ -138,8 +150,53 @@ export default function RegistrationsAllPage() {
   const { items, nextCursor, loading, loadingMore, error, loadMore, refresh } =
     useCursorList<RegistrationRow>({ fetchPage });
   useEffect(() => {
+    // A new view shows other rows, so a selection made in the old one is dropped.
+    setSelected(new Set());
     void refresh();
   }, [refresh]);
+
+  // The early-bird rate can only still change for papers that have not paid.
+  const selectableRows = items.filter((row) => row.status === 'PENDING');
+  const chosen = selectableRows.filter((row) => selected.has(row.id));
+  const allChosen = selectableRows.length > 0 && chosen.length === selectableRows.length;
+  function toggleSelected(id: string) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function saveEarlyBird(earlyBirdEndsAt: string | null) {
+    setSaving(true);
+    try {
+      const result = await extendEarlyBird(conferenceId, {
+        registrationIds: chosen.map((row) => row.id),
+        earlyBirdEndsAt,
+      });
+      const papers = (count: number) => `${count} paper${count === 1 ? '' : 's'}`;
+      const skipped = result.skipped.length
+        ? ` ${papers(result.skipped.length)} left unchanged: ${[
+            ...new Set(result.skipped.map((item) => item.reason.toLowerCase())),
+          ].join('; ')}.`
+        : '';
+      const message = `${
+        earlyBirdEndsAt
+          ? `Early-bird rate extended for ${papers(result.updated.length)}.`
+          : `Early-bird extension removed for ${papers(result.updated.length)}.`
+      }${skipped}`;
+      if (result.updated.length > 0) toast.success(message);
+      else toast.error(message);
+      setExtending(false);
+      setSelected(new Set());
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not change the early-bird date.');
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const filtered = Boolean(status || audience || search);
   // Only the grouped views have a count; an exact status is chosen from the menu.
@@ -170,6 +227,7 @@ export default function RegistrationsAllPage() {
           'Amount',
           'Currency',
           'Deadline',
+          'Early bird extended until',
           'Submitted',
         ],
         ...rows.map((row) => [
@@ -182,6 +240,7 @@ export default function RegistrationsAllPage() {
           (row.amountDueMinor / 100).toFixed(2),
           row.currency,
           row.deadlineAt,
+          row.earlyBirdExtendedUntil ?? '',
           row.paperSubmittedAt ?? '',
         ]),
       ]);
@@ -214,7 +273,35 @@ export default function RegistrationsAllPage() {
   }
   function statusBadge(row: RegistrationRow) {
     const view = registrationStatusView(row.status);
-    return <WorkflowBadge label={view.label} tone={view.tone} />;
+    const note = earlyBirdNote(row, conferenceEarlyBirdEndsAt);
+    return (
+      <>
+        <WorkflowBadge label={view.label} tone={view.tone} />
+        {note ? (
+          <span
+            className={cn(
+              'mt-1.5 block text-xs',
+              note.tone === 'active' ? 'font-medium text-emerald-700' : 'text-slate-500',
+            )}
+          >
+            {note.label}
+          </span>
+        ) : null}
+      </>
+    );
+  }
+  function selectBox(row: RegistrationRow) {
+    if (row.status !== 'PENDING') return null;
+    return (
+      <input
+        type="checkbox"
+        className="size-4 accent-slate-900"
+        checked={selected.has(row.id)}
+        disabled={saving}
+        onChange={() => toggleSelected(row.id)}
+        aria-label={`Select ${row.paperTitle ?? row.paperId}`}
+      />
+    );
   }
   function amount(row: RegistrationRow) {
     const awaitingApproval = isPaidAwaitingStudentApproval(row.status);
@@ -382,6 +469,22 @@ export default function RegistrationsAllPage() {
         <DataTable footer={<DataTableFooter>{countLine}</DataTableFooter>}>
           <DataTableHeader>
             <tr>
+              <DataTableHead className="w-10">
+                <input
+                  type="checkbox"
+                  className="size-4 accent-slate-900"
+                  checked={allChosen}
+                  disabled={saving || selectableRows.length === 0}
+                  onChange={(event) =>
+                    setSelected(
+                      event.target.checked
+                        ? new Set(selectableRows.map((row) => row.id))
+                        : new Set(),
+                    )
+                  }
+                  aria-label="Select all unpaid registrations shown"
+                />
+              </DataTableHead>
               <DataTableHead>Paper</DataTableHead>
               <DataTableHead>Submission date</DataTableHead>
               <DataTableHead>Audience</DataTableHead>
@@ -393,6 +496,7 @@ export default function RegistrationsAllPage() {
           <DataTableBody>
             {items.map((row) => (
               <DataTableRow key={row.id} className="align-top">
+                <DataTableCell>{selectBox(row)}</DataTableCell>
                 <DataTableCell>{paper(row)}</DataTableCell>
                 <DataTableCell>
                   <SubmissionDate value={row.paperSubmittedAt} />
@@ -411,8 +515,13 @@ export default function RegistrationsAllPage() {
             {items.map((row) => (
               <li key={row.id} className="rounded-xl border border-slate-200 bg-white p-4 text-sm">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">{paper(row)}</div>
-                  <div className="shrink-0">{statusBadge(row)}</div>
+                  <div className="flex min-w-0 items-start gap-3">
+                    {row.status === 'PENDING' ? (
+                      <span className="pt-0.5">{selectBox(row)}</span>
+                    ) : null}
+                    <div className="min-w-0">{paper(row)}</div>
+                  </div>
+                  <div className="shrink-0 text-right">{statusBadge(row)}</div>
                 </div>
                 <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-slate-100 pt-3">
                   <div>
@@ -442,6 +551,41 @@ export default function RegistrationsAllPage() {
       )}
       {!loading ? (
         <DataTablePagination nextCursor={nextCursor} onLoadMore={loadMore} loading={loadingMore} />
+      ) : null}
+
+      {chosen.length > 0 ? (
+        <div className="sticky bottom-0 z-20">
+          <div className="flex flex-wrap items-center gap-3 rounded-xl bg-slate-900 p-4 text-white">
+            <span className="text-sm font-medium tabular-nums">{chosen.length} selected</span>
+            <span className="h-5 w-px bg-white/20" />
+            <Button
+              size="sm"
+              className="bg-white text-slate-900 hover:bg-slate-100"
+              disabled={saving}
+              onClick={() => setExtending(true)}
+            >
+              Extend early bird
+            </Button>
+            <button
+              type="button"
+              className="rounded-lg px-2 py-1.5 text-xs text-slate-300 hover:text-white"
+              disabled={saving}
+              onClick={() => setSelected(new Set())}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {extending && chosen.length > 0 ? (
+        <EarlyBirdDialog
+          count={chosen.length}
+          canRemove={chosen.some((row) => Boolean(row.earlyBirdExtendedUntil))}
+          busy={saving}
+          onSubmit={(earlyBirdEndsAt) => void saveEarlyBird(earlyBirdEndsAt)}
+          onCancel={() => setExtending(false)}
+        />
       ) : null}
     </div>
   );

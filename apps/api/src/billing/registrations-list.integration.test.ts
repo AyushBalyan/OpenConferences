@@ -276,6 +276,7 @@ describe.skipIf(!url)('registration list and student verification in real Postgr
       await db.$transaction(async (tx) => {
         await tx.studentVerification.deleteMany({ where: { organizationId: orgId } });
         await tx.fileAsset.deleteMany({ where: { id: fileAssetId } });
+        await tx.payment.deleteMany({ where: { organizationId: orgId } });
         await tx.registration.deleteMany({ where: { conferenceId: { in: conferenceIds } } });
         await tx.paper.deleteMany({ where: { conferenceId: { in: conferenceIds } } });
         await tx.track.deleteMany({ where: { conferenceId: { in: conferenceIds } } });
@@ -362,6 +363,98 @@ describe.skipIf(!url)('registration list and student verification in real Postgr
     await expect(
       registrations.listRegistrations(authorId, conferenceId, ['AUTHOR']),
     ).rejects.toMatchObject({ status: 403 });
+  });
+
+  describe('early-bird extension for selected papers', () => {
+    const extend = (registrationIds: string[], earlyBirdEndsAt: string | null) =>
+      registrations.extendEarlyBird(chairId, conferenceId, { registrationIds, earlyBirdEndsAt }, [
+        'CHAIR',
+      ]);
+    const stored = (key: string) =>
+      db.registration.findUniqueOrThrow({ where: { id: byKey[key]!.id } });
+    const until = new Date(now + 5 * DAY).toISOString();
+
+    it('gives unpaid papers their own cut-off and leaves paid or foreign ones alone', async () => {
+      const result = await extend(
+        [byKey.overdue!.id, byKey.dueSoon!.id, byKey.paid!.id, foreign.id],
+        until,
+      );
+      expect(result.updated.sort()).toEqual([byKey.overdue!.id, byKey.dueSoon!.id].sort());
+      expect(result.skipped).toEqual([
+        { registrationId: byKey.paid!.id, reason: 'Already paid or no longer payable' },
+        { registrationId: foreign.id, reason: 'Registration not found' },
+      ]);
+      expect((await stored('overdue')).earlyBirdExtendedUntil?.toISOString()).toBe(until);
+      expect((await stored('paid')).earlyBirdExtendedUntil).toBeNull();
+      expect(
+        (await db.registration.findUniqueOrThrow({ where: { id: foreign.id } }))
+          .earlyBirdExtendedUntil,
+      ).toBeNull();
+      const listed = (await list()).data.find((row) => row.id === byKey.overdue!.id);
+      expect(listed?.earlyBirdExtendedUntil).toBe(until);
+    });
+
+    it('prices the extended paper at the early rate and the others at the regular rate', async () => {
+      // The conference here has no early-bird date of its own, so only the extension can apply.
+      await db.registration.updateMany({
+        where: { id: { in: [byKey.overdue!.id, byKey.additional!.id] } },
+        data: { billingCountry: 'US' },
+      });
+      const schedule = (await conferences.loadConference()).feeSchedule;
+      const quote = async (key: string) =>
+        registrations.quoteForPayment(authorId, await stored(key), schedule as never);
+      expect(await quote('overdue')).toMatchObject({ timing: 'EARLY', amountMinor: 100 });
+      expect(await quote('additional')).toMatchObject({ timing: 'REGULAR', amountMinor: 200 });
+    });
+
+    it('drops an unpaid checkout that had fixed the regular fee', async () => {
+      const paymentId = randomUUID();
+      await db.registration.update({
+        where: { id: byKey.dueSoon!.id },
+        data: { lockedTiming: 'REGULAR', amountDueMinor: 200, regularAmountDueMinor: 200 },
+      });
+      await db.payment.create({
+        data: {
+          id: paymentId,
+          organizationId: orgId,
+          registrationId: byKey.dueSoon!.id,
+          provider: 'mock',
+          providerOrderId: `order_${tag}`,
+          amountMinor: 200,
+          currency: 'USD',
+          kind: 'INITIAL',
+        },
+      });
+      expect((await extend([byKey.dueSoon!.id], until)).updated).toEqual([byKey.dueSoon!.id]);
+      expect(await stored('dueSoon')).toMatchObject({
+        lockedTiming: null,
+        amountDueMinor: 0,
+        regularAmountDueMinor: null,
+      });
+      expect((await db.payment.findUniqueOrThrow({ where: { id: paymentId } })).status).toBe(
+        'FAILED',
+      );
+    });
+
+    it('removes the extension again', async () => {
+      expect((await extend([byKey.overdue!.id], null)).updated).toEqual([byKey.overdue!.id]);
+      expect((await stored('overdue')).earlyBirdExtendedUntil).toBeNull();
+    });
+
+    it('refuses a date that has passed and anyone who does not coordinate review', async () => {
+      await expect(
+        extend([byKey.overdue!.id], new Date(now - DAY).toISOString()),
+      ).rejects.toMatchObject({ status: 400 });
+      await expect(
+        registrations.extendEarlyBird(
+          authorId,
+          conferenceId,
+          { registrationIds: [byKey.overdue!.id], earlyBirdEndsAt: until },
+          ['AUTHOR'],
+        ),
+      ).rejects.toMatchObject({ status: 403 });
+      expect((await stored('overdue')).earlyBirdExtendedUntil).toBeNull();
+    });
   });
 
   it('lists the verification with the paper it belongs to', async () => {

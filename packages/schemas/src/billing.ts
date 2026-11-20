@@ -73,6 +73,8 @@ export const registrationSchema = z.object({
   windowOpensAt: z.string().datetime(),
   deadlineAt: z.string().datetime(),
   additionalGraceUntil: z.string().datetime().nullable(),
+  /** Early-bird cut-off an organiser granted to this paper alone. */
+  earlyBirdExtendedUntil: z.string().datetime().nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -117,6 +119,8 @@ export const registrationListSchema = z.object({
   nextCursor: z.string().uuid().nullable(),
   /** Returned with the first page only. */
   summary: registrationListSummarySchema.optional(),
+  /** The conference-wide early-bird cut-off. Returned with the first page only. */
+  earlyBirdEndsAt: z.string().datetime().nullable().optional(),
 });
 
 export const registrationListStatusFilterSchema = z.union([
@@ -239,6 +243,21 @@ export const extendDeadlineSchema = z.object({
   version: z.number().int(),
 });
 
+export const EARLY_BIRD_EXTENSION_MAX_REGISTRATIONS = 200;
+
+/** Give selected papers their own early-bird cut-off, or `null` to remove it. */
+export const extendEarlyBirdSchema = z.object({
+  registrationIds: z.array(z.string().uuid()).min(1).max(EARLY_BIRD_EXTENSION_MAX_REGISTRATIONS),
+  earlyBirdEndsAt: z.string().datetime().nullable(),
+});
+
+export const extendEarlyBirdResponseSchema = z.object({
+  /** Ids of the registrations that changed. */
+  updated: z.array(z.string().uuid()),
+  /** Registrations left unchanged, with the reason. */
+  skipped: z.array(z.object({ registrationId: z.string().uuid(), reason: z.string() })),
+});
+
 export const invoiceSchema = z.object({
   id: z.string().uuid(),
   paymentId: z.string().uuid(),
@@ -297,6 +316,8 @@ export type StudentVerificationListDto = z.infer<typeof studentVerificationListS
 export type ReviewVerificationInput = z.infer<typeof reviewVerificationSchema>;
 export type RefundInput = z.infer<typeof refundSchema>;
 export type ExtendDeadlineInput = z.infer<typeof extendDeadlineSchema>;
+export type ExtendEarlyBirdInput = z.infer<typeof extendEarlyBirdSchema>;
+export type ExtendEarlyBirdResponse = z.infer<typeof extendEarlyBirdResponseSchema>;
 export type InvoiceDto = z.infer<typeof invoiceSchema>;
 export type RegistrationDetailDto = z.infer<typeof registrationDetailSchema>;
 export type BillingFeeSchedule = z.infer<typeof billingFeeScheduleSchema>;

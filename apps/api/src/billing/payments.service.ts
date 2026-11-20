@@ -422,6 +422,7 @@ export class PaymentsService {
           locked.lockedTiming,
           event.capturedAt,
           conference.registrationDueAt,
+          locked.earlyBirdExtendedUntil,
         );
         lockedTiming = resolved.lockedTiming;
         amountDueMinor = resolved.amountDueMinor;

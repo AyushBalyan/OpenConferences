@@ -19,6 +19,30 @@ describe('Conference registration pricing', () => {
     });
   });
 
+  it('keeps the early rate for a paper whose own cut-off is later than the conference one', () => {
+    const after = new Date('2026-11-25T00:00:00.000Z');
+    const quote = (extendedUntil: Date | null) =>
+      quoteRegistration(CONFERENCE_2026_FEES, 'REGULAR', 'US', false, after, extendedUntil);
+    expect(quote(null)).toMatchObject({ timing: 'REGULAR', amountMinor: 15000 });
+    expect(quote(new Date('2026-11-30T00:00:00.000Z'))).toMatchObject({
+      timing: 'EARLY',
+      amountMinor: 12500,
+    });
+    // Once the paper's own cut-off passes, the regular rate applies again.
+    expect(quote(new Date('2026-11-24T00:00:00.000Z'))).toMatchObject({ timing: 'REGULAR' });
+    // An extension can never shorten the conference's early-bird period.
+    expect(
+      quoteRegistration(
+        CONFERENCE_2026_FEES,
+        'REGULAR',
+        'US',
+        false,
+        early,
+        new Date('2026-11-01T00:00:00.000Z'),
+      ),
+    ).toMatchObject({ timing: 'EARLY' });
+  });
+
   it('charges $50 for a later accepted paper in either category and time period', () => {
     for (const audience of ['REGULAR', 'STUDENT'] as const) {
       for (const now of [early, regular]) {

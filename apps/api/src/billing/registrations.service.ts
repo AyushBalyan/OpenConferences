@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -10,6 +11,8 @@ import { generateId, withTenantContext } from '@openconferences/db';
 import type {
   CreateRegistrationInput,
   BillingFeeSchedule,
+  ExtendEarlyBirdInput,
+  ExtendEarlyBirdResponse,
   RegistrationDetailDto,
 } from '@openconferences/schemas';
 import {
@@ -25,6 +28,7 @@ import { canCoordinateReview } from '../tenancy/role-hierarchy';
 import { PapersService } from '../submission/papers.service';
 import { mapRegistration } from './billing.mapper';
 import {
+  effectiveEarlyBirdEndsAt,
   getEarlyBirdEndsAt,
   getRegistrationDeadline,
   parseFeeSchedule,
@@ -257,7 +261,10 @@ export class RegistrationsService {
         : null,
       feeSchedule,
       earlyBirdEndsAt:
-        getEarlyBirdEndsAt(feeSchedule, conference.registrationDueAt)?.toISOString() ?? null,
+        effectiveEarlyBirdEndsAt(
+          getEarlyBirdEndsAt(feeSchedule, conference.registrationDueAt),
+          registration.earlyBirdExtendedUntil,
+        )?.toISOString() ?? null,
     };
   }
 
@@ -421,7 +428,13 @@ export class RegistrationsService {
         submissionNumber: row.paper.submissionNumber,
       })),
       nextCursor: page.nextCursor,
-      ...(summary ? { summary } : {}),
+      ...(summary
+        ? {
+            summary,
+            earlyBirdEndsAt:
+              this.conferenceEarlyBirdEndsAt(conference.feeSchedule)?.toISOString() ?? null,
+          }
+        : {}),
     };
   }
 
@@ -480,6 +493,8 @@ export class RegistrationsService {
       registration.audience,
       registration.billingCountry,
       hasPaidBasePaper,
+      new Date(),
+      registration.earlyBirdExtendedUntil,
     );
   }
 
@@ -508,8 +523,12 @@ export class RegistrationsService {
     lockedTiming: Registration['lockedTiming'],
     capturedAt: Date,
     conferenceRegistrationDueAt: Date | null,
+    earlyBirdExtendedUntil: Date | null = null,
   ): { amountDueMinor: number; lockedTiming: Registration['lockedTiming'] } {
-    const earlyBirdEndsAt = getEarlyBirdEndsAt(feeSchedule, conferenceRegistrationDueAt);
+    const earlyBirdEndsAt = effectiveEarlyBirdEndsAt(
+      getEarlyBirdEndsAt(feeSchedule, conferenceRegistrationDueAt),
+      earlyBirdExtendedUntil,
+    );
     const timing = lockedTiming ?? resolveTiming(capturedAt, earlyBirdEndsAt);
 
     return {
@@ -572,6 +591,108 @@ export class RegistrationsService {
       registration: mapRegistration(updated),
       message: 'Registration deadline extended',
     };
+  }
+
+  /** The list must still load for a conference whose fees are not set up yet. */
+  private conferenceEarlyBirdEndsAt(rawFeeSchedule: unknown): Date | null {
+    try {
+      return getEarlyBirdEndsAt(parseFeeSchedule(rawFeeSchedule), null);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Give selected papers their own early-bird cut-off, for papers accepted after
+   * the conference's had passed. Only registrations that have not been paid can
+   * change; the rest are reported back untouched.
+   */
+  async extendEarlyBird(
+    userId: string,
+    conferenceId: string,
+    input: ExtendEarlyBirdInput,
+    roles: RoleKind[],
+  ): Promise<ExtendEarlyBirdResponse> {
+    if (!canCoordinateReview(roles)) {
+      throw new ForbiddenException('Insufficient permissions to extend the early-bird rate');
+    }
+    const until = input.earlyBirdEndsAt ? new Date(input.earlyBirdEndsAt) : null;
+    if (until && until <= new Date()) {
+      throw new BadRequestException('Choose an early-bird date in the future');
+    }
+    const conference = await this.conferences.loadConference(userId, conferenceId, roles);
+    const registrationIds = [...new Set(input.registrationIds)];
+
+    const result = await withTenantContext(
+      { userId, conferenceId, organizationId: conference.organizationId },
+      async (tx) => {
+        const updated: Registration[] = [];
+        const skipped: ExtendEarlyBirdResponse['skipped'] = [];
+        for (const registrationId of registrationIds) {
+          const current = await lockRegistrationForUpdate(tx, registrationId);
+          if (!current || current.conferenceId !== conferenceId) {
+            skipped.push({ registrationId, reason: 'Registration not found' });
+            continue;
+          }
+          if (current.status !== 'PENDING') {
+            skipped.push({ registrationId, reason: 'Already paid or no longer payable' });
+            continue;
+          }
+          const captured = await tx.payment.count({
+            where: {
+              registrationId,
+              status: { in: ['CAPTURED', 'REFUNDED', 'PARTIALLY_REFUNDED'] },
+            },
+          });
+          if (captured) {
+            skipped.push({ registrationId, reason: 'A payment has already been received' });
+            continue;
+          }
+          // An author who opened checkout after the cut-off had the regular fee
+          // fixed. Drop that unpaid checkout so the next one is priced afresh.
+          const repriced = Boolean(until) && current.lockedTiming === 'REGULAR';
+          if (repriced) {
+            await tx.payment.updateMany({
+              where: { registrationId, status: 'CREATED' },
+              data: { status: 'FAILED' },
+            });
+          }
+          updated.push(
+            await tx.registration.update({
+              where: { id: registrationId },
+              data: {
+                earlyBirdExtendedUntil: until,
+                ...(repriced
+                  ? {
+                      lockedTiming: null,
+                      amountDueMinor: 0,
+                      regularAmountDueMinor: null,
+                      isAdditionalPaper: false,
+                    }
+                  : {}),
+                version: { increment: 1 },
+              },
+            }),
+          );
+        }
+        return { updated, skipped };
+      },
+      { timeout: 30000 },
+    );
+
+    for (const registration of result.updated) {
+      await this.audit.log({
+        actorUserId: userId,
+        organizationId: conference.organizationId,
+        conferenceId,
+        action: until ? 'registration.early_bird_extended' : 'registration.early_bird_reset',
+        entity: 'Registration',
+        entityId: registration.id,
+        diff: { earlyBirdExtendedUntil: until?.toISOString() ?? null },
+      });
+    }
+
+    return { updated: result.updated.map((row) => row.id), skipped: result.skipped };
   }
 
   /**

@@ -18,6 +18,8 @@ import {
   reviewVerificationSchema,
   refundSchema,
   extendDeadlineSchema,
+  extendEarlyBirdSchema,
+  extendEarlyBirdResponseSchema,
   invoiceSchema,
   billingActionResponseSchema,
   problemEnvelopeSchema,
@@ -227,6 +229,20 @@ export const billingContract = c.router({
       409: problemEnvelopeSchema,
     },
     summary: 'Extend registration deadline (MFA-gated)',
+  },
+  extendEarlyBird: {
+    method: 'POST',
+    path: '/conferences/:conferenceId/registrations/early-bird-extension',
+    pathParams: conferenceParams,
+    body: extendEarlyBirdSchema,
+    responses: {
+      200: extendEarlyBirdResponseSchema,
+      400: problemEnvelopeSchema,
+      401: problemEnvelopeSchema,
+      403: problemEnvelopeSchema,
+      404: problemEnvelopeSchema,
+    },
+    summary: 'Give selected unpaid registrations their own early-bird cut-off',
   },
 });
 

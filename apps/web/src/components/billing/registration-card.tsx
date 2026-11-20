@@ -621,6 +621,10 @@ export function RegistrationCard({ conferenceId, conferenceName, paperId }: Regi
                   timeZoneName: 'short',
                 })}
                 .
+                {registration.earlyBirdExtendedUntil &&
+                registration.earlyBirdExtendedUntil === earlyBirdEndsAt
+                  ? ' The organisers extended this date for your paper.'
+                  : ''}
                 {registration.lockedTiming
                   ? ` Your ${registration.lockedTiming.toLowerCase()} rate is locked.`
                   : ''}

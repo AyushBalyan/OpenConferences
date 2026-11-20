@@ -115,3 +115,41 @@ export function verificationStatusView(status: string): { label: string; tone: W
       return { label: status.replace(/_/g, ' ').toLowerCase(), tone: 'neutral' };
   }
 }
+
+export type EarlyBirdNote = { label: string; tone: 'active' | 'muted' };
+
+/**
+ * What an organiser should know about the early-bird rate for one unpaid paper:
+ * its own extended date, or that it was accepted too late to get the rate.
+ */
+export function earlyBirdNote(
+  row: {
+    status: string;
+    earlyBirdExtendedUntil?: string | null;
+    windowOpensAt?: string | null;
+  },
+  conferenceEarlyBirdEndsAt: string | null,
+  now: Date = new Date(),
+): EarlyBirdNote | null {
+  if (row.status !== 'PENDING') return null;
+  const extended = row.earlyBirdExtendedUntil ? Date.parse(row.earlyBirdExtendedUntil) : NaN;
+  if (!Number.isNaN(extended)) {
+    const date = new Date(extended).toLocaleString(undefined, {
+      day: 'numeric',
+      month: 'short',
+      // The year only matters when it is not this one.
+      ...(new Date(extended).getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+    return extended > now.getTime()
+      ? { label: `Early bird until ${date}`, tone: 'active' }
+      : { label: `Early-bird extension ended ${date}`, tone: 'muted' };
+  }
+  const conferenceEnds = conferenceEarlyBirdEndsAt ? Date.parse(conferenceEarlyBirdEndsAt) : NaN;
+  const opened = row.windowOpensAt ? Date.parse(row.windowOpensAt) : NaN;
+  if (!Number.isNaN(conferenceEnds) && !Number.isNaN(opened) && opened > conferenceEnds) {
+    return { label: 'Accepted after early bird ended', tone: 'muted' };
+  }
+  return null;
+}

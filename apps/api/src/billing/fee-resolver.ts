@@ -47,6 +47,19 @@ export function getEarlyBirdEndsAt(
   return null;
 }
 
+/**
+ * The early-bird cut-off that applies to one registration: the conference's, or
+ * the later date an organiser granted to that paper.
+ */
+export function effectiveEarlyBirdEndsAt(
+  conferenceEndsAt: Date | null,
+  extendedUntil: Date | null | undefined,
+): Date | null {
+  if (!extendedUntil) return conferenceEndsAt;
+  if (!conferenceEndsAt) return extendedUntil;
+  return extendedUntil > conferenceEndsAt ? extendedUntil : conferenceEndsAt;
+}
+
 export function getRegistrationDeadline(
   feeSchedule: BillingFeeSchedule,
   conferenceRegistrationDueAt: Date | null,
@@ -76,8 +89,12 @@ export function quoteRegistration(
   country: string | null,
   hasPaidBasePaper: boolean,
   now = new Date(),
+  earlyBirdExtendedUntil: Date | null = null,
 ): PaymentQuote {
-  const timing = resolveTiming(now, getEarlyBirdEndsAt(schedule, null));
+  const timing = resolveTiming(
+    now,
+    effectiveEarlyBirdEndsAt(getEarlyBirdEndsAt(schedule, null), earlyBirdExtendedUntil),
+  );
   const isAdditionalPaper = hasPaidBasePaper && schedule.additionalPaperMinor !== undefined;
   let amountMinor = isAdditionalPaper
     ? schedule.additionalPaperMinor!

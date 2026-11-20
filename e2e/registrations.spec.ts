@@ -31,11 +31,15 @@ function fixtures() {
     deadlineAt: new Date(now + (days as number) * DAY).toISOString(),
     billingName,
     billingEmail,
+    // Only the third paper was accepted after the conference early-bird date.
+    windowOpensAt: new Date(now - (index === 2 ? 0 : 30) * DAY).toISOString(),
+    earlyBirdExtendedUntil: null as string | null,
   }));
 }
 
 async function mockApi(page: Page, rows = fixtures()) {
   const requests: URLSearchParams[] = [];
+  const extensions: Array<{ registrationIds: string[]; earlyBirdEndsAt: string | null }> = [];
   const conference = {
     id: conf,
     name: 'Registration test',
@@ -56,7 +60,20 @@ async function mockApi(page: Page, rows = fixtures()) {
     else if (url.pathname.endsWith(`/conferences/${conf}`)) body = conference;
     else if (url.pathname.endsWith('/student-verifications'))
       body = { data: [{ id: 'proof', status: 'PENDING', note: null }], nextCursor: null };
-    else if (url.pathname.endsWith('/registrations')) {
+    else if (url.pathname.endsWith('/registrations/early-bird-extension')) {
+      const input = route.request().postDataJSON() as (typeof extensions)[number];
+      extensions.push(input);
+      const updated: string[] = [];
+      const skipped: Array<{ registrationId: string; reason: string }> = [];
+      for (const registrationId of input.registrationIds) {
+        const target = rows.find((row) => row.id === registrationId);
+        if (target?.status === 'PENDING') {
+          target.earlyBirdExtendedUntil = input.earlyBirdEndsAt;
+          updated.push(registrationId);
+        } else skipped.push({ registrationId, reason: 'Already paid or no longer payable' });
+      }
+      body = { updated, skipped };
+    } else if (url.pathname.endsWith('/registrations')) {
       requests.push(url.searchParams);
       const now = Date.now();
       const status = url.searchParams.get('status');
@@ -91,6 +108,7 @@ async function mockApi(page: Page, rows = fixtures()) {
         ...(offset
           ? {}
           : {
+              earlyBirdEndsAt: new Date(now - DAY).toISOString(),
               summary: {
                 total: rows.length,
                 paid: rows.filter((row) => matches(row, 'paid')).length,
@@ -105,7 +123,7 @@ async function mockApi(page: Page, rows = fixtures()) {
     }
     await route.fulfill({ json: body });
   });
-  return { requests };
+  return { requests, extensions };
 }
 
 const view = (page: Page, name: RegExp) =>
@@ -159,6 +177,65 @@ test('rows show real statuses, money, deadlines and who to contact', async ({ pa
   await expect(row(page, 'Discarded entry')).toContainText('Discarded for non-payment');
   await expect(row(page, 'Cancelled graph study')).not.toContainText('Overdue');
   await page.screenshot({ path: testInfo.outputPath('registrations-desktop.png'), fullPage: true });
+});
+
+test('an organiser extends the early-bird rate for selected unpaid papers', async ({
+  page,
+}, testInfo) => {
+  const { extensions } = await mockApi(page);
+  await page.goto(path);
+
+  const late = row(page, 'Soon-due storage engines');
+  await expect(late).toContainText('Accepted after early bird ended');
+  await expect(row(page, 'Overdue consensus protocols')).not.toContainText('early bird');
+  // Only papers that have not paid can be chosen.
+  await expect(row(page, 'Graph neural routing').getByRole('checkbox')).toHaveCount(0);
+  await expect(row(page, 'Additional payment needed').getByRole('checkbox')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Extend early bird' })).toHaveCount(0);
+
+  await late.getByRole('checkbox', { name: 'Select Soon-due storage engines' }).check();
+  await expect(page.getByText('1 selected')).toBeVisible();
+  await page.getByRole('button', { name: 'Extend early bird' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Extend early-bird rate for 1 paper' });
+  await expect(dialog.getByRole('button', { name: 'Remove extension' })).toHaveCount(0);
+  const until = dialog.getByLabel('Early-bird rate available until');
+  await expect(until).toBeFocused();
+  await expect(until).not.toHaveValue('');
+
+  // A date that has passed is refused before anything is sent.
+  await until.fill('2020-01-01T10:00');
+  await dialog.getByRole('button', { name: 'Extend early bird' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('Choose a date and time in the future.');
+  expect(extensions).toHaveLength(0);
+
+  await until.fill('2099-03-04T17:30');
+  await page.screenshot({ path: testInfo.outputPath('early-bird-dialog.png') });
+  await dialog.getByRole('button', { name: 'Extend early bird' }).click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Early-bird rate extended for 1 paper.' }),
+  ).toBeVisible();
+  expect(extensions).toEqual([
+    { registrationIds: [id(102)], earlyBirdEndsAt: new Date('2099-03-04T17:30').toISOString() },
+  ]);
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByText('1 selected')).toHaveCount(0);
+  await expect(late).toContainText('Early bird until');
+  await expect(late).not.toContainText('Accepted after early bird ended');
+  await page.screenshot({ path: testInfo.outputPath('early-bird-extended.png'), fullPage: true });
+
+  // Select everything shown, then take the extension away again.
+  await page.getByRole('checkbox', { name: 'Select all unpaid registrations shown' }).check();
+  await expect(page.getByText('2 selected')).toBeVisible();
+  await page.getByRole('button', { name: 'Extend early bird' }).click();
+  await page
+    .getByRole('dialog', { name: 'Extend early-bird rate for 2 papers' })
+    .getByRole('button', { name: 'Remove extension' })
+    .click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Early-bird extension removed for 2 papers.' }),
+  ).toBeVisible();
+  expect(extensions[1]).toEqual({ registrationIds: [id(101), id(102)], earlyBirdEndsAt: null });
+  await expect(late).toContainText('Accepted after early bird ended');
 });
 
 test('views, status, audience and search filter through the API and stay in the URL', async ({
@@ -254,7 +331,7 @@ test('export downloads every row of the current view, across pages', async ({ pa
   for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
   const lines = Buffer.concat(chunks).toString('utf8').split('\r\n');
   expect(lines[0]).toBe(
-    'Paper code,Paper,Billing name,Billing email,Audience,Status,Amount,Currency,Deadline,Submitted',
+    'Paper code,Paper,Billing name,Billing email,Audience,Status,Amount,Currency,Deadline,Early bird extended until,Submitted',
   );
   expect(lines).toHaveLength(1 + 3 + 120);
   expect(lines.some((line) => line.startsWith('BULK-7,"Bulk paper, ""quoted"" 7",Bola Ade,'))).toBe(

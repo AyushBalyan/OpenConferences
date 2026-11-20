@@ -1406,6 +1406,20 @@ export async function fetchRegistrations(
   throw new Error('Failed to load registrations');
 }
 
+/** Give selected unpaid registrations their own early-bird cut-off; `null` removes it. */
+export async function extendEarlyBird(
+  conferenceId: string,
+  body: { registrationIds: string[]; earlyBirdEndsAt: string | null },
+) {
+  const result = await apiClient.billing.extendEarlyBird({ params: { conferenceId }, body });
+  if (result.status === 200) return result.body;
+  throw new Error(
+    (result.body && typeof result.body === 'object' && 'detail' in result.body
+      ? String(result.body.detail ?? '')
+      : '') || 'Could not change the early-bird date',
+  );
+}
+
 export async function fetchStudentVerifications(conferenceId: string) {
   const data = await fetchAllPages(async (query) => {
     const result = await apiClient.billing.listStudentVerifications({

@@ -792,30 +792,32 @@ model Decision {
 }
 
 model Registration {
-  id                    String             @id @db.Uuid
-  organizationId        String             @db.Uuid
-  conferenceId          String             @db.Uuid
-  paperId               String             @db.Uuid
-  userId                String?            @db.Uuid
-  audience              FeeAudience
-  lockedTiming          FeeTiming?
-  billingCountry        String?            @db.Char(2)
-  billingName           String?
-  billingEmail          String?
-  billingAddress        String?
-  billingTaxId          String?
-  billingAffiliation    String?
-  isAdditionalPaper     Boolean            @default(false)
-  regularAmountDueMinor Int?
-  amountDueMinor        Int                @default(0)
-  currency              String             @db.Char(3)
-  status                RegistrationStatus @default(PENDING)
-  version               Int                @default(0)
-  windowOpensAt         DateTime           @default(now())
-  deadlineAt            DateTime
-  additionalGraceUntil  DateTime?
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
+  id                     String             @id @db.Uuid
+  organizationId         String             @db.Uuid
+  conferenceId           String             @db.Uuid
+  paperId                String             @db.Uuid
+  userId                 String?            @db.Uuid
+  audience               FeeAudience
+  lockedTiming           FeeTiming?
+  billingCountry         String?            @db.Char(2)
+  billingName            String?
+  billingEmail           String?
+  billingAddress         String?
+  billingTaxId           String?
+  billingAffiliation     String?
+  isAdditionalPaper      Boolean            @default(false)
+  regularAmountDueMinor  Int?
+  amountDueMinor         Int                @default(0)
+  currency               String             @db.Char(3)
+  status                 RegistrationStatus @default(PENDING)
+  version                Int                @default(0)
+  windowOpensAt          DateTime           @default(now())
+  deadlineAt             DateTime
+  additionalGraceUntil   DateTime?
+  /// Organiser-granted early-bird cut-off for this paper; wins when later than the conference's.
+  earlyBirdExtendedUntil DateTime?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
 
   organization         Organization          @relation(fields: [organizationId], references: [id])
   conference           Conference            @relation(fields: [conferenceId], references: [id])

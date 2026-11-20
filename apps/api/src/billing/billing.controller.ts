@@ -216,6 +216,21 @@ export class BillingController {
     });
   }
 
+  @TsRestHandler(billingContract.extendEarlyBird)
+  @RequireReviewCoordination()
+  @RequireMembership()
+  extendEarlyBird(@CurrentUser() user: AuthUser, @RoleGrants() roles: RoleKind[]) {
+    return tsRestHandler(billingContract.extendEarlyBird, async ({ params, body }) => {
+      const result = await this.registrations.extendEarlyBird(
+        user.id,
+        params.conferenceId,
+        body,
+        roles,
+      );
+      return { status: 200 as const, body: result };
+    });
+  }
+
   @TsRestHandler(billingContract.extendRegistrationDeadline)
   @RequireReviewCoordination()
   @RequireMembership()
