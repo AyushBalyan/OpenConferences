@@ -30,6 +30,7 @@ export function mapRegistration(reg: Registration): RegistrationDto {
     deadlineAt: reg.deadlineAt.toISOString(),
     additionalGraceUntil: reg.additionalGraceUntil?.toISOString() ?? null,
     earlyBirdExtendedUntil: reg.earlyBirdExtendedUntil?.toISOString() ?? null,
+    registeredAt: reg.registeredAt?.toISOString() ?? null,
     createdAt: reg.createdAt.toISOString(),
     updatedAt: reg.updatedAt.toISOString(),
   };

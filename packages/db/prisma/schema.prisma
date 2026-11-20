@@ -816,6 +816,8 @@ model Registration {
   additionalGraceUntil   DateTime?
   /// Organiser-granted early-bird cut-off for this paper; wins when later than the conference's.
   earlyBirdExtendedUntil DateTime?
+  /// When the registration fee was first paid.
+  registeredAt           DateTime?
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
 
@@ -830,6 +832,7 @@ model Registration {
   @@index([userId])
   @@index([conferenceId, status])
   @@index([conferenceId, userId, isAdditionalPaper])
+  @@index([conferenceId, registeredAt])
   @@map("registrations")
 }
 

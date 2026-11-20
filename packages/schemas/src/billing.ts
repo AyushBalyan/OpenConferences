@@ -75,6 +75,8 @@ export const registrationSchema = z.object({
   additionalGraceUntil: z.string().datetime().nullable(),
   /** Early-bird cut-off an organiser granted to this paper alone. */
   earlyBirdExtendedUntil: z.string().datetime().nullable().optional(),
+  /** When the registration fee was first paid; null until then. */
+  registeredAt: z.string().datetime().nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -128,7 +130,19 @@ export const registrationListStatusFilterSchema = z.union([
   z.enum(['at-risk', 'overdue', 'unpaid', 'paid']),
 ]);
 
+export const registrationListSortSchema = z.enum([
+  'opened',
+  'paper',
+  'submitted',
+  'registered',
+  'amount',
+  'deadline',
+]);
+
 export const registrationListQuerySchema = cursorPaginationQuerySchema.extend({
+  /** Defaults to newest opened first. */
+  sort: registrationListSortSchema.optional(),
+  direction: z.enum(['asc', 'desc']).optional(),
   status: registrationListStatusFilterSchema.optional(),
   audience: feeAudienceSchema.optional(),
   /** Matches paper title, paper code, billing name or billing email. */
@@ -312,6 +326,7 @@ export type VerifyPaymentInput = z.infer<typeof verifyPaymentSchema>;
 export type PaymentQuote = z.infer<typeof paymentQuoteSchema>;
 export type StudentVerificationDto = z.infer<typeof studentVerificationSchema>;
 export type RegistrationListDto = z.infer<typeof registrationListSchema>;
+export type RegistrationListSort = z.infer<typeof registrationListSortSchema>;
 export type StudentVerificationListDto = z.infer<typeof studentVerificationListSchema>;
 export type ReviewVerificationInput = z.infer<typeof reviewVerificationSchema>;
 export type RefundInput = z.infer<typeof refundSchema>;

@@ -13,11 +13,11 @@ import type {
   BillingFeeSchedule,
   ExtendEarlyBirdInput,
   ExtendEarlyBirdResponse,
+  RegistrationListSort,
   RegistrationDetailDto,
 } from '@openconferences/schemas';
 import {
   paginateItems,
-  prismaCursorArgs,
   resolveLimit,
   type CursorPaginationOptions,
 } from '../common/pagination/cursor';
@@ -37,6 +37,11 @@ import {
   resolveTiming,
 } from './fee-resolver';
 import { lockRegistrationForUpdate } from './paid-state';
+
+type RegistrationListSortOptions = {
+  sort?: RegistrationListSort;
+  direction?: 'asc' | 'desc';
+};
 
 type RegistrationListFilterOptions = {
   status?: Registration['status'] | 'at-risk' | 'overdue' | 'unpaid' | 'paid';
@@ -376,7 +381,9 @@ export class RegistrationsService {
     userId: string,
     conferenceId: string,
     roles: RoleKind[],
-    options: CursorPaginationOptions & RegistrationListFilterOptions = {},
+    options: CursorPaginationOptions &
+      RegistrationListFilterOptions &
+      RegistrationListSortOptions = {},
   ) {
     if (!canCoordinateReview(roles)) {
       throw new ForbiddenException('Insufficient permissions to list registrations');
@@ -389,17 +396,28 @@ export class RegistrationsService {
     const { rows, summary } = await withTenantContext(
       { userId, conferenceId, organizationId: conference.organizationId },
       async (tx) => {
-        const rows = await tx.registration.findMany({
+        // The order is resolved on ids first, then one page of rows is loaded. A plain
+        // database cursor loses rows when the sorted column is empty for some of them.
+        const ordered = await tx.registration.findMany({
           where: {
             conferenceId,
             ...this.buildRegistrationListFilters(options, now),
           },
+          select: { id: true },
+          orderBy: this.registrationListOrder(options),
+        });
+        const start = options.cursor
+          ? ordered.findIndex((row) => row.id === options.cursor) + 1
+          : 0;
+        const pageIds = ordered.slice(start, start + limit + 1).map((row) => row.id);
+        const loaded = await tx.registration.findMany({
+          where: { id: { in: pageIds }, conferenceId },
           include: {
             paper: { select: { title: true, submittedAt: true, submissionNumber: true } },
           },
-          orderBy: { createdAt: 'desc' },
-          ...prismaCursorArgs(options, limit),
         });
+        const byId = new Map(loaded.map((row) => [row.id, row]));
+        const rows = pageIds.flatMap((id) => byId.get(id) ?? []);
         // Counts describe the whole conference, so they are only needed once per list.
         if (options.cursor) return { rows, summary: undefined };
         const count = (status?: RegistrationListFilterOptions['status']) =>
@@ -591,6 +609,28 @@ export class RegistrationsService {
       registration: mapRegistration(updated),
       message: 'Registration deadline extended',
     };
+  }
+
+  /** Rows with no value for the sorted column always come last; ties fall back to newest. */
+  private registrationListOrder(
+    options: RegistrationListSortOptions,
+  ): Prisma.RegistrationOrderByWithRelationInput[] {
+    const sort = options.sort ?? 'opened';
+    const direction = options.direction ?? (sort === 'paper' ? 'asc' : 'desc');
+    const nullable = { sort: direction, nulls: 'last' as const };
+    const primary: Record<RegistrationListSort, Prisma.RegistrationOrderByWithRelationInput> = {
+      opened: { createdAt: direction },
+      paper: { paper: { title: direction } },
+      submitted: { paper: { submittedAt: nullable } },
+      registered: { registeredAt: nullable },
+      amount: { amountDueMinor: direction },
+      deadline: { deadlineAt: direction },
+    };
+    return [
+      primary[sort],
+      ...(sort === 'opened' ? [] : [{ createdAt: 'desc' as const }]),
+      { id: 'asc' },
+    ];
   }
 
   /** The list must still load for a conference whose fees are not set up yet. */

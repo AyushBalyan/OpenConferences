@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Download, Search, X } from 'lucide-react';
-import type { RegistrationListDto } from '@openconferences/schemas';
+import { ArrowDown, ArrowUp, ChevronsUpDown, Download, Search, X } from 'lucide-react';
+import type { RegistrationListDto, RegistrationListSort } from '@openconferences/schemas';
 import { SubmissionDate } from '@/components/dashboard/submission-date';
 import {
   DataTable,
@@ -58,6 +58,18 @@ const VIEWS = [
     tone: 'text-sky-700',
   },
 ] as const;
+/** Columns the list can be ordered by, with the direction a first click gives. */
+const SORTS: Record<
+  Exclude<RegistrationListSort, 'opened'>,
+  { label: string; first: 'asc' | 'desc' }
+> = {
+  paper: { label: 'Paper', first: 'asc' },
+  submitted: { label: 'Submitted', first: 'desc' },
+  registered: { label: 'Registered', first: 'desc' },
+  amount: { label: 'Amount', first: 'desc' },
+  deadline: { label: 'Deadline', first: 'asc' },
+};
+type SortKey = keyof typeof SORTS;
 const VIEW_STATUSES = new Set<string>(VIEWS.map((view) => view.status));
 const STATUS_VALUES = new Set<string>([
   ...VIEWS.map((view) => view.status),
@@ -96,6 +108,13 @@ export default function RegistrationsAllPage() {
   const audience: '' | 'REGULAR' | 'STUDENT' =
     audienceParam === 'REGULAR' || audienceParam === 'STUDENT' ? audienceParam : '';
   const search = searchParams.get('q') ?? '';
+  const sortParam = searchParams.get('sort') ?? '';
+  const sort: SortKey | '' = sortParam in SORTS ? (sortParam as SortKey) : '';
+  const direction: 'asc' | 'desc' = sort
+    ? searchParams.get('dir') === 'asc' || searchParams.get('dir') === 'desc'
+      ? (searchParams.get('dir') as 'asc' | 'desc')
+      : SORTS[sort].first
+    : 'desc';
   const [searchText, setSearchText] = useState(search);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -130,8 +149,9 @@ export default function RegistrationsAllPage() {
       ...(status ? { status: status as RegistrationListStatusFilter } : {}),
       ...(audience ? { audience } : {}),
       ...(search ? { search } : {}),
+      ...(sort ? { sort, direction } : {}),
     }),
-    [status, audience, search],
+    [status, audience, search, sort, direction],
   );
   const fetchPage = useCallback(
     async (cursor?: string) => {
@@ -199,6 +219,7 @@ export default function RegistrationsAllPage() {
   }
 
   const filtered = Boolean(status || audience || search);
+  // Sorting is not a filter: it does not change which rows match.
   // Only the grouped views have a count; an exact status is chosen from the menu.
   const exactStatus = status in REGISTRATION_STATUS && !VIEW_STATUSES.has(status) ? status : '';
 
@@ -227,6 +248,7 @@ export default function RegistrationsAllPage() {
           'Amount',
           'Currency',
           'Deadline',
+          'Registration date',
           'Early bird extended until',
           'Submitted',
         ],
@@ -240,6 +262,7 @@ export default function RegistrationsAllPage() {
           (row.amountDueMinor / 100).toFixed(2),
           row.currency,
           row.deadlineAt,
+          row.registeredAt ?? '',
           row.earlyBirdExtendedUntil ?? '',
           row.paperSubmittedAt ?? '',
         ]),
@@ -276,7 +299,12 @@ export default function RegistrationsAllPage() {
     const note = earlyBirdNote(row, conferenceEarlyBirdEndsAt);
     return (
       <>
-        <WorkflowBadge label={view.label} tone={view.tone} />
+        {/* Long statuses wrap inside the pill so every column fits a laptop screen. */}
+        <WorkflowBadge
+          label={view.label}
+          tone={view.tone}
+          className="w-max max-w-[10.5rem] whitespace-normal rounded-xl text-left leading-snug"
+        />
         {note ? (
           <span
             className={cn(
@@ -323,6 +351,41 @@ export default function RegistrationsAllPage() {
                 : 'Registration fee'}
         </span>
       </>
+    );
+  }
+  function registered(row: RegistrationRow) {
+    return row.registeredAt ? (
+      <time dateTime={row.registeredAt} className="whitespace-nowrap tabular-nums text-slate-700">
+        {displayDate(row.registeredAt)}
+      </time>
+    ) : (
+      <span className="text-xs text-slate-500">Not registered</span>
+    );
+  }
+  /** A first click sorts by the column; a second reverses it. */
+  function sortBy(key: SortKey) {
+    const next = sort === key ? (direction === 'asc' ? 'desc' : 'asc') : SORTS[key].first;
+    setFilter({ sort: key, dir: next });
+  }
+  function sortableHead(key: SortKey) {
+    const active = sort === key;
+    const Icon = !active ? ChevronsUpDown : direction === 'asc' ? ArrowUp : ArrowDown;
+    return (
+      <DataTableHead
+        ariaSort={active ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+      >
+        <button
+          type="button"
+          onClick={() => sortBy(key)}
+          className={cn(
+            '-mx-1.5 inline-flex items-center gap-1 whitespace-nowrap rounded px-1.5 py-1 uppercase tracking-[0.1em] hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            active ? 'text-slate-900' : '',
+          )}
+        >
+          {SORTS[key].label}
+          <Icon className={cn('size-3.5', active ? '' : 'text-slate-400')} aria-hidden />
+        </button>
+      </DataTableHead>
     );
   }
   function deadline(row: RegistrationRow) {
@@ -426,6 +489,30 @@ export default function RegistrationsAllPage() {
           <option value="REGULAR">Regular</option>
           <option value="STUDENT">Student</option>
         </select>
+        {/* On a phone there are no column headers to click, so sorting gets a menu. */}
+        {!isDesktop ? (
+          <select
+            aria-label="Sort registrations"
+            className={CONTROL}
+            value={sort ? `${sort}:${direction}` : ''}
+            onChange={(event) => {
+              const [key = '', dir = ''] = event.target.value.split(':');
+              setFilter({ sort: key, dir });
+            }}
+          >
+            <option value="">Newest first</option>
+            <option value="registered:desc">Registration date, newest</option>
+            <option value="registered:asc">Registration date, oldest</option>
+            <option value="submitted:desc">Submission date, newest</option>
+            <option value="submitted:asc">Submission date, oldest</option>
+            <option value="deadline:asc">Deadline, soonest</option>
+            <option value="deadline:desc">Deadline, latest</option>
+            <option value="amount:desc">Amount, highest</option>
+            <option value="amount:asc">Amount, lowest</option>
+            <option value="paper:asc">Paper, A to Z</option>
+            <option value="paper:desc">Paper, Z to A</option>
+          </select>
+        ) : null}
         {filtered ? (
           <Button
             variant="outline"
@@ -485,12 +572,13 @@ export default function RegistrationsAllPage() {
                   aria-label="Select all unpaid registrations shown"
                 />
               </DataTableHead>
-              <DataTableHead>Paper</DataTableHead>
-              <DataTableHead>Submission date</DataTableHead>
+              {sortableHead('paper')}
+              {sortableHead('submitted')}
               <DataTableHead>Audience</DataTableHead>
               <DataTableHead>Status</DataTableHead>
-              <DataTableHead>Amount</DataTableHead>
-              <DataTableHead>Deadline</DataTableHead>
+              {sortableHead('amount')}
+              {sortableHead('registered')}
+              {sortableHead('deadline')}
             </tr>
           </DataTableHeader>
           <DataTableBody>
@@ -504,6 +592,7 @@ export default function RegistrationsAllPage() {
                 <DataTableCell>{audienceLabel(row.audience)}</DataTableCell>
                 <DataTableCell>{statusBadge(row)}</DataTableCell>
                 <DataTableCell>{amount(row)}</DataTableCell>
+                <DataTableCell>{registered(row)}</DataTableCell>
                 <DataTableCell>{deadline(row)}</DataTableCell>
               </DataTableRow>
             ))}
@@ -531,6 +620,10 @@ export default function RegistrationsAllPage() {
                   <div>
                     <dt className="text-xs text-slate-500">Deadline</dt>
                     <dd className="mt-1">{deadline(row)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-slate-500">Registration date</dt>
+                    <dd className="mt-1">{registered(row)}</dd>
                   </div>
                   <div>
                     <dt className="text-xs text-slate-500">Audience</dt>

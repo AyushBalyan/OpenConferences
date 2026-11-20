@@ -359,6 +359,82 @@ describe.skipIf(!url)('registration list and student verification in real Postgr
     );
   });
 
+  describe('sorting', () => {
+    const order = async (options: Parameters<typeof list>[0]) =>
+      (await list(options)).data.map(
+        (row) => fixtures.find((fixture) => fixture.id === row.id)?.key,
+      );
+
+    beforeAll(async () => {
+      // Two paid on different days; the rest have no registration date.
+      await db.registration.update({
+        where: { id: byKey.paid!.id },
+        data: { registeredAt: new Date(now - 9 * DAY) },
+      });
+      await db.registration.update({
+        where: { id: byKey.student!.id },
+        data: { registeredAt: new Date(now - 2 * DAY) },
+      });
+    });
+
+    it('returns the registration date and sorts by it, unregistered papers last either way', async () => {
+      const listed = (await list()).data;
+      expect(listed.find((row) => row.id === byKey.paid!.id)?.registeredAt).toBe(
+        new Date(now - 9 * DAY).toISOString(),
+      );
+      expect(listed.find((row) => row.id === byKey.overdue!.id)?.registeredAt).toBeNull();
+
+      // Ties among the unregistered fall back to newest opened first.
+      const unregistered = ['overdue', 'dueSoon', 'cancelled', 'additional'];
+      expect(await order({ sort: 'registered' })).toEqual(['student', 'paid', ...unregistered]);
+      expect(await order({ sort: 'registered', direction: 'asc' })).toEqual([
+        'paid',
+        'student',
+        ...unregistered,
+      ]);
+    });
+
+    it('sorts by deadline and by paper title', async () => {
+      expect(await order({ sort: 'deadline', direction: 'asc' })).toEqual([
+        'paid',
+        'cancelled',
+        'overdue',
+        'dueSoon',
+        'additional',
+        'student',
+      ]);
+      expect(await order({ sort: 'paper' })).toEqual([
+        'additional',
+        'cancelled',
+        'paid',
+        'overdue',
+        'dueSoon',
+        'student',
+      ]);
+    });
+
+    it('pages through a sorted, filtered list without losing or repeating rows', async () => {
+      const options = { sort: 'registered', direction: 'asc', limit: 2 } as const;
+      const seen: string[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await list({ ...options, ...(cursor ? { cursor } : {}) });
+        seen.push(...page.data.map((row) => row.id));
+        cursor = page.nextCursor ?? undefined;
+      } while (cursor);
+      expect(seen).toEqual(
+        ['paid', 'student', 'overdue', 'dueSoon', 'cancelled', 'additional'].map(
+          (key) => byKey[key]!.id,
+        ),
+      );
+      expect(await order({ sort: 'registered', status: 'unpaid' })).toEqual([
+        'overdue',
+        'dueSoon',
+        'additional',
+      ]);
+    });
+  });
+
   it('is limited to roles that coordinate review', async () => {
     await expect(
       registrations.listRegistrations(authorId, conferenceId, ['AUTHOR']),

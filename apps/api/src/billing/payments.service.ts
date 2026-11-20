@@ -442,6 +442,8 @@ export class PaymentsService {
         data: {
           lockedTiming: lockedTiming ?? locked.lockedTiming,
           amountDueMinor: payment.kind === 'INITIAL' ? amountDueMinor : locked.amountDueMinor,
+          // The registration date is the first payment, not a later top-up.
+          registeredAt: locked.registeredAt ?? event.capturedAt,
           version: { increment: 1 },
         },
       });

@@ -1396,6 +1396,8 @@ export async function fetchRegistrations(
     status?: RegistrationListStatusFilter;
     audience?: 'REGULAR' | 'STUDENT';
     search?: string;
+    sort?: import('@openconferences/schemas').RegistrationListSort;
+    direction?: 'asc' | 'desc';
   },
 ) {
   const result = await apiClient.billing.listRegistrations({

@@ -34,6 +34,13 @@ function fixtures() {
     // Only the third paper was accepted after the conference early-bird date.
     windowOpensAt: new Date(now - (index === 2 ? 0 : 30) * DAY).toISOString(),
     earlyBirdExtendedUntil: null as string | null,
+    // Paid on different days; the unpaid ones have no registration date.
+    registeredAt:
+      status === 'PAID'
+        ? '2026-11-02T09:00:00Z'
+        : status === 'AWAITING_VERIFICATION'
+          ? '2026-11-12T09:00:00Z'
+          : null,
   }));
 }
 
@@ -100,6 +107,15 @@ async function mockApi(page: Page, rows = fixtures()) {
               (value) => value?.toLowerCase().includes(search),
             )),
       );
+      if (url.searchParams.get('sort') === 'registered') {
+        const sign = url.searchParams.get('direction') === 'asc' ? 1 : -1;
+        // Unregistered rows stay last in either direction, as the API does.
+        data.sort((a, b) =>
+          a.registeredAt && b.registeredAt
+            ? sign * (Date.parse(a.registeredAt) - Date.parse(b.registeredAt))
+            : Number(!a.registeredAt) - Number(!b.registeredAt),
+        );
+      }
       const offset = Number(url.searchParams.get('cursor') ?? 0);
       const limit = Number(url.searchParams.get('limit') ?? 50);
       body = {
@@ -238,6 +254,53 @@ test('an organiser extends the early-bird rate for selected unpaid papers', asyn
   await expect(late).toContainText('Accepted after early bird ended');
 });
 
+test('the registration date is shown and the list sorts from its column headers', async ({
+  page,
+}, testInfo) => {
+  const { requests } = await mockApi(page);
+  await page.goto(path);
+  const titles = () => page.getByRole('row').getByRole('link').allTextContents();
+  const header = (name: string) => page.getByRole('columnheader', { name });
+
+  await expect(row(page, 'Graph neural routing')).toContainText('Nov 2, 2026');
+  await expect(row(page, 'Overdue consensus protocols')).toContainText('Not registered');
+  await expect(header('Registered')).toHaveAttribute('aria-sort', 'none');
+  expect(requests.at(-1)?.get('sort')).toBeNull();
+
+  // First click: newest registration first, with unregistered papers after them.
+  await header('Registered').getByRole('button').click();
+  await expect(page).toHaveURL(/sort=registered&dir=desc/);
+  await expect(header('Registered')).toHaveAttribute('aria-sort', 'descending');
+  await expect.poll(titles).toEqual(expect.arrayContaining(['Graph neural routing']));
+  await expect
+    .poll(async () => (await titles()).slice(0, 2))
+    .toEqual(['Student verification pending', 'Graph neural routing']);
+  expect(requests.at(-1)?.get('sort')).toBe('registered');
+  expect(requests.at(-1)?.get('direction')).toBe('desc');
+  await page.screenshot({ path: testInfo.outputPath('registrations-sorted.png'), fullPage: true });
+
+  // Second click reverses it; another column takes over the sort.
+  await header('Registered').getByRole('button').click();
+  await expect(header('Registered')).toHaveAttribute('aria-sort', 'ascending');
+  await expect
+    .poll(async () => (await titles()).slice(0, 2))
+    .toEqual(['Graph neural routing', 'Student verification pending']);
+  await header('Deadline').getByRole('button').click();
+  await expect(page).toHaveURL(/sort=deadline&dir=asc/);
+  await expect(header('Registered')).toHaveAttribute('aria-sort', 'none');
+  expect(requests.at(-1)?.get('sort')).toBe('deadline');
+
+  // The order is part of the link, and a phone sorts from a menu instead.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${path}?sort=registered&dir=asc`);
+  const menu = page.getByRole('combobox', { name: 'Sort registrations' });
+  await expect(menu).toHaveValue('registered:asc');
+  await expect(page.getByRole('listitem').first()).toContainText('Graph neural routing');
+  await expect(page.getByRole('listitem').first()).toContainText('Nov 2, 2026');
+  await menu.selectOption('deadline:asc');
+  await expect(page).toHaveURL(/sort=deadline&dir=asc/);
+});
+
 test('views, status, audience and search filter through the API and stay in the URL', async ({
   page,
 }) => {
@@ -331,7 +394,7 @@ test('export downloads every row of the current view, across pages', async ({ pa
   for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
   const lines = Buffer.concat(chunks).toString('utf8').split('\r\n');
   expect(lines[0]).toBe(
-    'Paper code,Paper,Billing name,Billing email,Audience,Status,Amount,Currency,Deadline,Early bird extended until,Submitted',
+    'Paper code,Paper,Billing name,Billing email,Audience,Status,Amount,Currency,Deadline,Registration date,Early bird extended until,Submitted',
   );
   expect(lines).toHaveLength(1 + 3 + 120);
   expect(lines.some((line) => line.startsWith('BULK-7,"Bulk paper, ""quoted"" 7",Bola Ade,'))).toBe(

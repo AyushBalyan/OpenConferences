@@ -42,12 +42,16 @@ export function DataTableRow({
 export function DataTableHead({
   children,
   className,
+  ariaSort,
 }: {
   children: React.ReactNode;
   className?: string;
+  /** Set on a column the table can be sorted by. */
+  ariaSort?: 'ascending' | 'descending' | 'none';
 }) {
   return (
     <th
+      aria-sort={ariaSort}
       className={cn(
         'px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500',
         className,
