@@ -1,13 +1,16 @@
 import 'dart:async';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_client.dart';
 import '../../core/providers.dart';
+import '../../core/settings.dart';
 import '../../models/registration.dart';
 import '../../theme/esn_theme.dart';
 import '../../widgets/common.dart';
+import '../shell/tab_header.dart';
 
 /// Label and color for a registration, kept inside the site palette.
 (String, Color) registrationBadge(BuildContext context, Registration r) {
@@ -65,10 +68,24 @@ class _RegistrationsScreenState extends ConsumerState<RegistrationsScreen> {
     setState(() {});
   }
 
+  void _open(Registration registration, DateTime? earlyBirdEndsAt) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (_) => RegistrationDetailSheet(
+        registration: registration,
+        conferenceEarlyBirdEndsAt: earlyBirdEndsAt,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(registrationListProvider);
     final notifier = ref.read(registrationListProvider.notifier);
+    final insets = MediaQuery.paddingOf(context);
     final summary = state.summary;
     final filters = <(String, String?, int?)>[
       ('All', null, summary?.total),
@@ -82,10 +99,13 @@ class _RegistrationsScreenState extends ConsumerState<RegistrationsScreen> {
         summary?.awaitingVerification,
       ),
     ];
+    const physics = AlwaysScrollableScrollPhysics(
+      parent: BouncingScrollPhysics(),
+    );
 
     Widget body;
     if (state.loading && state.items.isEmpty) {
-      body = const Center(child: CircularProgressIndicator());
+      body = const LoadingState();
     } else if (state.error != null && state.items.isEmpty) {
       body = ErrorState(
         error: state.error!,
@@ -94,9 +114,9 @@ class _RegistrationsScreenState extends ConsumerState<RegistrationsScreen> {
       );
     } else if (state.items.isEmpty) {
       body = ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
+        physics: physics,
         children: const [
-          SizedBox(height: 80),
+          SizedBox(height: 60),
           EmptyState(
             title: 'No registrations match',
             body: 'Try another filter or clear the search.',
@@ -106,16 +126,16 @@ class _RegistrationsScreenState extends ConsumerState<RegistrationsScreen> {
     } else {
       body = ListView.separated(
         controller: _scroll,
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
+        physics: physics,
+        padding: EdgeInsets.fromLTRB(16, 6, 16, insets.bottom + 24),
         itemCount: state.items.length + 1,
-        separatorBuilder: (_, _) => const SizedBox(height: 8),
+        separatorBuilder: (_, _) => const SizedBox(height: 10),
         itemBuilder: (context, index) {
           if (index == state.items.length) {
             if (state.loadingMore) {
               return const Padding(
-                padding: EdgeInsets.all(12),
-                child: Center(child: CircularProgressIndicator()),
+                padding: EdgeInsets.all(14),
+                child: LoadingState(),
               );
             }
             return Padding(
@@ -133,108 +153,137 @@ class _RegistrationsScreenState extends ConsumerState<RegistrationsScreen> {
           final registration = state.items[index];
           return _RegistrationTile(
             registration: registration,
-            onTap: () => showModalBottomSheet<void>(
-              context: context,
-              isScrollControlled: true,
-              showDragHandle: true,
-              builder: (_) => RegistrationDetailSheet(
-                registration: registration,
-                conferenceEarlyBirdEndsAt: state.earlyBirdEndsAt,
-              ),
-            ),
+            onTap: () => _open(registration, state.earlyBirdEndsAt),
           );
         },
       );
     }
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _search,
-                  onChanged: _onSearch,
-                  textInputAction: TextInputAction.search,
-                  decoration: InputDecoration(
-                    hintText: 'Paper, name or email',
-                    prefixIcon: const Icon(Icons.search, size: 20),
-                    suffixIcon: _search.text.isEmpty
-                        ? null
-                        : IconButton(
-                            tooltip: 'Clear search',
-                            icon: const Icon(Icons.close, size: 18),
-                            onPressed: () {
-                              _search.clear();
-                              _onSearch('');
-                            },
-                          ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              PopupMenuButton<RegistrationSort>(
-                tooltip: 'Sort',
-                initialValue: state.query.sort,
-                onSelected: (sort) =>
-                    notifier.setQuery(state.query.copyWith(sort: sort)),
-                itemBuilder: (_) => [
-                  for (final sort in RegistrationSort.values)
-                    PopupMenuItem(value: sort, child: Text(sort.label)),
-                ],
-                child: Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: context.esn.card,
-                    border: Border.all(color: context.esn.line),
-                    borderRadius: BorderRadius.circular(Esn.radius),
-                  ),
-                  child: const Icon(Icons.sort, size: 20),
-                ),
-              ),
-            ],
+    return Padding(
+      padding: EdgeInsets.only(top: insets.top),
+      child: Column(
+        children: [
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: TabHeader(title: 'Registrations'),
           ),
-        ),
-        SizedBox(
-          height: 40,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            itemCount: filters.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 6),
-            itemBuilder: (context, index) {
-              final (label, status, count) = filters[index];
-              final selected = state.query.status == status;
-              return _FilterChip(
-                label: count == null ? label : '$label $count',
-                selected: selected,
-                onTap: () => notifier.setQuery(
-                  state.query.copyWith(status: () => status),
-                ),
-              );
-            },
-          ),
-        ),
-        if (state.loading && state.items.isNotEmpty)
-          const LinearProgressIndicator(minHeight: 2),
-        if (state.error != null && state.items.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
-            child: Text(
-              state.error!.message,
-              style: context.text.bodySmall?.copyWith(
-                color: context.scheme.tertiary,
-              ),
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _search,
+                    onChanged: _onSearch,
+                    textInputAction: TextInputAction.search,
+                    style: context.text.bodyLarge?.copyWith(fontSize: 16),
+                    decoration: InputDecoration(
+                      hintText: 'Paper, name or email',
+                      prefixIcon: Icon(
+                        CupertinoIcons.search,
+                        size: 19,
+                        color: context.esn.muted,
+                      ),
+                      prefixIconConstraints: const BoxConstraints(
+                        minWidth: 42,
+                        minHeight: 44,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                      suffixIcon: _search.text.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: 'Clear search',
+                              icon: Icon(
+                                CupertinoIcons.xmark_circle_fill,
+                                size: 18,
+                                color: context.esn.muted,
+                              ),
+                              onPressed: () {
+                                _search.clear();
+                                _onSearch('');
+                              },
+                            ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                PopupMenuButton<RegistrationSort>(
+                  tooltip: 'Sort',
+                  initialValue: state.query.sort,
+                  position: PopupMenuPosition.under,
+                  onSelected: (sort) =>
+                      notifier.setQuery(state.query.copyWith(sort: sort)),
+                  itemBuilder: (_) => [
+                    for (final sort in RegistrationSort.values)
+                      PopupMenuItem(value: sort, child: Text(sort.label)),
+                  ],
+                  child: Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      color: context.esn.fill,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      CupertinoIcons.arrow_up_arrow_down,
+                      size: 18,
+                      color: context.scheme.onSurface,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-        const SizedBox(height: 4),
-        Expanded(
-          child: RefreshIndicator(onRefresh: notifier.refresh, child: body),
-        ),
-      ],
+          SizedBox(
+            height: 38,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: filters.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (context, index) {
+                final (label, status, count) = filters[index];
+                final selected = state.query.status == status;
+                return _FilterChip(
+                  label: count == null ? label : '$label $count',
+                  selected: selected,
+                  onTap: () => notifier.setQuery(
+                    state.query.copyWith(status: () => status),
+                  ),
+                );
+              },
+            ),
+          ),
+          SizedBox(
+            height: 10,
+            child: state.loading && state.items.isNotEmpty
+                ? const Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16),
+                      child: LinearProgressIndicator(
+                        minHeight: 2,
+                        borderRadius: BorderRadius.all(Radius.circular(2)),
+                      ),
+                    ),
+                  )
+                : null,
+          ),
+          if (state.error != null && state.items.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
+              child: Text(
+                state.error!.message,
+                style: context.text.bodySmall?.copyWith(
+                  color: context.scheme.tertiary,
+                ),
+              ),
+            ),
+          Expanded(
+            child: RefreshIndicator(onRefresh: notifier.refresh, child: body),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -251,23 +300,22 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final primary = context.scheme.primary;
-    return Center(
-      child: Material(
-        color: selected ? primary : context.esn.card,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(Esn.radius),
-          side: BorderSide(color: selected ? primary : context.esn.line),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    return Material(
+      color: selected ? context.scheme.primary : context.esn.card,
+      shape: const StadiumBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Center(
             child: Text(
               label,
               style: context.text.labelMedium?.copyWith(
-                color: selected ? context.scheme.onPrimary : context.esn.muted,
+                fontSize: 14,
+                color: selected
+                    ? context.scheme.onPrimary
+                    : context.scheme.onSurface,
               ),
             ),
           ),
@@ -277,81 +325,91 @@ class _FilterChip extends StatelessWidget {
   }
 }
 
-class _RegistrationTile extends StatelessWidget {
+class _RegistrationTile extends ConsumerWidget {
   const _RegistrationTile({required this.registration, required this.onTap});
   final Registration registration;
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final r = registration;
     final (label, color) = registrationBadge(context, r);
-    final details = [
-      money(r.amountDueMinor, r.currency),
-      if (r.audience == 'STUDENT') 'student',
-    ].join(' · ');
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 11, 14, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    final who = r.billingName ?? r.billingEmail ?? 'No billing details yet';
+    final tags = [
+      if (r.isEarlyBird) ('Early bird', context.scheme.tertiary),
+      if (r.audience == 'STUDENT') ('Student', context.scheme.secondary),
+    ];
+    return Panel(
+      radius: Esn.tileRadius,
+      padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
+      onTap: onTap,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  r.paperTitle ?? 'Untitled paper',
+                  style: context.text.titleMedium,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${r.submissionNumber ?? 'No paper number'} · $who',
+                  style: context.text.bodySmall,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (tags.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    spacing: 10,
+                    children: [
+                      for (final (tag, tagColor) in tags)
+                        Text(
+                          tag,
+                          style: context.text.labelMedium?.copyWith(
+                            color: tagColor,
+                            fontSize: 12,
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      r.submissionNumber ?? 'No paper number',
-                      style: context.text.bodySmall,
-                    ),
-                  ),
-                  StatusChip(label, color),
-                ],
-              ),
-              const SizedBox(height: 5),
               Text(
-                r.paperTitle ?? 'Untitled paper',
-                style: context.text.titleMedium,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+                ref.watch(moneyProvider).format(r.amountDueMinor, r.currency),
+                style: context.text.labelLarge,
               ),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      r.billingName ??
-                          r.billingEmail ??
-                          'No billing details yet',
-                      style: context.text.bodySmall,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(details, style: context.text.bodySmall),
-                  if (r.isEarlyBird) ...[
-                    Text(' · ', style: context.text.bodySmall),
-                    Text(
-                      'early bird',
-                      style: context.text.bodySmall?.copyWith(
-                        color: context.scheme.tertiary,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+              const SizedBox(height: 7),
+              StatusChip(label, color),
             ],
           ),
-        ),
+          const SizedBox(width: 4),
+          Padding(
+            padding: const EdgeInsets.only(top: 14),
+            child: Icon(
+              CupertinoIcons.chevron_right,
+              size: 14,
+              color: context.esn.muted.withValues(alpha: 0.6),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class RegistrationDetailSheet extends StatelessWidget {
+class RegistrationDetailSheet extends ConsumerWidget {
   const RegistrationDetailSheet({
     super.key,
     required this.registration,
@@ -361,7 +419,7 @@ class RegistrationDetailSheet extends StatelessWidget {
   final DateTime? conferenceEarlyBirdEndsAt;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final r = registration;
     final (label, color) = registrationBadge(context, r);
     final extended = r.earlyBirdExtendedUntil;
@@ -372,83 +430,121 @@ class RegistrationDetailSheet extends StatelessWidget {
         ? extended
         : conferenceEarlyBirdEndsAt;
 
-    Widget row(String name, String? value) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 7),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 118,
-            child: Text(name, style: context.text.bodySmall),
+    Widget group(String title, List<(String, String?)> rows) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 22, 16, 8),
+          child: Eyebrow(title),
+        ),
+        Panel(
+          radius: Esn.tileRadius,
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              for (final (index, (name, value)) in rows.indexed) ...[
+                if (index > 0) const Divider(indent: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 13,
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(name, style: context.text.bodyMedium),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Text(
+                          value ?? 'Not provided',
+                          textAlign: TextAlign.end,
+                          style: context.text.bodyMedium?.copyWith(
+                            color: context.esn.muted,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
           ),
-          Expanded(
-            child: Text(
-              value ?? 'Not provided',
-              style: value == null
-                  ? context.text.bodySmall
-                  : context.text.bodyMedium,
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
 
     return SafeArea(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
                     r.submissionNumber ?? 'No paper number',
-                    style: context.text.bodySmall,
+                    style: context.text.labelMedium?.copyWith(
+                      color: context.esn.muted,
+                    ),
                   ),
-                ),
-                StatusChip(label, color),
-              ],
+                  const SizedBox(height: 4),
+                  Text(
+                    r.paperTitle ?? 'Untitled paper',
+                    style: context.text.titleLarge,
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          ref
+                              .watch(moneyProvider)
+                              .format(r.amountDueMinor, r.currency),
+                          style: context.text.displaySmall,
+                        ),
+                      ),
+                      StatusChip(label, color),
+                    ],
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              r.paperTitle ?? 'Untitled paper',
-              style: context.text.titleLarge,
-            ),
-            const SizedBox(height: 16),
-            const Eyebrow('Fee'),
-            row('Amount', money(r.amountDueMinor, r.currency)),
-            row('Audience', humanize(r.audience)),
-            row(
-              'Rate',
-              r.lockedTiming == null
-                  ? 'Not locked yet'
-                  : humanize(r.lockedTiming!),
-            ),
-            if (r.isAdditionalPaper)
-              row('Paper', 'Additional paper by the same author'),
-            const Divider(height: 24),
-            const Eyebrow('Dates'),
-            row(
-              'Paid on',
-              r.registeredAt == null
-                  ? 'Not paid yet'
-                  : shortDate(r.registeredAt),
-            ),
-            row('Deadline', shortDate(r.deadlineAt)),
-            row(
-              'Early bird ends',
-              earlyBirdEnds == null
-                  ? 'No early-bird rate'
-                  : '${shortDate(earlyBirdEnds)}${identical(earlyBirdEnds, extended) ? ' (extended for this paper)' : ''}',
-            ),
-            const Divider(height: 24),
-            const Eyebrow('Billing'),
-            row('Name', r.billingName),
-            row('Email', r.billingEmail),
-            row('Affiliation', r.billingAffiliation),
-            row('Country', r.billingCountry),
+            group('Fee', [
+              ('Audience', humanize(r.audience)),
+              (
+                'Rate',
+                r.lockedTiming == null
+                    ? 'Not locked yet'
+                    : humanize(r.lockedTiming!),
+              ),
+              if (r.isAdditionalPaper)
+                ('Paper', 'Additional paper by the same author'),
+            ]),
+            group('Dates', [
+              (
+                'Paid on',
+                r.registeredAt == null
+                    ? 'Not paid yet'
+                    : shortDate(r.registeredAt),
+              ),
+              ('Deadline', shortDate(r.deadlineAt)),
+              (
+                'Early bird ends',
+                earlyBirdEnds == null
+                    ? 'No early-bird rate'
+                    : '${shortDate(earlyBirdEnds)}${identical(earlyBirdEnds, extended) ? ' (extended for this paper)' : ''}',
+              ),
+            ]),
+            group('Billing', [
+              ('Name', r.billingName),
+              ('Email', r.billingEmail),
+              ('Affiliation', r.billingAffiliation),
+              ('Country', r.billingCountry),
+            ]),
           ],
         ),
       ),

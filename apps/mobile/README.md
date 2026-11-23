@@ -53,9 +53,20 @@ flutter test
 Debug builds may use plain `http://`, so the emulator can reach a local API at
 `http://10.0.2.2:3001`. Release builds accept `https://` only.
 
+## Demo with sample data
+
+To look at the app without a server or a key, build it with sample data. This runs it in Chrome:
+
+```bash
+flutter run -d chrome --dart-define=DEMO=true
+```
+
+The flag swaps in `lib/demo/demo.dart`, which never touches the network or the phone's key storage.
+Builds without the flag are unaffected.
+
 ## Layout
 
-- `lib/theme/esn_theme.dart`: colors and type taken from esn-press.com.
+- `lib/theme/esn_theme.dart`: the ConfKit palette, type and rounded shapes.
 - `lib/core/`: API client, key storage and Riverpod providers.
 - `lib/models/`: JSON models for the two endpoints.
 - `lib/features/`: setup screen, tab shell and the three tabs.

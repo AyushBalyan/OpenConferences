@@ -2,28 +2,37 @@ import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/settings.dart';
 import '../../models/analytics.dart';
 import '../../theme/esn_theme.dart';
 import '../../widgets/common.dart';
 import '../overview/overview_screen.dart';
 
-class AnalyticsScreen extends StatelessWidget {
+class AnalyticsScreen extends ConsumerWidget {
   const AnalyticsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final money = ref.watch(moneyProvider);
     return OverviewLoader(
+      title: 'Analytics',
       builder: (context, data) {
+        Widget note(String text) => Text(text, style: context.text.bodySmall);
+        Widget figure(String text) => Text(
+          text,
+          style: context.text.labelLarge?.copyWith(
+            color: context.scheme.primary,
+          ),
+        );
+
         final sections = <Widget>[
           if (data.submissionsByDay.length > 1)
             SectionCard(
               title: 'Submissions by day',
-              trailing: Text(
-                '${data.submissionsTotal} total',
-                style: context.text.bodySmall,
-              ),
+              trailing: note('${data.submissionsTotal} total'),
               child: _SubmissionsChart(days: data.submissionsByDay),
             ),
           if (data.submissionsByStatus.isNotEmpty)
@@ -36,27 +45,16 @@ class AnalyticsScreen extends StatelessWidget {
             ),
           SectionCard(
             title: 'Review progress',
-            trailing: Text(
-              '${data.reviewsAssigned} assigned',
-              style: context.text.bodySmall,
-            ),
+            trailing: note('${data.reviewsAssigned} assigned'),
             child: _ReviewProgress(data: data),
           ),
           SectionCard(
             title: 'Decisions',
             trailing: data.decisionsTotal == 0
                 ? null
-                : Text(
-                    '${(data.acceptRate * 100).round()}% accepted',
-                    style: context.text.labelLarge?.copyWith(
-                      color: context.scheme.primary,
-                    ),
-                  ),
+                : figure('${(data.acceptRate * 100).round()}% accepted'),
             child: data.decisionsByOutcome.isEmpty
-                ? Text(
-                    'No decisions recorded yet.',
-                    style: context.text.bodySmall,
-                  )
+                ? note('No decisions recorded yet.')
                 : _Bars(
                     counts: data.decisionsByOutcome,
                     color: context.scheme.secondary,
@@ -65,10 +63,7 @@ class AnalyticsScreen extends StatelessWidget {
           if (data.registrationsByStatus.isNotEmpty)
             SectionCard(
               title: 'Registrations by status',
-              trailing: Text(
-                '${data.registrationsTotal} total',
-                style: context.text.bodySmall,
-              ),
+              trailing: note('${data.registrationsTotal} total'),
               child: _Bars(
                 counts: data.registrationsByStatus,
                 color: context.scheme.primary,
@@ -79,11 +74,8 @@ class AnalyticsScreen extends StatelessWidget {
               title: data.revenueReports.length > 1
                   ? 'Revenue in ${report.currency}'
                   : 'Revenue',
-              trailing: Text(
-                money(report.revenueMinor, report.currency),
-                style: context.text.labelLarge?.copyWith(
-                  color: context.scheme.primary,
-                ),
+              trailing: figure(
+                money.format(report.revenueMinor, report.currency),
               ),
               child: _Revenue(report: report),
             ),
@@ -99,7 +91,7 @@ class AnalyticsScreen extends StatelessWidget {
         ];
         return [
           for (final (index, section) in sections.indexed) ...[
-            if (index > 0) const SizedBox(height: 10),
+            if (index > 0) const SizedBox(height: 12),
             section,
           ],
         ];
@@ -153,58 +145,82 @@ class _ReviewProgress extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(2),
-          child: SizedBox(
-            height: 12,
-            child: Row(
-              children: [
-                for (final p in parts)
-                  if (p.$2 > 0)
-                    Expanded(
-                      flex: p.$2,
-                      child: ColoredBox(color: p.$3),
-                    ),
-              ],
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              '${(data.reviewsSubmitted / total * 100).round()}%',
+              style: context.text.headlineSmall,
             ),
+            const SizedBox(width: 6),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text('complete', style: context.text.bodySmall),
+            ),
+            const Spacer(),
+            if (data.reviewsOverdue > 0)
+              StatusChip(
+                '${data.reviewsOverdue} overdue',
+                context.scheme.tertiary,
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 12,
+          child: Row(
+            spacing: 3,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final p in parts)
+                if (p.$2 > 0)
+                  Expanded(
+                    flex: p.$2,
+                    child: DecoratedBox(
+                      decoration: ShapeDecoration(
+                        color: p.$3,
+                        shape: const StadiumBorder(),
+                      ),
+                    ),
+                  ),
+            ],
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 14),
         Wrap(
-          spacing: 14,
+          spacing: 16,
           runSpacing: 6,
           children: [
             for (final p in parts)
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(width: 9, height: 9, color: p.$3),
-                  const SizedBox(width: 5),
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: p.$3,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
                   Text('${p.$1} ${p.$2}', style: context.text.bodySmall),
                 ],
               ),
           ],
         ),
-        if (data.reviewsOverdue > 0) ...[
-          const SizedBox(height: 10),
-          Text(
-            '${data.reviewsOverdue} overdue',
-            style: context.text.labelLarge?.copyWith(
-              color: context.scheme.tertiary,
-            ),
-          ),
-        ],
       ],
     );
   }
 }
 
-class _Revenue extends StatelessWidget {
+class _Revenue extends ConsumerWidget {
   const _Revenue({required this.report});
   final RevenueReport report;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final money = ref.watch(moneyProvider);
     Widget group(String title, List<Amount> amounts, Color color) {
       final max = amounts.fold<int>(
         0,
@@ -213,11 +229,12 @@ class _Revenue extends StatelessWidget {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: context.text.bodySmall),
+          Eyebrow(title),
+          const SizedBox(height: 2),
           for (final a in amounts)
             BarRow(
               label: humanize(a.name),
-              value: money(a.amountMinor, report.currency),
+              value: money.format(a.amountMinor, report.currency),
               fraction: max == 0 ? 0 : a.amountMinor.abs() / max,
               color: color,
             ),
@@ -234,7 +251,7 @@ class _Revenue extends StatelessWidget {
         if (report.byTiming.isNotEmpty)
           group('By fee timing', report.byTiming, context.scheme.tertiary),
         if (report.byTiming.isNotEmpty && report.byAudience.isNotEmpty)
-          const SizedBox(height: 10),
+          const SizedBox(height: 14),
         if (report.byAudience.isNotEmpty)
           group('By audience', report.byAudience, context.scheme.primary),
       ],
@@ -258,32 +275,47 @@ class _SubmissionsChart extends StatelessWidget {
     return Column(
       children: [
         SizedBox(
-          height: 130,
+          height: 150,
           child: LineChart(
             LineChartData(
               minY: 0,
               maxY: math.max(1, maxY * 1.15),
               gridData: FlGridData(
                 drawVerticalLine: false,
-                getDrawingHorizontalLine: (_) => FlLine(
-                  color: context.esn.line,
-                  strokeWidth: 1,
-                  dashArray: [3, 4],
-                ),
+                getDrawingHorizontalLine: (_) =>
+                    FlLine(color: context.esn.line, strokeWidth: 0.7),
               ),
-              borderData: FlBorderData(
-                show: true,
-                border: Border(bottom: BorderSide(color: context.esn.line)),
-              ),
+              borderData: FlBorderData(show: false),
               titlesData: const FlTitlesData(show: false),
               lineTouchData: LineTouchData(
+                getTouchedSpotIndicator: (_, indexes) => [
+                  for (final _ in indexes)
+                    TouchedSpotIndicatorData(
+                      FlLine(color: color.withValues(alpha: 0.3)),
+                      FlDotData(
+                        getDotPainter: (_, _, _, _) => FlDotCirclePainter(
+                          radius: 5,
+                          color: color,
+                          strokeWidth: 3,
+                          strokeColor: context.esn.card,
+                        ),
+                      ),
+                    ),
+                ],
                 touchTooltipData: LineTouchTooltipData(
-                  getTooltipColor: (_) => Esn.forestDark,
+                  getTooltipColor: (_) => context.scheme.onSurface,
+                  tooltipBorderRadius: BorderRadius.circular(12),
+                  tooltipPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
                   getTooltipItems: (spots) => [
                     for (final s in spots)
                       LineTooltipItem(
-                        '${label(s.x.toInt())}: ${s.y.toInt()}',
-                        const TextStyle(color: Colors.white, fontSize: 12),
+                        '${label(s.x.toInt())}  ${s.y.toInt()}',
+                        context.text.labelMedium!.copyWith(
+                          color: context.esn.card,
+                        ),
                       ),
                   ],
                 ),
@@ -295,18 +327,28 @@ class _SubmissionsChart extends StatelessWidget {
                       FlSpot(i.toDouble(), d.count.toDouble()),
                   ],
                   color: color,
-                  barWidth: 2,
+                  barWidth: 3,
+                  isCurved: true,
+                  preventCurveOverShooting: true,
+                  isStrokeCapRound: true,
                   dotData: const FlDotData(show: false),
                   belowBarData: BarAreaData(
                     show: true,
-                    color: color.withValues(alpha: 0.10),
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        color.withValues(alpha: 0.28),
+                        color.withValues(alpha: 0),
+                      ],
+                    ),
                   ),
                 ),
               ],
             ),
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 8),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [

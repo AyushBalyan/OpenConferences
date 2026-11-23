@@ -1,5 +1,6 @@
 import 'package:conference_ops/core/api_client.dart';
 import 'package:conference_ops/core/providers.dart';
+import 'package:conference_ops/core/settings.dart';
 import 'package:conference_ops/features/analytics/analytics_screen.dart';
 import 'package:conference_ops/main.dart';
 import 'package:flutter/material.dart';
@@ -13,6 +14,8 @@ Future<void> pumpApp(
   required MemoryStore store,
   required FakeApi api,
   DateTime Function()? clock,
+  SettingsStore? settings,
+  Future<Map<String, double>> Function()? rates,
 }) async {
   tester.view.physicalSize = const Size(1080, 2400);
   tester.view.devicePixelRatio = 2.625;
@@ -23,6 +26,10 @@ Future<void> pumpApp(
         credentialStoreProvider.overrideWithValue(store),
         apiFactoryProvider.overrideWithValue((_) => api),
         if (clock != null) clockProvider.overrideWithValue(clock),
+        if (settings != null) settingsStoreProvider.overrideWithValue(settings),
+        ratesFetcherProvider.overrideWithValue(
+          rates ?? () async => throw StateError('no network in tests'),
+        ),
       ],
       child: const ConferenceOpsApp(useGoogleFonts: false),
     ),
@@ -60,7 +67,7 @@ void main() {
 
     expect(store.value?.baseUrl, 'https://api.example.test/api/v1');
     expect(find.text('ADDOPT 2026'), findsOneWidget);
-    expect(find.text('Needs attention'.toUpperCase()), findsOneWidget);
+    expect(find.text('Needs attention'), findsOneWidget);
   });
 
   testWidgets('a rejected key stays on setup with a plain message', (
@@ -120,11 +127,11 @@ void main() {
     await pumpApp(tester, store: MemoryStore(testCredentials), api: FakeApi());
     await tester.tap(find.text('Analytics').last);
     await tester.pumpAndSettle();
-    expect(find.text('SUBMISSIONS BY DAY'), findsOneWidget);
-    expect(find.text('REVIEW PROGRESS'), findsOneWidget);
+    expect(find.text('Submissions by day'), findsOneWidget);
+    expect(find.text('Review progress'), findsOneWidget);
     expect(find.text('Under review'), findsOneWidget);
     await tester.scrollUntilVisible(
-      find.text('TOP INSTITUTIONS'),
+      find.text('Top institutions'),
       300,
       scrollable: find
           .descendant(
@@ -134,7 +141,7 @@ void main() {
           .first,
     );
     expect(find.text('IIT Delhi'), findsOneWidget);
-    expect(find.text('REVENUE'), findsOneWidget);
+    expect(find.text('Revenue'), findsOneWidget);
   });
 
   testWidgets(
@@ -240,6 +247,94 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.queries, hasLength(2));
     expect(find.text('Sparse solvers for hazard maps'), findsOneWidget);
+  });
+
+  Brightness brightness(WidgetTester tester) =>
+      Theme.of(tester.element(find.text('Settings').first)).brightness;
+
+  testWidgets('the theme choice applies at once and survives a restart', (
+    tester,
+  ) async {
+    final settings = MemorySettingsStore();
+    await pumpApp(
+      tester,
+      store: MemoryStore(testCredentials),
+      api: FakeApi(),
+      settings: settings,
+    );
+    expect(brightness(tester), Brightness.light);
+
+    await tester.tap(find.text('Settings').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Dark'));
+    await tester.pumpAndSettle();
+    expect(brightness(tester), Brightness.dark);
+
+    // A fresh app over the same storage, as after closing and reopening.
+    await tester.pumpWidget(const SizedBox());
+    await pumpApp(
+      tester,
+      store: MemoryStore(testCredentials),
+      api: FakeApi(),
+      settings: settings,
+    );
+    expect(brightness(tester), Brightness.dark);
+  });
+
+  testWidgets('a display currency converts amounts and survives a restart', (
+    tester,
+  ) async {
+    final settings = MemorySettingsStore();
+    var fetches = 0;
+    Future<Map<String, double>> rates() async {
+      fetches++;
+      return {'USD': 1, 'INR': 80};
+    }
+
+    await pumpApp(
+      tester,
+      store: MemoryStore(testCredentials),
+      api: FakeApi(),
+      settings: settings,
+      rates: rates,
+    );
+    expect(find.text('₹640K'), findsOneWidget);
+    expect(fetches, 0, reason: 'no rates are needed until a currency is set');
+
+    await tester.tap(find.text('Settings').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('US dollar'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Overview').last);
+    await tester.pumpAndSettle();
+    expect(find.text('≈ \$8K'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    await pumpApp(
+      tester,
+      store: MemoryStore(testCredentials),
+      api: FakeApi(),
+      settings: settings,
+      rates: rates,
+    );
+    expect(find.text('≈ \$8K'), findsOneWidget);
+    expect(fetches, 1, reason: 'saved rates are reused while fresh');
+  });
+
+  testWidgets('without exchange rates amounts stay as recorded', (
+    tester,
+  ) async {
+    final settings = MemorySettingsStore()..values['display_currency'] = 'USD';
+    await pumpApp(
+      tester,
+      store: MemoryStore(testCredentials),
+      api: FakeApi(),
+      settings: settings,
+    );
+    expect(find.text('₹640K'), findsOneWidget);
+    await tester.tap(find.text('Settings').last);
+    await tester.pumpAndSettle();
+    expect(find.textContaining("Couldn't load exchange rates"), findsOneWidget);
   });
 
   testWidgets('a revoked key leads back to setup', (tester) async {
