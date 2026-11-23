@@ -29,6 +29,9 @@ import { ReviewCoordinationService } from '../review/coordination.service';
 import { CoiCheckService } from '../review/coi-check.service';
 import { RoundsService } from '../review/rounds.service';
 import { AuditService } from '../audit/audit.service';
+import { AnalyticsService } from '../analytics/analytics.service';
+import { RegistrationsService } from '../billing/registrations.service';
+import { PapersService } from '../submission/papers.service';
 import { NotificationPublisher } from '../messaging/notification.publisher';
 import { IntegrationLimiter } from './integration.limiter';
 import { BotReadController, IntegrationManagementController } from './integration.controllers';
@@ -351,6 +354,10 @@ describe('Bot API HTTP + actual PostgreSQL RLS + Redis', () => {
       providers: [
         IntegrationStore,
         BotReadService,
+        AnalyticsService,
+        RegistrationsService,
+        // Only author-side registration actions use it; the bot list never does.
+        { provide: PapersService, useValue: {} },
         BotWriteService,
         BotInvitationsService,
         InvitationsService,
