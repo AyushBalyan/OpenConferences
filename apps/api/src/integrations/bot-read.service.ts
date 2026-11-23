@@ -10,7 +10,12 @@ import type {
   IntegrationScope,
   BotPaperDto,
   BotReviewerInvitation,
+  BotAnalyticsOverview,
+  BotRegistrationQuery,
 } from '@openconferences/schemas';
+import type { RoleKind } from '@openconferences/db';
+import { AnalyticsService } from '../analytics/analytics.service';
+import { RegistrationsService } from '../billing/registrations.service';
 import { minimumReviewsFromConfig } from '../review/review-stage';
 import { IntegrationStore } from './integration.store';
 import { decodeCursor, encodeCursor, type IntegrationPrincipal } from './integration.security';
@@ -31,6 +36,11 @@ type Work = {
   overdue: boolean;
 };
 const active = ['SUBMITTED', 'UNDER_REVIEW', 'DECISION_MADE', 'CAMERA_READY'] as const;
+/**
+ * A key only authenticates while its authorizer still holds a coordinating role, so the
+ * organizer services can be asked on that person's behalf with the lowest such role.
+ */
+const AUTHORIZER_ROLES: RoleKind[] = ['CHAIR'];
 const zero = () => ({
   assigned: 0,
   submitted: 0,
@@ -45,7 +55,11 @@ const zero = () => ({
 });
 @Injectable()
 export class BotReadService {
-  constructor(private readonly store: IntegrationStore) {}
+  constructor(
+    private readonly store: IntegrationStore,
+    private readonly analytics: AnalyticsService,
+    private readonly registrationList: RegistrationsService,
+  ) {}
   require(p: IntegrationPrincipal, ...scopes: IntegrationScope[]) {
     if (scopes.some((s) => !p.scopes.includes(s)))
       throw new ForbiddenException('Missing required read scope');
@@ -561,6 +575,44 @@ export class BotReadService {
         meta: this.meta(q, now, 1),
       };
     });
+  }
+  async analyticsOverview(p: IntegrationPrincipal): Promise<BotAnalyticsOverview> {
+    this.require(p, 'analytics:read');
+    const {
+      revenueMinor,
+      revenueConversion,
+      revenueByTiming,
+      revenueByAudience,
+      currencyReports,
+      ...overview
+    } = await this.analytics.getOverview(p.userId, p.conferenceId, AUTHORIZER_ROLES);
+    return {
+      ...overview,
+      authors: p.scopes.includes('authors:read') ? overview.authors : [],
+      reviews: {
+        ...overview.reviews,
+        reviewerLoad: p.scopes.includes('reviewers:identity:read')
+          ? overview.reviews.reviewerLoad
+          : [],
+      },
+      ...(p.scopes.includes('finance:read')
+        ? { revenueMinor, revenueConversion, revenueByTiming, revenueByAudience, currencyReports }
+        : {}),
+    };
+  }
+  async registrations(p: IntegrationPrincipal, q: BotRegistrationQuery) {
+    this.require(p, 'registrations:read');
+    const list = await this.registrationList.listRegistrations(
+      p.userId,
+      p.conferenceId,
+      AUTHORIZER_ROLES,
+      q,
+    );
+    // Postal addresses and tax ids are not part of this scope.
+    return {
+      ...list,
+      data: list.data.map((row) => ({ ...row, billingAddress: null, billingTaxId: null })),
+    };
   }
   capabilities(p: IntegrationPrincipal) {
     return {

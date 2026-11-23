@@ -62,7 +62,9 @@
                           "invitations:read",
                           "invitations:write",
                           "invitations:responses:read",
-                          "analytics:read"
+                          "analytics:read",
+                          "finance:read",
+                          "registrations:read"
                         ]
                       }
                     },
@@ -7151,6 +7153,1419 @@
         }
       }
     },
+    "/integrations/v1/conferences/{conferenceId}/analytics/overview": {
+      "get": {
+        "description": "Required scopes: analytics:read. Supported filters: none. The organizer analytics overview. Revenue fields need finance:read; the author ranking needs authors:read and the reviewer load ranking needs reviewers:identity:read, otherwise they are empty. No pagination. Unsupported fields/non-default filters return 400. Read lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. Read history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 409 operation or invitation-state conflict; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
+        "tags": [],
+        "parameters": [
+          {
+            "name": "conferenceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "operationId": "analyticsOverview",
+        "responses": {
+          "200": {
+            "description": "200",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "conferenceId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "submissions": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "excluded": {
+                          "default": {
+                            "draft": 0,
+                            "withdrawn": 0
+                          },
+                          "type": "object",
+                          "properties": {
+                            "draft": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "withdrawn": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "required": ["draft", "withdrawn"]
+                        },
+                        "byStatus": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "DRAFT",
+                                  "SUBMITTED",
+                                  "UNDER_REVIEW",
+                                  "DECISION_MADE",
+                                  "CAMERA_READY",
+                                  "WITHDRAWN",
+                                  "WITHDRAWN_NONPAYMENT"
+                                ]
+                              },
+                              "count": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": ["status", "count"]
+                          }
+                        },
+                        "byDay": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "date": {
+                                "type": "string"
+                              },
+                              "count": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": ["date", "count"]
+                          }
+                        }
+                      },
+                      "required": ["total", "byStatus", "byDay"]
+                    },
+                    "reviews": {
+                      "type": "object",
+                      "properties": {
+                        "assigned": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "completed": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "notStarted": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "draft": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "submitted": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "overdue": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "closedIncomplete": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "inconsistent": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "underCoveredPapers": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "reviewerLoad": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string"
+                              },
+                              "id": {
+                                "type": "string"
+                              },
+                              "count": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": ["name", "count"]
+                          }
+                        }
+                      },
+                      "required": [
+                        "assigned",
+                        "completed",
+                        "notStarted",
+                        "draft",
+                        "submitted",
+                        "overdue",
+                        "underCoveredPapers",
+                        "reviewerLoad"
+                      ]
+                    },
+                    "decisions": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "acceptRate": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        "byOutcome": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "outcome": {
+                                "type": "string",
+                                "enum": ["ACCEPT", "REJECT", "MINOR_REVISION", "MAJOR_REVISION"]
+                              },
+                              "count": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": ["outcome", "count"]
+                          }
+                        }
+                      },
+                      "required": ["total", "acceptRate", "byOutcome"]
+                    },
+                    "registrations": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "paid": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "unpaid": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "atRisk": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "overdue": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "byStatus": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "PENDING",
+                                  "AWAITING_VERIFICATION",
+                                  "ADDITIONAL_PAYMENT_REQUIRED",
+                                  "PAID",
+                                  "CANCELLED",
+                                  "REFUNDED",
+                                  "DISCARDED_NONPAYMENT"
+                                ]
+                              },
+                              "count": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": ["status", "count"]
+                          }
+                        }
+                      },
+                      "required": ["total", "paid", "unpaid", "atRisk", "byStatus"]
+                    },
+                    "revenueMinor": {
+                      "type": "integer"
+                    },
+                    "revenueConversion": {
+                      "type": "object",
+                      "properties": {
+                        "inrPerUsd": {
+                          "type": "number",
+                          "minimum": 0,
+                          "exclusiveMinimum": 0,
+                          "nullable": true
+                        },
+                        "capturedMinor": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "refundedMinor": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "byCurrency": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "currency": {
+                                "type": "string",
+                                "minLength": 3,
+                                "maxLength": 3
+                              },
+                              "capturedMinor": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "refundedMinor": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "netMinor": {
+                                "type": "integer"
+                              },
+                              "convertedMinor": {
+                                "type": "integer",
+                                "nullable": true
+                              },
+                              "paymentCount": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": [
+                              "currency",
+                              "capturedMinor",
+                              "refundedMinor",
+                              "netMinor",
+                              "convertedMinor",
+                              "paymentCount"
+                            ]
+                          }
+                        }
+                      },
+                      "required": ["inrPerUsd", "capturedMinor", "refundedMinor", "byCurrency"]
+                    },
+                    "excludedCurrencyPayments": {
+                      "default": 0,
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "revenueByTiming": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "amountMinor": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": ["name", "amountMinor"]
+                      }
+                    },
+                    "revenueByAudience": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "amountMinor": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": ["name", "amountMinor"]
+                      }
+                    },
+                    "currency": {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 3
+                    },
+                    "currencyReports": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "revenueMinor": {
+                            "type": "integer"
+                          },
+                          "revenueConversion": {
+                            "type": "object",
+                            "properties": {
+                              "inrPerUsd": {
+                                "type": "number",
+                                "minimum": 0,
+                                "exclusiveMinimum": 0,
+                                "nullable": true
+                              },
+                              "capturedMinor": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "refundedMinor": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "byCurrency": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "currency": {
+                                      "type": "string",
+                                      "minLength": 3,
+                                      "maxLength": 3
+                                    },
+                                    "capturedMinor": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    },
+                                    "refundedMinor": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    },
+                                    "netMinor": {
+                                      "type": "integer"
+                                    },
+                                    "convertedMinor": {
+                                      "type": "integer",
+                                      "nullable": true
+                                    },
+                                    "paymentCount": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    }
+                                  },
+                                  "required": [
+                                    "currency",
+                                    "capturedMinor",
+                                    "refundedMinor",
+                                    "netMinor",
+                                    "convertedMinor",
+                                    "paymentCount"
+                                  ]
+                                }
+                              }
+                            },
+                            "required": [
+                              "inrPerUsd",
+                              "capturedMinor",
+                              "refundedMinor",
+                              "byCurrency"
+                            ]
+                          },
+                          "excludedCurrencyPayments": {
+                            "default": 0,
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "revenueByTiming": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string"
+                                },
+                                "amountMinor": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": ["name", "amountMinor"]
+                            }
+                          },
+                          "revenueByAudience": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string"
+                                },
+                                "amountMinor": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": ["name", "amountMinor"]
+                            }
+                          },
+                          "currency": {
+                            "type": "string",
+                            "minLength": 3,
+                            "maxLength": 3
+                          }
+                        },
+                        "required": [
+                          "revenueMinor",
+                          "revenueByTiming",
+                          "revenueByAudience",
+                          "currency"
+                        ]
+                      }
+                    },
+                    "unpaidAccepted": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "authors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "count": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "required": ["name", "count"]
+                      }
+                    },
+                    "institutions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "count": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "required": ["name", "count"]
+                      }
+                    },
+                    "computedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "conferenceId",
+                    "submissions",
+                    "reviews",
+                    "decisions",
+                    "registrations",
+                    "currency",
+                    "unpaidAccepted",
+                    "authors",
+                    "institutions",
+                    "computedAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "400",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "401",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "403",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "404",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "409",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "429",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds before retry",
+                "schema": {
+                  "type": "integer",
+                  "example": 60
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "503",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/v1/conferences/{conferenceId}/registrations": {
+      "get": {
+        "description": "Required scopes: registrations:read. Supported filters: sort (opened, paper, submitted, registered, amount, deadline), direction, status (a registration status, or at-risk, overdue, unpaid, paid), audience, search. Plain UUID cursor. The first page also carries conference-wide summary counts and earlyBirdEndsAt. Billing name, email, country and affiliation are included; postal address and tax id are always null. Unsupported fields/non-default filters return 400. Read lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. Read history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 409 operation or invitation-state conflict; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
+        "tags": [],
+        "parameters": [
+          {
+            "name": "conferenceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["opened", "paper", "submitted", "registered", "amount", "deadline"]
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["asc", "desc"]
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "PENDING",
+                    "AWAITING_VERIFICATION",
+                    "ADDITIONAL_PAYMENT_REQUIRED",
+                    "PAID",
+                    "CANCELLED",
+                    "REFUNDED",
+                    "DISCARDED_NONPAYMENT"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": ["at-risk", "overdue", "unpaid", "paid"]
+                }
+              ]
+            }
+          },
+          {
+            "name": "audience",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["REGULAR", "STUDENT"]
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        ],
+        "operationId": "registrations",
+        "responses": {
+          "200": {
+            "description": "200",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "organizationId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "conferenceId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "paperId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "nullable": true
+                          },
+                          "billingCountry": {
+                            "type": "string",
+                            "minLength": 2,
+                            "maxLength": 2,
+                            "nullable": true
+                          },
+                          "billingName": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "billingEmail": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "billingAddress": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "billingTaxId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "billingAffiliation": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "isAdditionalPaper": {
+                            "type": "boolean"
+                          },
+                          "audience": {
+                            "type": "string",
+                            "enum": ["REGULAR", "STUDENT"]
+                          },
+                          "lockedTiming": {
+                            "type": "string",
+                            "enum": ["EARLY", "REGULAR"],
+                            "nullable": true
+                          },
+                          "amountDueMinor": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "currency": {
+                            "type": "string",
+                            "minLength": 3,
+                            "maxLength": 3
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "PENDING",
+                              "AWAITING_VERIFICATION",
+                              "ADDITIONAL_PAYMENT_REQUIRED",
+                              "PAID",
+                              "CANCELLED",
+                              "REFUNDED",
+                              "DISCARDED_NONPAYMENT"
+                            ]
+                          },
+                          "version": {
+                            "type": "integer"
+                          },
+                          "windowOpensAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "deadlineAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "additionalGraceUntil": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "earlyBirdExtendedUntil": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "registeredAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "paperTitle": {
+                            "type": "string"
+                          },
+                          "paperSubmittedAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "submissionNumber": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "organizationId",
+                          "conferenceId",
+                          "paperId",
+                          "userId",
+                          "audience",
+                          "lockedTiming",
+                          "amountDueMinor",
+                          "currency",
+                          "status",
+                          "version",
+                          "windowOpensAt",
+                          "deadlineAt",
+                          "additionalGraceUntil",
+                          "createdAt",
+                          "updatedAt"
+                        ]
+                      }
+                    },
+                    "nextCursor": {
+                      "type": "string",
+                      "format": "uuid",
+                      "nullable": true
+                    },
+                    "summary": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "paid": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "awaitingVerification": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "unpaid": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "overdue": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "atRisk": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "total",
+                        "paid",
+                        "awaitingVerification",
+                        "unpaid",
+                        "overdue",
+                        "atRisk"
+                      ]
+                    },
+                    "earlyBirdEndsAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    }
+                  },
+                  "required": ["data", "nextCursor"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "400",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "401",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "403",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "404",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "409",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "429",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds before retry",
+                "schema": {
+                  "type": "integer",
+                  "example": 60
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "503",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "title", "status"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/integrations/v1/conferences/{conferenceId}/reviewer-invitations/{invitationId}": {
       "delete": {
         "description": "Required scopes: invitations:write + invitations:read + reviewers:read + reviewers:identity:read + reviewers:contacts:read. Request: JSON body: requestId (UUID stable for retries). Soft-revokes only a pending invitation (including expired pending rows), preserves history and invalidates its links. Accepted/declined/expired status records return 409 and retain membership/history. Same requestId and invitation ID replay the successful removal. Foreign/missing IDs return 404 for a new request. No email is sent. Requires an organizer or organization-admin authorizer. Unsupported fields/non-default filters return 400. Read lists accept limit (1–100, default 25) and cursor. Cursors are opaque and bound to integration, scope, resource and filters; reuse with unchanged filters. Read history defaults to CURRENT. Defaults may appear in meta.filters even if inapplicable to this endpoint. 401 invalid/expired/revoked credential; 403 missing scope; 404 foreign or hidden resource; 409 operation or invitation-state conflict; 429 rate/concurrency limit with Retry-After; 503 controls or access auditing unavailable. Responses use Cache-Control: no-store. Limits: 60 requests/key/minute, 300/conference/minute; 2 concurrent/key, 10/conference. Pre-authentication abuse limit: 60/IP/minute.",
@@ -11664,7 +13079,7 @@
   "info": {
     "title": "OpenConferences Bot API",
     "version": "1.3.0",
-    "description": "Conference-scoped reads, explicitly granted assignment coordination, and reviewer invitation lifecycle/batch operations. Existing keys retain their original permissions. All response timestamps are UTC. Names and contacts are omitted without explicit identity/contact scopes. Review content, scores, conflict details, payments, files and other mutations are excluded. Invitation tokens appear only inside shareable invitation URLs, which require explicit invitation scopes and organizer authorization. Each read page is a consistent snapshot; different pages may observe concurrent updates. A missing historical submittedAt is null, not an estimate. Bearer credentials are shown only once by the human management API."
+    "description": "Conference-scoped reads, explicitly granted assignment coordination, and reviewer invitation lifecycle/batch operations. Existing keys retain their original permissions. All response timestamps are UTC. Names and contacts are omitted without explicit identity/contact scopes. Review content, scores, conflict details, individual payment records, files and other mutations are excluded; registration lists and revenue totals need their own scopes. Invitation tokens appear only inside shareable invitation URLs, which require explicit invitation scopes and organizer authorization. Each read page is a consistent snapshot; different pages may observe concurrent updates. A missing historical submittedAt is null, not an estimate. Bearer credentials are shown only once by the human management API."
   },
   "servers": [
     {

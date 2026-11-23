@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { conferenceAnalyticsOverviewSchema } from './analytics.js';
+import { registrationListQuerySchema, registrationListSchema } from './billing.js';
 export const INTEGRATION_SCOPES = [
   'papers:read',
   'authors:read',
@@ -12,6 +14,8 @@ export const INTEGRATION_SCOPES = [
   'invitations:write',
   'invitations:responses:read',
   'analytics:read',
+  'finance:read',
+  'registrations:read',
 ] as const;
 export type IntegrationScope = (typeof INTEGRATION_SCOPES)[number];
 export const SCOPE_DEPENDENCIES: Partial<Record<IntegrationScope, IntegrationScope[]>> = {
@@ -29,6 +33,7 @@ export const SCOPE_DEPENDENCIES: Partial<Record<IntegrationScope, IntegrationSco
     'reviewers:identity:read',
     'reviewers:contacts:read',
   ],
+  'finance:read': ['analytics:read'],
 };
 export const integrationScopesSchema = z
   .array(z.enum(INTEGRATION_SCOPES))
@@ -300,3 +305,19 @@ export function botDetailSchema<T extends z.ZodTypeAny>(item: T) {
 export type ApiIntegrationDto = z.infer<typeof integrationSchema>;
 
 export type BotPaperDto = z.infer<typeof botPaperSchema>;
+
+/**
+ * Organizer analytics for bot keys. Money appears only with `finance:read`; named author and
+ * reviewer rankings only with `authors:read` and `reviewers:identity:read`.
+ */
+export const botAnalyticsOverviewSchema = conferenceAnalyticsOverviewSchema.partial({
+  revenueMinor: true,
+  revenueConversion: true,
+  revenueByTiming: true,
+  revenueByAudience: true,
+  currencyReports: true,
+});
+export const botRegistrationQuerySchema = registrationListQuerySchema.strict();
+export const botRegistrationListSchema = registrationListSchema;
+export type BotAnalyticsOverview = z.infer<typeof botAnalyticsOverviewSchema>;
+export type BotRegistrationQuery = z.infer<typeof botRegistrationQuerySchema>;

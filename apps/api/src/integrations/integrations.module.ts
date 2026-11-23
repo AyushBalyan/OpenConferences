@@ -12,8 +12,10 @@ import { IntegrationLimiter } from './integration.limiter';
 import { BotWriteService } from './bot-write.service';
 import { BotInvitationsService } from './bot-invitations.service';
 import { ReviewModule } from '../review/review.module';
+import { AnalyticsModule } from '../analytics/analytics.module';
+import { BillingModule } from '../billing/billing.module';
 @Module({
-  imports: [AuthModule, TenancyModule, ReviewModule],
+  imports: [AuthModule, TenancyModule, ReviewModule, AnalyticsModule, BillingModule],
   controllers: [IntegrationManagementController, BotReadController, ReviewerOperationsController],
   providers: [
     InvitationOperationsService,

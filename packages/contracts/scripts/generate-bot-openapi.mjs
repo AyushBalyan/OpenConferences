@@ -57,6 +57,14 @@ const details = {
     'analytics:read',
     'trackId only. Current-cycle totals; drafts and withdrawals do not inflate active counts. No pagination.',
   ],
+  analyticsOverview: [
+    'analytics:read',
+    'none. The organizer analytics overview. Revenue fields need finance:read; the author ranking needs authors:read and the reviewer load ranking needs reviewers:identity:read, otherwise they are empty. No pagination.',
+  ],
+  registrations: [
+    'registrations:read',
+    'sort (opened, paper, submitted, registered, amount, deadline), direction, status (a registration status, or at-risk, overdue, unpaid, paid), audience, search. Plain UUID cursor. The first page also carries conference-wide summary counts and earlyBirdEndsAt. Billing name, email, country and affiliation are included; postal address and tax id are always null.',
+  ],
 };
 const doc = generateOpenApi(
   completeBotContract,
@@ -65,7 +73,7 @@ const doc = generateOpenApi(
       title: 'OpenConferences Bot API',
       version: '1.3.0',
       description:
-        'Conference-scoped reads, explicitly granted assignment coordination, and reviewer invitation lifecycle/batch operations. Existing keys retain their original permissions. All response timestamps are UTC. Names and contacts are omitted without explicit identity/contact scopes. Review content, scores, conflict details, payments, files and other mutations are excluded. Invitation tokens appear only inside shareable invitation URLs, which require explicit invitation scopes and organizer authorization. Each read page is a consistent snapshot; different pages may observe concurrent updates. A missing historical submittedAt is null, not an estimate. Bearer credentials are shown only once by the human management API.',
+        'Conference-scoped reads, explicitly granted assignment coordination, and reviewer invitation lifecycle/batch operations. Existing keys retain their original permissions. All response timestamps are UTC. Names and contacts are omitted without explicit identity/contact scopes. Review content, scores, conflict details, individual payment records, files and other mutations are excluded; registration lists and revenue totals need their own scopes. Invitation tokens appear only inside shareable invitation URLs, which require explicit invitation scopes and organizer authorization. Each read page is a consistent snapshot; different pages may observe concurrent updates. A missing historical submittedAt is null, not an estimate. Bearer credentials are shown only once by the human management API.',
     },
     servers: [{ url: '/api/v1' }],
     components: {

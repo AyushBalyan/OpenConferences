@@ -40,7 +40,9 @@ Start with `GET /capabilities` and inspect the effective `scopes`. Permissions m
 - `assignments:write`: assign papers with individual deadlines; also requires `assignments:read`, `papers:read`, and `reviewers:read`.
 - `invitations:read`: retrieve pending invitation links; also requires all three reviewer scopes.
 - `invitations:write`: generate/remove invitations; also requires `invitations:read` and all three reviewer scopes.
-- `analytics:read`: conference summary.
+- `analytics:read`: conference summary and the analytics overview (counts only).
+- `finance:read`: revenue totals inside the analytics overview; also requires `analytics:read`.
+- `registrations:read`: the registration list with billing name, email, country and affiliation. Postal addresses and tax ids are never returned.
 
 The dashboard selects dependency scopes together. Invitation permissions additionally require an **organizer or organization-admin authorizer with MFA**. A chair alone cannot grant, issue, or use invitation-link permissions. The human authorizer must retain the required role, MFA, and active account.
 
@@ -289,6 +291,23 @@ Only accepted/current conference reviewer members and submitted/under-review pap
 Returns `201 Created` with `data` (the saved assignment), `replayed`, `message`, and optional `notificationWarning`.
 
 **A normal reviewer assignment email is queued after commit and includes this deadline.** If `notificationWarning` is present, the assignment exists but its email could not be queued. Inspect the dashboard/email log rather than attempting to create another assignment. Replaying a successful request never sends a second assignment email.
+
+### GET /analytics/overview
+
+Required scope: `analytics:read`. No filters and no pagination.
+
+Returns the same overview organizers see on the Analytics page: `submissions`, `reviews`, `decisions`, `registrations`, `unpaidAccepted`, `institutions`, and `computedAt`.
+
+- Revenue fields (`revenueMinor`, `revenueConversion`, `revenueByTiming`, `revenueByAudience`, `currencyReports`) are present only with `finance:read`.
+- `authors` is empty without `authors:read`, and `reviews.reviewerLoad` is empty without `reviewers:identity:read`.
+
+### GET /registrations
+
+Required scope: `registrations:read`.
+
+Filters: `sort` (`opened`, `paper`, `submitted`, `registered`, `amount`, `deadline`), `direction` (`asc`, `desc`), `status` (a registration status, or `at-risk`, `overdue`, `unpaid`, `paid`), `audience` (`REGULAR`, `STUDENT`), and `search` (paper title, paper code, billing name or billing email).
+
+Paging uses `limit` (1 to 100) and a plain UUID `cursor` taken from `nextCursor`. The first page also returns `summary` (conference-wide counts) and `earlyBirdEndsAt`. `billingAddress` and `billingTaxId` are always `null`.
 
 ### GET /summary
 

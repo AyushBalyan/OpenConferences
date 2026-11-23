@@ -36,7 +36,7 @@ import { BotWriteService } from './bot-write.service';
 import { BotInvitationsService } from './bot-invitations.service';
 import { IntegrationLimiter } from './integration.limiter';
 import { IntegrationNoStore } from './integration.http';
-import { botConfig, parseCredential } from './integration.security';
+import { botConfig, parseCredential, type IntegrationPrincipal } from './integration.security';
 @Controller()
 @UseGuards(AuthGuard, MembershipGuard)
 @UseInterceptors(IntegrationNoStore)
@@ -168,6 +168,7 @@ export class BotReadController {
     id?: string,
     mutation?:
       BotCreateAssignment | BotGenerateInvitations | { requestId: string; invitationId: string },
+    direct?: (p: IntegrationPrincipal) => Promise<object>,
   ) {
     res.setHeader('Cache-Control', 'no-store');
     botConfig();
@@ -198,33 +199,35 @@ export class BotReadController {
     try {
       if (p.conferenceId !== conferenceId) throw new NotFoundException('Resource not found');
       release = await this.limiter.acquire(p);
-      const data = mutation
-        ? 'paperId' in mutation
-          ? await this.writes.assign(p, mutation, requestId, start)
-          : 'emails' in mutation
-            ? await this.invitations.generate(p, mutation, requestId, start)
-            : await this.invitations.remove(
-                p,
-                mutation.invitationId,
-                mutation.requestId,
-                requestId,
-                start,
-              )
-        : resource === 'capabilities'
-          ? this.reads.capabilities(p)
-          : resource === 'papers'
-            ? await this.reads.papers(p, q!, id)
-            : resource === 'authors'
-              ? await this.reads.authors(p, q!, id)
-              : resource === 'reviewers'
-                ? await this.reads.reviewers(p, q!, id)
-                : resource === 'reviewer-invitations'
-                  ? await this.reads.reviewerInvitations(p, q!)
-                  : resource === 'invitation-link'
-                    ? await this.invitations.link(p, id!)
-                    : resource === 'assignments'
-                      ? await this.reads.assignments(p, q!, id)
-                      : await this.reads.summary(p, q!);
+      const data = direct
+        ? await direct(p)
+        : mutation
+          ? 'paperId' in mutation
+            ? await this.writes.assign(p, mutation, requestId, start)
+            : 'emails' in mutation
+              ? await this.invitations.generate(p, mutation, requestId, start)
+              : await this.invitations.remove(
+                  p,
+                  mutation.invitationId,
+                  mutation.requestId,
+                  requestId,
+                  start,
+                )
+          : resource === 'capabilities'
+            ? this.reads.capabilities(p)
+            : resource === 'papers'
+              ? await this.reads.papers(p, q!, id)
+              : resource === 'authors'
+                ? await this.reads.authors(p, q!, id)
+                : resource === 'reviewers'
+                  ? await this.reads.reviewers(p, q!, id)
+                  : resource === 'reviewer-invitations'
+                    ? await this.reads.reviewerInvitations(p, q!)
+                    : resource === 'invitation-link'
+                      ? await this.invitations.link(p, id!)
+                      : resource === 'assignments'
+                        ? await this.reads.assignments(p, q!, id)
+                        : await this.reads.summary(p, q!);
       if (!mutation)
         await this.store.record(
           p,
@@ -411,6 +414,38 @@ export class BotReadController {
         'assignments',
         query,
         params.assignmentId,
+      )) as never,
+    }));
+  }
+  @TsRestHandler(bot.analyticsOverview, { validateResponses: true })
+  analyticsOverview(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    return tsRestHandler(bot.analyticsOverview, async ({ params }) => ({
+      status: 200 as const,
+      body: (await this.run(
+        req,
+        res,
+        params.conferenceId,
+        'analytics/overview',
+        undefined,
+        undefined,
+        undefined,
+        (p) => this.reads.analyticsOverview(p),
+      )) as never,
+    }));
+  }
+  @TsRestHandler(bot.registrations, { validateResponses: true })
+  registrations(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    return tsRestHandler(bot.registrations, async ({ params, query }) => ({
+      status: 200 as const,
+      body: (await this.run(
+        req,
+        res,
+        params.conferenceId,
+        'registrations',
+        undefined,
+        undefined,
+        undefined,
+        (p) => this.reads.registrations(p, query),
       )) as never,
     }));
   }

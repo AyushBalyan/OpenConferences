@@ -24,6 +24,9 @@ import {
   botRemoveInvitationResponseSchema,
   botListSchema,
   botDetailSchema,
+  botAnalyticsOverviewSchema,
+  botRegistrationQuerySchema,
+  botRegistrationListSchema,
   problemEnvelopeSchema,
 } from '@openconferences/schemas';
 const c = initContract();
@@ -214,6 +217,20 @@ export const botReadContract = c.router({
     pathParams: conference,
     query: botQuerySchema,
     responses: { 200: botDetailSchema(botSummarySchema), ...common },
+  },
+  analyticsOverview: {
+    method: 'GET',
+    path: bot + '/analytics/overview',
+    pathParams: conference,
+    query: z.object({}).strict(),
+    responses: { 200: botAnalyticsOverviewSchema, ...common },
+  },
+  registrations: {
+    method: 'GET',
+    path: bot + '/registrations',
+    pathParams: conference,
+    query: botRegistrationQuerySchema,
+    responses: { 200: botRegistrationListSchema, ...common },
   },
 });
 export const botWriteContract = c.router({

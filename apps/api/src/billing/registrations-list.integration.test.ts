@@ -4,6 +4,9 @@ import { PrismaClient, type Prisma } from '@openconferences/db';
 import { assertLocalDatabaseUrl } from '../../../../infra/testing/local-test-target.mjs';
 import { RegistrationsService } from './registrations.service';
 import { StudentVerificationService } from './student-verification.service';
+import { BotReadService } from '../integrations/bot-read.service';
+import type { IntegrationPrincipal } from '../integrations/integration.security';
+import type { IntegrationScope } from '@openconferences/schemas';
 
 const runtime = vi.hoisted(() => ({ client: null as PrismaClient | null }));
 vi.mock('@openconferences/db', async (original) => {
@@ -154,6 +157,50 @@ describe.skipIf(!url)('registration list and student verification in real Postgr
     registrations.listRegistrations(chairId, conferenceId, ['CHAIR'], options);
   const keys = (result: { data: Array<{ id: string }> }) =>
     result.data.map((row) => fixtures.find((fixture) => fixture.id === row.id)?.key).sort();
+
+  // What the organizer analytics service would return; only the scope filtering is under test.
+  const overview = {
+    conferenceId,
+    submissions: { total: 6, excluded: { draft: 0, withdrawn: 0 }, byStatus: [], byDay: [] },
+    reviews: {
+      assigned: 4,
+      completed: 1,
+      notStarted: 2,
+      draft: 1,
+      submitted: 1,
+      overdue: 1,
+      closedIncomplete: 0,
+      inconsistent: 0,
+      underCoveredPapers: 2,
+      reviewerLoad: [{ name: 'Named Reviewer', count: 3 }],
+    },
+    decisions: { total: 0, acceptRate: 0, byOutcome: [] },
+    registrations: { total: 6, paid: 1, unpaid: 3, atRisk: 2, overdue: 1, byStatus: [] },
+    revenueMinor: 20000,
+    revenueConversion: { inrPerUsd: null, capturedMinor: 20000, refundedMinor: 0, byCurrency: [] },
+    excludedCurrencyPayments: 0,
+    revenueByTiming: [{ name: 'EARLY', amountMinor: 20000 }],
+    revenueByAudience: [{ name: 'REGULAR', amountMinor: 20000 }],
+    currencyReports: [],
+    unpaidAccepted: 3,
+    authors: [{ name: 'Named Author', count: 2 }],
+    institutions: [{ name: 'University', count: 2 }],
+    currency: 'USD',
+    computedAt: new Date(now).toISOString(),
+  };
+  const getOverview = vi.fn(async () => overview);
+  const botReads = new BotReadService({} as never, { getOverview } as never, registrations);
+  const botKey = (...scopes: IntegrationScope[]): IntegrationPrincipal => ({
+    integrationId: randomUUID(),
+    keyId: randomUUID(),
+    userId: chairId,
+    conferenceId,
+    organizationId: orgId,
+    scopes,
+    expiresAt: new Date(now + DAY),
+    conferenceName: 'Registration test',
+    conferenceReviewDueAt: null,
+  });
 
   beforeAll(async () => {
     runtime.client = db;
@@ -596,5 +643,70 @@ describe.skipIf(!url)('registration list and student verification in real Postgr
     });
     expect(registration.audience).toBe('REGULAR');
     expect(keys(await list({ audience: 'STUDENT' }))).toEqual([]);
+  });
+
+  it('lets a bot key list registrations only with registrations:read, without address or tax id', async () => {
+    await db.registration.update({
+      where: { id: byKey.paid!.id },
+      data: { billingAddress: '1 Private Road', billingTaxId: 'TAX-SECRET-1' },
+    });
+    await expect(botReads.registrations(botKey('analytics:read'), {})).rejects.toMatchObject({
+      status: 403,
+    });
+    const first = await botReads.registrations(botKey('registrations:read'), { limit: 2 });
+    expect(first.data).toHaveLength(2);
+    expect(first.summary?.total).toBe(fixtures.length);
+    expect(first.nextCursor).toBeTruthy();
+    const paid = await botReads.registrations(botKey('registrations:read'), { status: 'paid' });
+    expect(paid.data.map((row) => row.id)).toEqual([byKey.paid!.id]);
+    expect(paid.data[0]).toMatchObject({
+      billingName: 'Asha Rao',
+      billingEmail: 'asha@example.test',
+      billingAddress: null,
+      billingTaxId: null,
+    });
+    expect(JSON.stringify(paid)).not.toMatch(/Private Road|TAX-SECRET/);
+    // The key is bound to one conference; the other conference's row never appears.
+    const all = await botReads.registrations(botKey('registrations:read'), { limit: 100 });
+    expect(all.data.some((row) => row.id === foreign.id)).toBe(false);
+  });
+
+  it('gives a bot key analytics by scope: money, author and reviewer names are each separate', async () => {
+    await expect(botReads.analyticsOverview(botKey('registrations:read'))).rejects.toMatchObject({
+      status: 403,
+    });
+    const plain = await botReads.analyticsOverview(botKey('analytics:read'));
+    expect(getOverview).toHaveBeenLastCalledWith(chairId, conferenceId, ['CHAIR']);
+    expect(plain.registrations.paid).toBe(1);
+    expect(plain.institutions).toHaveLength(1);
+    expect(plain.authors).toEqual([]);
+    expect(plain.reviews.reviewerLoad).toEqual([]);
+    for (const field of [
+      'revenueMinor',
+      'revenueConversion',
+      'revenueByTiming',
+      'revenueByAudience',
+      'currencyReports',
+    ])
+      expect(plain).not.toHaveProperty(field);
+    expect(JSON.stringify(plain)).not.toMatch(/Named Author|Named Reviewer|20000/);
+
+    const finance = await botReads.analyticsOverview(botKey('analytics:read', 'finance:read'));
+    expect(finance.revenueMinor).toBe(20000);
+    expect(finance.revenueByTiming).toEqual([{ name: 'EARLY', amountMinor: 20000 }]);
+    expect(finance.authors).toEqual([]);
+
+    const named = await botReads.analyticsOverview(
+      botKey(
+        'analytics:read',
+        'papers:read',
+        'authors:read',
+        'reviewers:read',
+        'reviewers:identity:read',
+      ),
+    );
+    expect(named.authors).toEqual([{ name: 'Named Author', count: 2 }]);
+    expect(named.reviews.reviewerLoad).toEqual([{ name: 'Named Reviewer', count: 3 }]);
+    expect(named).not.toHaveProperty('revenueMinor');
   });
 });

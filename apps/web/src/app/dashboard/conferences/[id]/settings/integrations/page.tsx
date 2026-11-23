@@ -27,7 +27,9 @@ const scopeNames: Record<IntegrationScope, string> = {
   'invitations:responses:read': 'Read private invitation decline reasons',
   'invitations:read': 'Read reviewer invitation links',
   'invitations:write': 'Generate and remove reviewer invitations',
-  'analytics:read': 'Conference summary',
+  'analytics:read': 'Conference summary & analytics',
+  'finance:read': 'Registration revenue',
+  'registrations:read': 'Registrations & billing contacts',
 };
 function dependencies(scopes: IntegrationScope[]): IntegrationScope[] {
   const all = new Set(scopes);

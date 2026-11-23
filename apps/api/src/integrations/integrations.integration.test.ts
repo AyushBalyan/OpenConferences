@@ -501,6 +501,37 @@ describe('Bot API HTTP + actual PostgreSQL RLS + Redis', () => {
     );
     expect((await api(bot + '/reviewers?q=Private', restricted)).status).toBe(403);
   });
+  it('serves organizer analytics and registrations only to keys holding those scopes', async () => {
+    const full = await api(bot + '/analytics/overview');
+    expect(full.status).toBe(200);
+    expect(full.headers['cache-control']).toBe('no-store');
+    expect(full.body.conferenceId).toBe(conf);
+    expect(full.body).toHaveProperty('revenueMinor');
+    expect(full.body).toHaveProperty('revenueByTiming');
+    // analytics:read alone: totals, but no money and no named rankings.
+    const limited = await api(bot + '/analytics/overview', restricted);
+    expect(limited.status).toBe(200);
+    expect(limited.body.submissions.total).toBe(full.body.submissions.total);
+    expect(limited.body).not.toHaveProperty('revenueMinor');
+    expect(limited.body).not.toHaveProperty('revenueByTiming');
+    expect(limited.body).not.toHaveProperty('currencyReports');
+    expect(limited.body.authors).toEqual([]);
+    expect(limited.body.reviews.reviewerLoad).toEqual([]);
+    expect(JSON.stringify(limited.body)).not.toMatch(
+      /Private Reviewer|Private Author|@example.com/,
+    );
+    const list = await api(bot + '/registrations?limit=5&sort=deadline');
+    expect(list.status).toBe(200);
+    expect(Array.isArray(list.body.data)).toBe(true);
+    expect(list.body.summary).toMatchObject({ total: expect.any(Number) });
+    expect((await api(bot + '/registrations', restricted)).status).toBe(403);
+    expect((await api(bot + '/registrations?unknown=1')).status).toBe(400);
+    expect((await api(bot + '/analytics/overview?trackId=' + track)).status).toBe(400);
+    for (const path of ['/registrations', '/analytics/overview']) {
+      expect((await api(bot.replace(conf, otherConf) + path)).status).toBe(404);
+      expect((await request(app.getHttpServer()).get(bot + path)).status).toBe(401);
+    }
+  });
   it('returns author records and exposes contacts only with the additional scope', async () => {
     const r = await api(bot + '/papers/' + paper + '/authors');
     expect(r.status).toBe(200);
@@ -844,7 +875,7 @@ describe('Bot API HTTP + actual PostgreSQL RLS + Redis', () => {
   });
   it('enforces statement timeouts for bot business reads', async () => {
     const p = await store.authenticate(parseCredential('Bearer ' + token)!);
-    const reads = new BotReadService(store);
+    const reads = app.get(BotReadService);
     await expect(reads.read(p, (tx) => tx.$queryRaw`SELECT pg_sleep(4)`)).rejects.toThrow();
   });
   it('keeps pages bounded and reviewer totals complete across a 1,000-paper conference workload', async () => {
