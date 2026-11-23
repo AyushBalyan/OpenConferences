@@ -76,19 +76,27 @@ class _HomeShellState extends ConsumerState<HomeShell>
       appBar: AppBar(
         toolbarHeight: 72,
         titleSpacing: 16,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
+        title: Row(
           children: [
-            Eyebrow(
-              _tab == 0 ? 'Conference ops' : (name ?? 'Conference ops'),
-              color: Esn.eyebrowOnDark,
-            ),
-            const SizedBox(height: 2),
-            Text(
-              _tab == 0 ? (name ?? 'Overview') : _titles[_tab],
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            const BrandMark(size: 38),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Eyebrow(
+                    _tab == 0 ? 'ConfKit' : (name ?? 'ConfKit'),
+                    color: Esn.eyebrowOnDark,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _tab == 0 ? (name ?? 'Overview') : _titles[_tab],
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             ),
           ],
         ),

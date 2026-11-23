@@ -2,7 +2,7 @@
     <!-- Needed in release builds to reach the conference API. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="Conference Ops"
+        android:label="ConfKit"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

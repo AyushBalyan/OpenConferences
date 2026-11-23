@@ -27,6 +27,26 @@ String humanize(String raw) {
   return words.isEmpty ? raw : words[0].toUpperCase() + words.substring(1);
 }
 
+/// The ConfKit mark on a white tile, so it reads on the dark header bands.
+class BrandMark extends StatelessWidget {
+  const BrandMark({super.key, this.size = 40});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      padding: EdgeInsets.all(size * 0.12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(size * 0.22),
+      ),
+      child: Image.asset('assets/logo.png', semanticLabel: 'ConfKit'),
+    );
+  }
+}
+
 /// The small uppercase section label used across the site.
 class Eyebrow extends StatelessWidget {
   const Eyebrow(this.label, {super.key, this.color});

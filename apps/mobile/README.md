@@ -1,4 +1,4 @@
-# Conference Ops (Android)
+# ConfKit (Android)
 
 A read-only Flutter app for organizers. It has three tabs:
 

@@ -16,7 +16,7 @@ class ConferenceOpsApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final credentials = ref.watch(credentialsProvider);
     return MaterialApp(
-      title: 'Conference Ops',
+      title: 'ConfKit',
       debugShowCheckedModeBanner: false,
       theme: esnTheme(Brightness.light, useGoogleFonts: useGoogleFonts),
       darkTheme: esnTheme(Brightness.dark, useGoogleFonts: useGoogleFonts),

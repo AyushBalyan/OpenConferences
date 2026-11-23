@@ -87,10 +87,12 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const BrandMark(size: 64),
+                  const SizedBox(height: 18),
                   const Eyebrow('OpenConferences', color: Esn.eyebrowOnDark),
                   const SizedBox(height: 8),
                   Text(
-                    'Conference Ops',
+                    'ConfKit',
                     style: context.text.headlineSmall?.copyWith(
                       color: Colors.white,
                       fontSize: 30,
