@@ -158,6 +158,7 @@ class FakeApi implements ApiClient {
   ApiException? failWith;
   final bool withRevenue;
   final queries = <(RegistrationQuery, String?)>[];
+  int overviewCalls = 0;
 
   @override
   Future<Capabilities> capabilities() async {
@@ -171,6 +172,7 @@ class FakeApi implements ApiClient {
   @override
   Future<AnalyticsOverview> overview() async {
     if (failWith != null) throw failWith!;
+    overviewCalls++;
     return AnalyticsOverview.fromJson(overviewJson(withRevenue: withRevenue));
   }
 

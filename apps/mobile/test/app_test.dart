@@ -12,6 +12,7 @@ Future<void> pumpApp(
   WidgetTester tester, {
   required MemoryStore store,
   required FakeApi api,
+  DateTime Function()? clock,
 }) async {
   tester.view.physicalSize = const Size(1080, 2400);
   tester.view.devicePixelRatio = 2.625;
@@ -21,6 +22,7 @@ Future<void> pumpApp(
       overrides: [
         credentialStoreProvider.overrideWithValue(store),
         apiFactoryProvider.overrideWithValue((_) => api),
+        if (clock != null) clockProvider.overrideWithValue(clock),
       ],
       child: const ConferenceOpsApp(useGoogleFonts: false),
     ),
@@ -175,6 +177,70 @@ void main() {
       expect(find.text('Early'), findsOneWidget);
     },
   );
+
+  Future<void> leaveAndReturn(WidgetTester tester) async {
+    for (final state in const [
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+      AppLifecycleState.hidden,
+      AppLifecycleState.inactive,
+      AppLifecycleState.resumed,
+    ]) {
+      tester.binding.handleAppLifecycleStateChanged(state);
+    }
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('returning to the app reloads the open tab only when stale', (
+    tester,
+  ) async {
+    var now = DateTime(2026, 11, 23, 9);
+    final api = FakeApi();
+    await pumpApp(
+      tester,
+      store: MemoryStore(testCredentials),
+      api: api,
+      clock: () => now,
+    );
+    expect(api.overviewCalls, 1);
+    expect(api.queries, hasLength(1));
+
+    now = now.add(const Duration(seconds: 30));
+    await leaveAndReturn(tester);
+    expect(api.overviewCalls, 1, reason: 'still fresh');
+
+    now = now.add(const Duration(minutes: 2));
+    await leaveAndReturn(tester);
+    expect(api.overviewCalls, 2);
+    expect(api.queries, hasLength(1), reason: 'registrations tab is not open');
+    expect(find.text('214'), findsOneWidget);
+  });
+
+  testWidgets('switching tabs reloads stale data', (tester) async {
+    var now = DateTime(2026, 11, 23, 9);
+    final api = FakeApi();
+    await pumpApp(
+      tester,
+      store: MemoryStore(testCredentials),
+      api: api,
+      clock: () => now,
+    );
+
+    await tester.tap(find.text('Registrations').last);
+    await tester.pumpAndSettle();
+    expect(api.queries, hasLength(1), reason: 'still fresh');
+
+    now = now.add(const Duration(minutes: 2));
+    await tester.tap(find.text('Analytics').last);
+    await tester.pumpAndSettle();
+    expect(api.overviewCalls, 2);
+
+    await tester.tap(find.text('Registrations').last);
+    await tester.pumpAndSettle();
+    expect(api.queries, hasLength(2));
+    expect(find.text('Sparse solvers for hazard maps'), findsOneWidget);
+  });
 
   testWidgets('a revoked key leads back to setup', (tester) async {
     final store = MemoryStore(testCredentials);

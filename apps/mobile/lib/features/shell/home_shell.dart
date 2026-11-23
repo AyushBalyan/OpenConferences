@@ -38,9 +38,36 @@ class HomeShell extends ConsumerStatefulWidget {
   ConsumerState<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends ConsumerState<HomeShell> {
+class _HomeShellState extends ConsumerState<HomeShell>
+    with WidgetsBindingObserver {
   int _tab = 0;
   static const _titles = ['Overview', 'Analytics', 'Registrations'];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refreshIfStale(_tab);
+  }
+
+  /// Overview and Analytics share one payload; Registrations has its own.
+  void _refreshIfStale(int tab) {
+    if (tab == 2) {
+      ref.read(registrationListProvider.notifier).refreshIfStale();
+    } else {
+      ref.read(overviewProvider.notifier).refreshIfStale();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -87,7 +114,10 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         ),
         child: NavigationBar(
           selectedIndex: _tab,
-          onDestinationSelected: (i) => setState(() => _tab = i),
+          onDestinationSelected: (i) {
+            setState(() => _tab = i);
+            _refreshIfStale(i);
+          },
           destinations: const [
             NavigationDestination(
               icon: Icon(Icons.home_outlined),

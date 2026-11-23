@@ -45,9 +45,37 @@ final capabilitiesProvider = FutureProvider<Capabilities>(
   (ref) => ref.watch(apiProvider).capabilities(),
 );
 
-final overviewProvider = FutureProvider<AnalyticsOverview>(
-  (ref) => ref.watch(apiProvider).overview(),
-);
+/// Data older than this is reloaded when the app resumes or its tab is opened.
+const staleAfter = Duration(minutes: 1);
+
+/// The current time; replaced in tests.
+final clockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
+
+class OverviewNotifier extends AsyncNotifier<AnalyticsOverview> {
+  DateTime? _loadedAt;
+
+  @override
+  Future<AnalyticsOverview> build() async {
+    final data = await ref.watch(apiProvider).overview();
+    _loadedAt = ref.read(clockProvider)();
+    return data;
+  }
+
+  /// Reloads in the background; the current numbers stay on screen meanwhile.
+  void refreshIfStale() {
+    if (state.isLoading) return;
+    final loadedAt = _loadedAt;
+    if (loadedAt == null ||
+        ref.read(clockProvider)().difference(loadedAt) >= staleAfter) {
+      ref.invalidateSelf();
+    }
+  }
+}
+
+final overviewProvider =
+    AsyncNotifierProvider<OverviewNotifier, AnalyticsOverview>(
+      OverviewNotifier.new,
+    );
 
 class RegistrationListState {
   const RegistrationListState({
@@ -94,6 +122,8 @@ class RegistrationListState {
 class RegistrationListNotifier extends Notifier<RegistrationListState> {
   // Guards against a slow, older request overwriting a newer one.
   int _request = 0;
+  DateTime? _loadedAt;
+  bool _pagedFurther = false;
 
   @override
   RegistrationListState build() {
@@ -104,6 +134,17 @@ class RegistrationListNotifier extends Notifier<RegistrationListState> {
 
   Future<void> refresh() => _load(state.query);
 
+  /// Reloads the first page when it is old. A list the reader has paged
+  /// through is left alone, so they don't lose their place.
+  void refreshIfStale() {
+    if (state.loading || state.loadingMore || _pagedFurther) return;
+    final loadedAt = _loadedAt;
+    if (loadedAt == null ||
+        ref.read(clockProvider)().difference(loadedAt) >= staleAfter) {
+      refresh();
+    }
+  }
+
   Future<void> setQuery(RegistrationQuery query) => _load(query);
 
   Future<void> _load(RegistrationQuery query) async {
@@ -112,6 +153,8 @@ class RegistrationListNotifier extends Notifier<RegistrationListState> {
     try {
       final page = await ref.read(apiProvider).registrations(query);
       if (request != _request) return;
+      _loadedAt = ref.read(clockProvider)();
+      _pagedFurther = false;
       state = state.copyWith(
         items: page.items,
         summary: page.summary,
@@ -135,6 +178,7 @@ class RegistrationListNotifier extends Notifier<RegistrationListState> {
           .read(apiProvider)
           .registrations(state.query, cursor: cursor);
       if (request != _request) return;
+      _pagedFurther = true;
       state = state.copyWith(
         items: [...state.items, ...page.items],
         nextCursor: () => page.nextCursor,
