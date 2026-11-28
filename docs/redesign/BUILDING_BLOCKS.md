@@ -1,8 +1,8 @@
 # Building blocks and modules
 
-A proposal, drawn from the three Phase 1 audits, for what every conference always has and what can be switched on or off. Once the owner agrees it, the list is recorded in the decision log and the Phase 2 and Phase 3 cards are rewritten from it.
+What every conference always has and what can be switched on or off, drawn from the three Phase 1 audits.
 
-**Status: proposed, not yet agreed.**
+**Status: agreed by the owner on 2026-11-29 and recorded as decision D14.** The Phase 2 and Phase 3 cards on the board are written from it.
 
 Sources: [SETTINGS_AUDIT.md](SETTINGS_AUDIT.md) (IDs `ST-`), [CUSTOMISATION_AUDIT.md](CUSTOMISATION_AUDIT.md) (IDs `C-`) and [SCREEN_INVENTORY.md](SCREEN_INVENTORY.md) (IDs `S-`).
 
@@ -68,7 +68,9 @@ The customisation audit found each of these today, so they are the tests a modul
 4. **Nothing depends on it silently.** Today, accepting a paper opens a paid registration even when no fees are set (C-253).
 5. **Emails and jobs for it stop.**
 
-## Decisions this needs
+## Decisions
+
+All four were accepted by the owner on 2026-11-29 (decision D14).
 
 1. **Agree the ten building blocks,** including the four additions and moving fee and registration to modules. This changes ground rule 3.1.
 2. **Agree the eleven modules and their defaults.**
@@ -77,13 +79,13 @@ The customisation audit found each of these today, so they are the tests a modul
 
 ## Cards this produces
 
-Not applied to the board yet. They replace the current Phase 2 cards once the list above is agreed.
+Applied to the board on 2026-11-29. The board is the current list; this is the record of where each card came from.
 
 **Phase 2: rigid core**
 
 | Card                                   | Covers                                                                                    | Replaces     |
 | -------------------------------------- | ----------------------------------------------------------------------------------------- | ------------ |
-| Organisation and conference profiles   | Identity, time zone, locale, contact address, sender name                                 | P2-4         |
+| Organisation and conference profiles   | Identity, time zone, locale, contact address, sender name, the conference's own website   | P2-4         |
 | Settings registry                      | One schema and default per setting; read and write validation; migrate today's values     | P2-1         |
 | Phases as rows                         | One source for status and dates; one registration deadline                                | new          |
 | Review form                            | Criteria, scales, recommendation, confidence; versioned; server checks reviews against it | part of P2-8 |
@@ -97,12 +99,14 @@ Not applied to the board yet. They replace the current Phase 2 cards once the li
 
 **Phase 3: design**
 
-| Card                                   | Covers                                                                                            | Replaces |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------- | -------- |
-| Navigation per role                    | Built from "Tasks by role" in the screen inventory; one assignment workspace; one acceptance flow | P3-1     |
-| Roles and permissions                  | What a chair may do; fix the menu items the server refuses                                        | new      |
-| Design tokens for both styles          | The roles from D9, in every theme                                                                 | P3-2     |
-| Core components                        | Including the three parts that exist once per style                                               | P3-3     |
-| The paper page                         | The busiest screen: sections that appear only when they apply                                     | new      |
-| Reference flow: author submits a paper | Unchanged                                                                                         | P3-4     |
-| Missing screens                        | Profile and security; members list with search                                                    | new      |
+| Card                                     | Covers                                                                                                                                                   | Replaces |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| Navigation per role                      | Built from "Tasks by role" in the screen inventory                                                                                                       | P3-1     |
+| Plan the reviewer assignment workspace   | One place for assigning, tracking and chasing reviews, replacing five screens. A major problem named by the owner; planned before any screen is designed | new      |
+| Reviewer invitations: discuss and decide | Who sends the invitation, how it is accepted, what signing in does, expiry                                                                               | new      |
+| Roles and permissions                    | What a chair may do; fix the menu items the server refuses                                                                                               | new      |
+| Design tokens for both styles            | The roles from D9, in every theme                                                                                                                        | P3-2     |
+| Core components                          | Including the three parts that exist once per style                                                                                                      | P3-3     |
+| The paper page                           | The busiest screen: sections that appear only when they apply                                                                                            | new      |
+| Reference flow: author submits a paper   | Unchanged                                                                                                                                                | P3-4     |
+| Missing screens                          | Profile and security; members list with search                                                                                                           | new      |

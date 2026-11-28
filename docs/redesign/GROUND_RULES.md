@@ -20,10 +20,10 @@ These apply to all redesign work. A rule changes only through an entry in [DECIS
 
 ## 3. A rigid core
 
-1. **One fixed set of building blocks:** organisation, conference, track, submission, review form, phase, fee, registration. New concepts need a decision log entry.
+1. **One fixed set of building blocks:** organisation, person and role, conference, phase, submission, review form, review, decision, email and track (decision D14). New concepts need a decision log entry.
 2. **Differences between conferences are settings, not code.** No conference name, organiser name, country or currency appears in code, seed templates or copy.
 3. **Every setting has a schema and a default.** Free-form JSON columns are validated on write and on read. A conference created with no settings changed must work.
-4. **Optional features are modules with a switch.** Outreach, student verification, bot integrations and reminder digests can each be turned off per conference, and the product works with all of them off.
+4. **Optional features are modules with a switch.** The eleven modules in [BUILDING_BLOCKS.md](BUILDING_BLOCKS.md), registration and payment among them, can each be turned off per conference, and the product works with all of them off.
 5. **Nothing is built for one customer.** A request that only one organiser needs is either turned into a general setting or declined.
 6. **Contracts first.** Each API change starts with its schema and contract in `packages/contracts`. Both frontends build against the same contract.
 

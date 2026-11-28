@@ -47,7 +47,9 @@ Every place where the product's behaviour, wording or configuration belongs to o
 
 The current web app is being replaced, so for its 241 findings the verdict says what `apps/web-v2` must do instead: read a setting, keep it in code, or not carry it over.
 
-## Needs your decision
+## Decisions
+
+**Decided by the owner on 2026-11-29 (decision D15):** every proposal below is accepted, except item 10. Item 10 is part of how reviewer invitations work, which the owner wants discussed as a whole before anything is decided (card P3-10).
 
 Each item names the finding to start from. The proposal is what the tables below assume.
 

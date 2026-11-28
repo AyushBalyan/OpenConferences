@@ -10,6 +10,46 @@ Columns are Backlog, Next, In progress (limit of three), Review and Done. Card k
 
 ---
 
+## D16. No public conference page in this version
+
+**Date:** 2026-11-29
+
+**Decision:** The product does not build a public page for each conference. A conference keeps its own independent website, and the product links to it.
+
+**Why:** Decided by the owner. The conferences run on the product already have their own sites, so a second public page would duplicate them.
+
+**Rejected:** The public conference page planned for Phase 5 (call for papers, dates, tracks, fees and a submit button).
+
+**Consequence:** The item is removed from Phase 5 of the plan and from its exit criteria, and card P5-5 is removed from the board. The conference profile gains one setting, the address of the conference's own website, shown in emails and on the page an author lands on from the submit link. That landing page still has to name the conference, which it does not do today.
+
+## D15. The Phase 1 audit proposals are accepted, with three held back
+
+**Date:** 2026-11-29
+
+**Decision:** The owner accepts the proposals in the three audits as written: all five in `SETTINGS_AUDIT.md`, eleven of the twelve in `CUSTOMISATION_AUDIT.md`, and five of the eight in `SCREEN_INVENTORY.md`. Three are held back:
+
+- **Reviewer assignment.** The owner names the spread of assignment work over five screens as one of the major problems of the product. The audit's proposal (merge two screens, cut one) is not adopted as the answer. A plan comes first (card P3-9).
+- **Reviewer invitations.** How a reviewer is invited, accepts and signs in is to be discussed as a whole. This holds two proposals: one acceptance flow, and no longer accepting every pending invitation on sign-in (card P3-10).
+- **The public conference page.** See D16.
+
+**Why:** The owner's words: "rest proceed with proposed suggestions".
+
+**Rejected:** Nothing else was changed.
+
+**Consequence:** The verdicts in the three audits stand as the input to Phase 2 and Phase 3. The main ones: one registration deadline, kept as a phase date; reviews checked on the server against the review form; sender identity on the organisation with a contact address per conference; a time zone on the organisation that a conference can override; a payment account per organisation; a general "local price for one country" rule, off by default; two fee audiences and two periods in the first version; registration as a module; neutral email templates with a copy per conference; platform settings for the product name and support address; the chair's permissions settled in Phase 3; self-service organisation sign-up in Phase 5. The bidding and conflict screens are not built in the first version of `apps/web-v2`.
+
+## D14. Ten building blocks and eleven modules
+
+**Date:** 2026-11-29
+
+**Decision:** Every conference has ten fixed building blocks: organisation, person and role, conference, phase, submission, review form, review, decision, email and track. Eleven features are modules with a switch per conference: reviewer bidding, conflict declaration, author response, revisions, final versions, registration and payment, student rate, multiple tracks, outreach campaigns, integrations and reminder digests. A new conference starts with revisions and final versions on and the rest off. The full list, with what each switch removes, is in [BUILDING_BLOCKS.md](BUILDING_BLOCKS.md).
+
+**Why:** Agreed by the owner from the Phase 1 audits. Person and role, review, decision and email are in every flow but were missing from the list. Fee and registration cannot be fixed blocks, because a conference that charges nothing must still be able to accept papers.
+
+**Rejected:** The eight blocks in the earlier ground rule 3.1, which listed fee and registration as fixed.
+
+**Consequence:** Ground rules 3.1 and 3.4 are updated. Existing conferences are migrated to exactly what they do today. A module that is off must pass five tests: the menu does not show it, settings do not ask for it, the server refuses it in one place, nothing depends on it silently, and its emails and jobs stop.
+
 ## D13. Vercel does not build previews for redesign branches
 
 **Date:** 2026-11-28

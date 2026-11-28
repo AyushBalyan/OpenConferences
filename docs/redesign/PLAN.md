@@ -42,25 +42,32 @@ Real values come from a backup restored locally, never from production (decision
 
 ## Phase 2: Rigid core
 
-Apply the audit to the backend. Work through it one building block at a time.
+Apply the audit to the backend. Work through it one building block at a time. The blocks and modules are in [BUILDING_BLOCKS.md](BUILDING_BLOCKS.md).
 
-- Strict schemas and defaults for every conference setting.
-- A per-conference switch for each optional feature, replacing the flags fixed in code.
-- A review form builder: criteria, scales, recommendation, confidence and text questions, versioned once reviews exist.
-- Remove conference-specific text from seeded email and outreach templates; replace it with variables.
-- Move organiser identity (legal name, address, tax number, sender name) onto the organisation.
-- Make organisation membership the only link between a user and an organisation.
+- Organisation and conference profiles: identity, time zone, locale, contact address, sender name, the conference's own website.
+- A settings registry: one schema and default for every setting, validated on write and on read, with today's values migrated.
+- Phases as rows, so status and dates have one source and there is one registration deadline.
+- A review form: criteria, scales, recommendation, confidence and text questions, versioned once reviews exist, with reviews checked against it on the server.
+- A switch per conference for each of the eleven modules, replacing the flags fixed in code.
+- Registration as a module: a paper can be accepted with no fees set, and non-payment only flags a paper unless withdrawal is switched on.
+- Neutral email templates with variables, with a copy per conference.
+- Payments behind one provider interface, with an account per organisation.
+- Organisation membership as the only link between a user and an organisation.
 - Delete everything the audit marked **cut**.
 
-**Exit criteria:** a conference created with default settings and all optional modules off passes the full lifecycle test from call for papers to registration, and a search of the codebase finds no conference or organiser name.
+**Exit criteria:** a conference created with default settings and all modules off passes the full lifecycle test from call for papers to decisions, the same test passes with registration switched on, and a search of the codebase finds no conference or organiser name.
 
 ## Phase 3: Design
 
 Agree the structure and the visual system before building screens.
 
-- Information architecture: the navigation and screen list for each role.
-- Design tokens: colour, type, spacing, radius, in light and dark.
+- Information architecture: the navigation and screen list for each role, built from the tasks by role in `SCREEN_INVENTORY.md`.
+- A plan for the reviewer assignment workspace: one place for assigning, tracking and chasing reviews, replacing the five screens that share that work today. This is planned before any of its screens is designed.
+- A decision on how reviewer invitations work, after discussion with the owner.
+- Roles and permissions, including what a chair may do.
+- Design tokens for both visual styles and every theme (decision D9).
 - Core components, each with its states documented.
+- The paper page, the busiest screen.
 - One fully designed reference flow, the author submitting a paper, to prove the system.
 
 **Exit criteria:** `INFORMATION_ARCHITECTURE.md` and `DESIGN_SYSTEM.md` are agreed, and the reference flow is built in `apps/web-v2` using only system components.
@@ -69,11 +76,11 @@ Agree the structure and the visual system before building screens.
 
 Build `apps/web-v2` one role at a time, each one complete before the next.
 
-1. Sign-in, sign-up and account.
+1. Sign-in, sign-up and account, including profile and security screens, which do not exist today.
 2. Author: submit, revise, respond to reviews, register and pay.
-3. Reviewer: invitation, bidding, conflicts, reviewing.
+3. Reviewer: invitation and reviewing. Bidding and conflict declaration are not built in the first version (decision D15).
 4. Chair: assignments, decisions, communication.
-5. Organiser: conference setup, phases, fees, members.
+5. Organiser: conference setup, phases, fees, and members with search by name or email.
 
 **Exit criteria:** every task in the screen inventory that was kept can be completed in `apps/web-v2`, and the end-to-end tests run against it.
 
@@ -84,11 +91,12 @@ Add what a stranger needs to use the product without us.
 - Self-serve organisation creation, organisation switcher and admin invitations.
 - Payment gateways owned by the organisation and linked per conference.
 - Plans, usage limits and billing for the platform itself.
-- A public page for each conference.
 - A platform admin console.
 - Data export and deletion for an organisation.
 
-**Exit criteria:** a new user can sign up, create an organisation, connect their own payment account, publish a conference page and receive a paid registration, with no manual step from us.
+There is no public page for each conference in this version: conferences keep their own websites (decision D16).
+
+**Exit criteria:** a new user can sign up, create an organisation, connect their own payment account, share a conference's submit link and receive a paid registration, with no manual step from us.
 
 ## Phase 6: Cutover
 

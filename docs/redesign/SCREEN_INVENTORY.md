@@ -77,7 +77,14 @@ Limits of the page-view numbers:
 | `/dashboard/conferences/submissions`  | 12    | No conference in the address.                               |
 | `/dashboard/conferences/inbox`        | 2     | No conference in the address.                               |
 
-## Needs your decision
+## Decisions
+
+**Decided by the owner on 2026-11-29 (decisions D15 and D16):**
+
+- **Item 1, reviewer assignment: not settled by the proposal.** The owner names this as one of the major problems of the product. It gets its own plan before any screen is designed (card P3-9). The proposal below is a starting point, not the answer.
+- **Item 4, reviewer invitations: held.** How invitations work is to be discussed as a whole first (card P3-10).
+- **Item 6, the public conference page: not needed in this version.** Conferences have their own independent websites (decision D16). The rest of item 6 is accepted.
+- **Items 2, 3, 5, 7 and 8:** accepted as proposed.
 
 1. **Reviewer assignment is spread over five screens** that show the same assignments: the ledger (S-083), the reviewer overview (S-087), Current assignments (S-095), Reviewer bids (S-097) and Manual assignment (S-101). Reminding, extending, releasing and replacing each exist twice with different wording. **Proposed:** merge Current assignments into the ledger, keep Manual assignment as the one "assign" action, and cut Reviewer bids.
 2. **About ten screens serve features nobody uses:** bidding oversight (S-075), Reviewer bids and the four conflict pages. Production holds one bid and no conflict declaration. **Proposed:** not built in the first version of `apps/web-v2`; they return as optional modules if an organiser asks.

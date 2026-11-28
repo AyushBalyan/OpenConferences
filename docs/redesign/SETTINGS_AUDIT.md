@@ -8,7 +8,9 @@ Every place the product keeps a setting today, who reads and writes it, what rea
 
 A setting here means any value that changes how a conference behaves, wherever it is stored: a database column, a key in a free-form column, an environment variable or a constant in code.
 
-## Needs your decision
+## Decisions
+
+**Decided by the owner on 2026-11-29 (decision D15):** all five proposals below are accepted.
 
 1. **Which registration deadline is the real one?** It is stored twice and the two values disagree on both conferences that set it ([problem P1](#p1-the-registration-deadline-is-stored-twice-and-the-two-values-disagree)). Billing uses the one inside the fee schedule. Proposed: keep one, as a phase date.
 2. **Should reviews be checked on the server?** Today the server accepts a review with no scores and no confidence, because every conference has an empty review configuration ([P2](#p2-the-review-configuration-is-empty-everywhere-so-the-server-checks-nothing)). Proposed: yes, from the review form that Phase 2 builds.
