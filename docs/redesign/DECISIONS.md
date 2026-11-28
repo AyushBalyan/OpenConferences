@@ -10,6 +10,18 @@ Columns are Backlog, Next, In progress (limit of three), Review and Done. Card k
 
 ---
 
+## D13. Vercel does not build previews for redesign branches
+
+**Date:** 2026-11-28
+
+**Decision:** `apps/web/vercel.json` on `redesign` tells Vercel to skip the build when the branch is `redesign` or starts with `rd/`. Every other branch, including `main`, builds as before.
+
+**Why:** Vercel builds a preview of the current web app for every pushed branch. The first pushes of `redesign` produced seven. They show nothing new, because the new frontend is `apps/web-v2`, which Vercel does not build. A preview may also be publicly reachable and may be pointed at the live API, which ground rule 1 is there to prevent. Chosen by the owner.
+
+**Rejected:** Leaving the previews. A rule that skips every build from this file, which would also stop production builds after cutover and would have to be remembered and removed.
+
+**Consequence:** The rule names the branches, so it is harmless on `main` after cutover and needs no removal step. A branch cut before this change still builds a preview until it includes it. When `apps/web-v2` needs previews, it gets its own Vercel project.
+
 ## D12. Card branches are named `rd/<short-name>`
 
 **Date:** 2026-11-28

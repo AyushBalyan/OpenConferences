@@ -2,5 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "cd ../.. && HUSKY=0 pnpm install --frozen-lockfile --filter @openconferences/web...",
   "buildCommand": "cd ../.. && pnpm --filter @openconferences/web... build",
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "ignoreCommand": "case \"$VERCEL_GIT_COMMIT_REF\" in redesign|rd/*) exit 0 ;; *) exit 1 ;; esac"
 }
