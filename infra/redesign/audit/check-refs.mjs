@@ -24,12 +24,12 @@ let checked = 0;
 const problems = [];
 for (const doc of process.argv.slice(2)) {
   const text = readFileSync(doc, 'utf8');
-  const pattern = /`([\w@./-]+\.(?:ts|tsx|js|mjs|sql|sh|prisma|json|yml|dart|md)):(\d+)(?:[-,]\d+)*`/g;
+  const pattern = /`([\w@./\[\]&-]+\.(?:ts|tsx|js|mjs|sql|sh|prisma|json|yml|dart|md)):(\d+)(?:[-,]\d+)*`/g;
   for (const match of text.matchAll(pattern)) {
     const [, ref, lineText] = match;
     const line = Number(lineText);
     let target = ref;
-    if (!ref.includes('/')) {
+    if (!ref.includes('/') && !existsSync(ref)) {
       const candidates = byName.get(ref) ?? [];
       if (candidates.length !== 1) {
         problems.push(`${doc}: ${ref} matches ${candidates.length} files; write the full path`);
