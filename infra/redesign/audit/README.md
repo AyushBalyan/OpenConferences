@@ -32,8 +32,10 @@ Run `snapshot.sh drop`. It deletes the database and the `out/` folder.
 
 ## Files
 
-| File             | Purpose                                                                   |
-| ---------------- | ------------------------------------------------------------------------- |
-| `snapshot.sh`    | Restores, queries and drops the local copy of a backup                    |
-| `settings.sql`   | What conferences hold: settings, dates, score keys, templates, roles      |
-| `check-refs.mjs` | Checks that every `path:line` reference in an audit document still exists |
+| File                  | Purpose                                                                   |
+| --------------------- | ------------------------------------------------------------------------- |
+| `snapshot.sh`         | Restores, queries and drops the local copy of a backup                    |
+| `settings.sql`        | What conferences hold: settings, dates, score keys, templates, roles      |
+| `check-refs.mjs`      | Checks that every `path:line` reference in an audit document still exists |
+| `usage.sql`           | How often each task happens: actions, emails, roles and volumes           |
+| `umami-by-screen.mjs` | Totals a Umami page export per screen and sets test traffic apart         |
