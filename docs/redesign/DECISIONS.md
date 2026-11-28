@@ -10,6 +10,34 @@ Columns are Backlog, Next, In progress (limit of three), Review and Done. Card k
 
 ---
 
+## D12. Card branches are named `rd/<short-name>`
+
+**Date:** 2026-11-28
+
+**Decision:** Each card's branch is cut from `redesign` and named `rd/<short-name>`, for example `rd/p1-settings-audit`.
+
+**Why:** Ground rule 5.3 asked for `redesign/<short-name>`. Git cannot hold a branch called `redesign/…` next to a branch called `redesign`, so the first card branch could not be created.
+
+**Rejected:** Renaming the long-running branch, which is already written into the plan, the guard and the CI workflow.
+
+**Consequence:** Ground rule 5.3 is updated.
+
+## D11. Audit documents may quote real names, and may use a backup once
+
+**Date:** 2026-11-28
+
+**Decision:** Three rules for the Phase 1 audit, approved by the owner with the Phase 1 plan.
+
+- The audit documents quote hard-coded conference and organiser names as evidence, with the file and line. This is an exception to ground rule 5.5.
+- Real values come from a production backup file restored into a separate local database, `audit_snapshot`. Nothing connects to production. Tables that hold credentials are restored empty. The database is dropped when Phase 1 ends.
+- From that copy, a document may contain setting values (fees, dates, keys) and counts. It may not contain participant names, email addresses, paper titles or payment records.
+
+**Why:** An audit that cannot name what it found is not usable, and Phase 2 migrations have to be written against what production really holds. The repository is public, so what may be written down needs a firm line.
+
+**Rejected:** A read-only query against production, which the owner declined in favour of a backup. Auditing from code and test data only, which would leave real values unknown.
+
+**Consequence:** Ground rules 1.5 and 5.5 are updated. `infra/redesign/audit/snapshot.sh` restores and drops the copy; query results are written to a folder git ignores.
+
 ## D10. The local-database guard has no off switch and is removed at cutover
 
 **Date:** 2026-11-28

@@ -8,7 +8,7 @@ These apply to all redesign work. A rule changes only through an entry in [DECIS
 2. **`redesign` never merges into `main` before cutover.** A merge would migrate production and deploy the redesign in one step. The only merge in that direction is the planned cutover in Phase 6.
 3. **`main` merges into `redesign` regularly.** Every fix shipped to production is merged into `redesign` within a week, so the product never loses a fix and the two migration histories stay compatible.
 4. **Redesign code never connects to production.** The redesign uses its own database, its own object storage bucket and its own environment file. The root `.env` points at production and is not used on the `redesign` branch.
-5. **No real participant data in the redesign database.** Seed data is invented. A production copy is used once, for the cutover rehearsal, and deleted afterwards.
+5. **No real participant data in the redesign database.** Seed data is invented. A production copy is used twice, each time in a separate local database that is deleted afterwards: for the Phase 1 audit (decision D11) and for the cutover rehearsal.
 6. **No real emails or payments from the redesign.** Email uses the log adapter and payments use the mock provider until a staging environment exists.
 
 ## 2. Database changes
@@ -41,14 +41,14 @@ These apply to all redesign work. A rule changes only through an entry in [DECIS
 
 1. **Every piece of work is a card on the board** before it starts. One card is one reviewable change.
 2. **A card moves through:** Backlog, Next, In progress, Review, Done. At most three cards are In progress at once.
-3. **Each card is its own branch** cut from `redesign`, named `redesign/<short-name>`, merged back by pull request into `redesign`.
+3. **Each card is its own branch** cut from `redesign`, named `rd/<short-name>`, merged back by pull request into `redesign`.
 4. **Commits follow the existing convention** (`feat(scope): …`, `fix(scope): …`), enforced by commitlint.
 5. **A card is Done when:**
    - typecheck, lint and tests pass for what it touched;
    - database tests ran against the local test database, not production;
    - a frontend change was checked in the browser at phone and desktop width;
    - the relevant document in `docs/redesign` is updated;
-   - nothing in it names a specific conference or organiser.
+   - nothing in it names a specific conference or organiser. The Phase 1 audit documents are the exception: they quote such names as evidence (decision D11).
 6. **Phases finish before the next one starts.** Each phase has exit criteria in [PLAN.md](PLAN.md). Work from a later phase is not started early because it looks easy.
 
 ## 6. Documentation

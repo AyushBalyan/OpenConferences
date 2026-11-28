@@ -34,6 +34,9 @@ test-results/
 # Database backups
 backups/
 
+# Redesign audit query results (may hold real data; see infra/redesign/audit)
+infra/redesign/audit/out/
+
 # Logs
 *.log
 npm-debug.log*

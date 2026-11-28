@@ -33,10 +33,12 @@ Find out what is there before changing it. This phase changes no behaviour.
 
 - Customisation audit: every organiser-specific behaviour in the API, worker, database and templates, each marked **core**, **setting** or **cut**.
 - Screen inventory: every current screen, which role uses it, for which task and how often.
-- Settings audit: every key in the free-form `reviewConfig` and `feeSchedule` columns, with the values used in production.
+- Settings audit: every setting, wherever it is stored (the free-form `reviewConfig` and `feeSchedule` columns, typed columns, environment variables and code constants), with the values used in production.
 - Agree the list of fixed building blocks and optional modules.
 
-**Exit criteria:** `CUSTOMISATION_AUDIT.md` and `SCREEN_INVENTORY.md` are complete, every item has a decision, and the Phase 2 and Phase 3 cards on the board are written from them.
+Real values come from a backup restored locally, never from production (decision D11).
+
+**Exit criteria:** `SETTINGS_AUDIT.md`, `CUSTOMISATION_AUDIT.md`, `SCREEN_INVENTORY.md` and `BUILDING_BLOCKS.md` are complete, every item has a decision, and the Phase 2 and Phase 3 cards on the board are written from them.
 
 ## Phase 2: Rigid core
 
