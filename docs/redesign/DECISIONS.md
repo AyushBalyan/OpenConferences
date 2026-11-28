@@ -26,7 +26,7 @@ Columns are Backlog, Next, In progress (limit of three), Review and Done. Card k
 - A hosted staging database (D3) needs a decision that replaces this one before it can be used.
 - The guard cannot see a tunnel that makes a remote database appear on `localhost`.
 
-This entry was written during the Phase 0 work and has not been confirmed by the owner yet.
+This entry was written during the Phase 0 work and confirmed by the owner on 2026-11-28.
 
 ## D9. Two visual styles, switchable per conference, with themes and a brand colour
 
