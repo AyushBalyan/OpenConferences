@@ -29,3 +29,11 @@ The repository is public. An audit document may quote setting values (fees, date
 ## When Phase 1 ends
 
 Run `snapshot.sh drop`. It deletes the database and the `out/` folder.
+
+## Files
+
+| File             | Purpose                                                                   |
+| ---------------- | ------------------------------------------------------------------------- |
+| `snapshot.sh`    | Restores, queries and drops the local copy of a backup                    |
+| `settings.sql`   | What conferences hold: settings, dates, score keys, templates, roles      |
+| `check-refs.mjs` | Checks that every `path:line` reference in an audit document still exists |
