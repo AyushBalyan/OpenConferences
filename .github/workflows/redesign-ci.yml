@@ -1,0 +1,133 @@
+# Checks for pull requests into the redesign branch.
+#
+# Lint, typecheck and tests only. Nothing here builds an image, pushes a tag,
+# migrates a shared database or deploys: the redesign never ships from CI.
+# The workflows that release `main` (CI, Build Images, Push Images, Deploy) are
+# separate files, are limited to `main`, and are not changed by the redesign.
+#
+# Every service is a throwaway container on the runner. The database URL is
+# local, which is also the only kind the redesign code accepts.
+
+name: Redesign CI
+
+on:
+  pull_request:
+    branches: [redesign]
+
+concurrency:
+  group: redesign-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_ENV: test
+  SKIP_ENV_FILE: 'true'
+  LOCAL_TEST_DATABASE_MARKER: github-ci-application-test
+  DATABASE_URL: postgresql://openconferences:openconferences@localhost:5432/openconferences_test
+  REDIS_URL: redis://localhost:6379
+  S3_ENDPOINT: http://localhost:9000
+  S3_ACCESS_KEY: minioadmin
+  S3_SECRET_KEY: minioadmin
+  S3_BUCKET: openconferences
+  S3_REGION: us-east-1
+  S3_FORCE_PATH_STYLE: 'true'
+  API_PORT: '3001'
+  CORS_ORIGINS: http://localhost:3000
+  WEB_URL: http://localhost:3000
+  NEXT_PUBLIC_API_URL: http://localhost:3001/api/v1
+  BETTER_AUTH_SECRET: test-secret-at-least-32-characters-long-for-ci
+  BETTER_AUTH_URL: http://localhost:3001
+  MAIL_FROM: noreply@example.com
+
+jobs:
+  checks:
+    name: Lint, typecheck and test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: openconferences
+          POSTGRES_PASSWORD: openconferences
+          POSTGRES_DB: openconferences_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U openconferences -d openconferences_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Omit "version": pnpm/action-setup reads package.json "packageManager".
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Enable Postgres extensions
+        run: |
+          PGPASSWORD=openconferences psql -h localhost -U openconferences -d openconferences_test -c 'CREATE EXTENSION IF NOT EXISTS "pgcrypto";'
+          PGPASSWORD=openconferences psql -h localhost -U openconferences -d openconferences_test -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";'
+          PGPASSWORD=openconferences psql -h localhost -U openconferences -d openconferences_test -c 'CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";'
+          PGPASSWORD=openconferences psql -h localhost -U openconferences -d openconferences_test -c 'CREATE EXTENSION IF NOT EXISTS "citext";'
+
+      - name: Run migrations on the throwaway database
+        run: pnpm db:migrate:deploy
+
+      - name: Verify disposable application test database ownership
+        env:
+          LOCAL_TEST_ALLOW_SETUP: 'true'
+        run: node infra/testing/prepare-local-test-db.mjs
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Verify generated bot API contract
+        run: pnpm --filter @openconferences/contracts openapi:bot:check
+
+      - name: Prepare isolated bot API test database
+        env:
+          BOT_API_TEST_OWNER_URL: postgresql://openconferences:openconferences@localhost:5432/bot_api_test_ci
+          BOT_API_TEST_DATABASE_URL: postgresql://openconferences_api:bot-ci-only@localhost:5432/bot_api_test_ci
+          BOT_API_TEST_MARKER: github-ci-bot-api-test
+          BOT_API_TEST_ALLOW_MIGRATIONS: 'true'
+        run: |
+          PGPASSWORD=openconferences createdb -h localhost -U openconferences bot_api_test_ci
+          pnpm db:prepare:bot
+          PGPASSWORD=openconferences psql -h localhost -U openconferences -d bot_api_test_ci -v ON_ERROR_STOP=1 -c "ALTER ROLE openconferences_api LOGIN PASSWORD 'bot-ci-only'; ALTER ROLE openconferences_worker LOGIN PASSWORD 'bot-ci-only';"
+
+      - name: Bot API HTTP and row-level security tests
+        env:
+          BOT_API_TEST_OWNER_URL: postgresql://openconferences:openconferences@localhost:5432/bot_api_test_ci
+          BOT_API_TEST_DATABASE_URL: postgresql://openconferences_api:bot-ci-only@localhost:5432/bot_api_test_ci
+          BOT_API_TEST_REDIS_URL: redis://localhost:6379/15
+          BOT_API_TEST_MARKER: github-ci-bot-api-test
+          ENFORCE_DB_ROLE_CHECK: 'true'
+        run: pnpm test:bot
