@@ -25,7 +25,8 @@
     "prepare": "husky",
     "test:bot": "corepack pnpm --filter @openconferences/api test:bot",
     "test:e2e:bot": "playwright test --config playwright.bot.config.ts",
-    "db:prepare:bot": "node infra/testing/prepare-bot-db.mjs"
+    "db:prepare:bot": "node infra/testing/prepare-bot-db.mjs",
+    "redesign:db": "bash infra/redesign/db.sh"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.6.1",

@@ -12,6 +12,10 @@
       "types": "./dist/env/index.d.ts",
       "default": "./dist/env/index.js"
     },
+    "./local-only": {
+      "types": "./dist/env/local-only.d.ts",
+      "default": "./dist/env/local-only.js"
+    },
     "./tsconfig/base.json": "./tsconfig.base.json",
     "./eslint": "./eslint.config.js",
     "./prettier": "./prettier.config.js"

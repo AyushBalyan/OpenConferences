@@ -2,6 +2,19 @@ import { config as loadDotenv } from 'dotenv';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
+import { assertLocalDatabaseUrl } from './local-only.js';
+
+export {
+  assertLocalDatabaseUrl,
+  assertLocalDatabaseUrlIfSet,
+  NonLocalDatabaseError,
+} from './local-only.js';
+
+/**
+ * The redesign has its own environment file. The root `.env` points at
+ * production and is never read on this branch (docs/redesign/GROUND_RULES.md, 1.4).
+ */
+const ENV_FILE = '.env.redesign';
 
 let envLoaded = false;
 
@@ -11,9 +24,9 @@ function ensureEnvLoaded(): void {
   }
 
   const candidates = [
-    resolve(process.cwd(), '.env'),
-    resolve(process.cwd(), '../../.env'),
-    resolve(process.cwd(), '../../../.env'),
+    resolve(process.cwd(), ENV_FILE),
+    resolve(process.cwd(), '../..', ENV_FILE),
+    resolve(process.cwd(), '../../..', ENV_FILE),
   ];
 
   for (const path of candidates) {
@@ -273,6 +286,8 @@ function parseEnv(env: Record<string, string | undefined> = process.env): AppCon
   }
 
   const data = result.data;
+  // Redesign guard: stop before anything can connect to a non-local database.
+  assertLocalDatabaseUrl(data.DATABASE_URL);
   const databaseUrl = withConnectTimeout(data.DATABASE_URL);
   // Prisma and other libs read process.env.DATABASE_URL directly.
   process.env.DATABASE_URL = databaseUrl;

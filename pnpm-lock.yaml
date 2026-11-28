@@ -399,6 +399,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@openconferences/config':
+        specifier: workspace:*
+        version: link:../config
       '@openconferences/schemas':
         specifier: workspace:*
         version: link:../schemas
@@ -409,9 +412,6 @@ importers:
         specifier: ^11.0.3
         version: 11.1.1
     devDependencies:
-      '@openconferences/config':
-        specifier: workspace:*
-        version: link:../config
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.0

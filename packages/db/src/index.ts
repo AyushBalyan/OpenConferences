@@ -1,4 +1,9 @@
 import { PrismaClient, Prisma } from '@prisma/client';
+import { assertLocalDatabaseUrlIfSet } from '@openconferences/config/local-only';
+
+// Redesign guard: nothing that loads the database client (API, worker, seed,
+// one-off scripts) may be pointed at a non-local database.
+assertLocalDatabaseUrlIfSet(process.env.DATABASE_URL);
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
