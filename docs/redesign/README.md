@@ -33,8 +33,10 @@ Each of these is written in the phase that needs it, not before.
 
 | Document                      | Written in | Contents                                                        |
 | ----------------------------- | ---------- | --------------------------------------------------------------- |
+| `SETTINGS_AUDIT.md`           | Phase 1    | Every setting, where it is stored and what production holds     |
 | `CUSTOMISATION_AUDIT.md`      | Phase 1    | Every organiser-specific behaviour, marked core, setting or cut |
 | `SCREEN_INVENTORY.md`         | Phase 1    | Every current screen, who uses it and for what                  |
+| `BUILDING_BLOCKS.md`          | Phase 1    | The agreed fixed building blocks and optional modules           |
 | `DOMAIN_MODEL.md`             | Phase 2    | The fixed building blocks and the settings each one accepts     |
 | `INFORMATION_ARCHITECTURE.md` | Phase 3    | Navigation and screens per role                                 |
 | `DESIGN_SYSTEM.md`            | Phase 3    | Tokens, components and usage rules                              |
