@@ -26,6 +26,7 @@
     "test:bot": "corepack pnpm --filter @openconferences/api test:bot",
     "test:e2e:bot": "playwright test --config playwright.bot.config.ts",
     "db:prepare:bot": "node infra/testing/prepare-bot-db.mjs",
+    "redesign:dev": "bash infra/redesign/dev.sh",
     "redesign:db": "bash infra/redesign/db.sh"
   },
   "devDependencies": {

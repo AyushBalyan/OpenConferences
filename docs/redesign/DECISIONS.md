@@ -10,6 +10,24 @@ Columns are Backlog, Next, In progress (limit of three), Review and Done. Card k
 
 ---
 
+## D10. The local-database guard has no off switch and is removed at cutover
+
+**Date:** 2026-11-28
+
+**Decision:** On `redesign`, the API, the worker, the database client and every Prisma command refuse a `DATABASE_URL` that is not on `localhost`, `127.0.0.1` or `::1`. No environment variable turns the check off. The redesign runs on its own local Postgres server on port 55433, started by `infra/redesign/db.sh`, and reads `.env.redesign`, which is committed because it holds no secret.
+
+**Why:** Ground rule 1.4 says redesign code never connects to production. A check that a variable can disable is one copied line away from being disabled. A server of its own keeps redesign migrations away from every other local database, and needs no Docker.
+
+**Rejected:** A switch such as `ALLOW_REMOTE_DATABASE=true`. A check that only runs in development. Sharing the Postgres server of the main checkout. An ignored environment file copied from an example, which a fresh clone would have to create by hand.
+
+**Consequence:**
+
+- Production cannot start from this code as it is. The cutover has to remove the guard in the same change that merges `redesign` into `main`: the check in `packages/config`, the one in `packages/db`, `packages/db/prisma.config.ts`, and the scripts in `packages/db/package.json` that name `.env.redesign`. This is now a step in Phase 6 of the plan.
+- A hosted staging database (D3) needs a decision that replaces this one before it can be used.
+- The guard cannot see a tunnel that makes a remote database appear on `localhost`.
+
+This entry was written during the Phase 0 work and has not been confirmed by the owner yet.
+
 ## D9. Two visual styles, switchable per conference, with themes and a brand colour
 
 **Date:** 2026-11-28

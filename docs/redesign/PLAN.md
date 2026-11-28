@@ -95,6 +95,7 @@ Move production onto the redesign.
 - Restore a copy of production into a rehearsal database and run every redesign migration against it.
 - Fix what the rehearsal breaks and repeat until it runs clean.
 - Pick a date with no conference in an active phase.
+- Remove the local-database guard and the `.env.redesign` wiring in the change that merges `redesign` into `main` (decision D10). Production cannot start while they are in place.
 - Back up production, merge `redesign` into `main`, verify, and point the production frontend at `apps/web-v2`.
 - Remove `apps/web` once the redesign has run in production for one full conference phase.
 

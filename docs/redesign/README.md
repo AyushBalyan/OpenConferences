@@ -19,6 +19,7 @@ SaaS features (self-serve sign-up, per-organisation payments, plans, public conf
 | Redesign code     | `redesign` branch, never deployed to production                      |
 | New frontend      | `apps/web-v2` on the `redesign` branch                               |
 | Redesign database | Local Postgres database `openconferences_redesign`, never production |
+| Running it        | [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md), one command            |
 
 ## How to read these documents
 
