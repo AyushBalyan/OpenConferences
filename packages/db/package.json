@@ -24,6 +24,7 @@
     "generate": "dotenv -e ../../.env.redesign -- prisma generate",
     "seed": "dotenv -e ../../.env.redesign -- tsx prisma/seed.ts",
     "check:local": "dotenv -e ../../.env.redesign -- tsx scripts/check-local-database.ts",
+    "seed:redesign": "dotenv -e ../../.env.redesign -- tsx prisma/seed-redesign.ts",
     "backfill:submission-numbers": "dotenv -e ../../.env.redesign -- tsx src/backfill-submission-numbers.ts",
     "studio": "dotenv -e ../../.env.redesign -- prisma studio",
     "postinstall": "prisma generate"
